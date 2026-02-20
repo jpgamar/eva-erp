@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import uuid
-from datetime import date, datetime
+import datetime as _dt
 from decimal import Decimal
 from pydantic import BaseModel
 
 
 class PeriodCreate(BaseModel):
     name: str
-    start_date: date
-    end_date: date
+    start_date: _dt.date
+    end_date: _dt.date
     status: str = "upcoming"
 
 
@@ -53,7 +55,7 @@ class KeyResultResponse(BaseModel):
     auto_metric: str | None
     start_value: Decimal
     progress_pct: Decimal
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -66,16 +68,16 @@ class ObjectiveResponse(BaseModel):
     position: int
     status: str
     key_results: list[KeyResultResponse] = []
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
 class PeriodResponse(BaseModel):
     id: uuid.UUID
     name: str
-    start_date: date
-    end_date: date
+    start_date: _dt.date
+    end_date: _dt.date
     status: str
     objectives: list[ObjectiveResponse] = []
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}

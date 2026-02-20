@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import uuid
-from datetime import date, datetime
+import datetime as _dt
 from decimal import Decimal
 from pydantic import BaseModel
 
@@ -15,7 +17,7 @@ class CustomerCreate(BaseModel):
     mrr: Decimal | None = None
     mrr_currency: str = "MXN"
     billing_interval: str | None = None
-    signup_date: date | None = None
+    signup_date: _dt.date | None = None
     status: str = "active"
     referral_source: str | None = None
     notes: str | None = None
@@ -34,7 +36,7 @@ class CustomerUpdate(BaseModel):
     mrr_currency: str | None = None
     billing_interval: str | None = None
     status: str | None = None
-    churn_date: date | None = None
+    churn_date: _dt.date | None = None
     churn_reason: str | None = None
     referral_source: str | None = None
     notes: str | None = None
@@ -55,9 +57,9 @@ class CustomerResponse(BaseModel):
     mrr_mxn: Decimal | None
     arr: Decimal | None
     billing_interval: str | None
-    signup_date: date | None
+    signup_date: _dt.date | None
     status: str
-    churn_date: date | None
+    churn_date: _dt.date | None
     churn_reason: str | None
     stripe_customer_id: str | None
     lifetime_value: Decimal | None
@@ -65,8 +67,8 @@ class CustomerResponse(BaseModel):
     referral_source: str | None
     notes: str | None
     tags: list[str] | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: _dt.datetime
+    updated_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 

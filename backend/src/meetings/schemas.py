@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import uuid
-from datetime import datetime
+import datetime as _dt
 from pydantic import BaseModel
 
 
@@ -13,7 +15,7 @@ class ActionItem(BaseModel):
 
 class MeetingCreate(BaseModel):
     title: str
-    date: datetime
+    date: _dt.datetime
     duration_minutes: int | None = None
     type: str = "internal"
     attendees: list[str] | None = None
@@ -25,7 +27,7 @@ class MeetingCreate(BaseModel):
 
 class MeetingUpdate(BaseModel):
     title: str | None = None
-    date: datetime | None = None
+    date: _dt.datetime | None = None
     duration_minutes: int | None = None
     type: str | None = None
     attendees: list[str] | None = None
@@ -36,7 +38,7 @@ class MeetingUpdate(BaseModel):
 class MeetingResponse(BaseModel):
     id: uuid.UUID
     title: str
-    date: datetime
+    date: _dt.datetime
     duration_minutes: int | None
     type: str
     attendees: list[str] | None
@@ -45,6 +47,6 @@ class MeetingResponse(BaseModel):
     prospect_id: uuid.UUID | None
     customer_id: uuid.UUID | None
     created_by: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
+    created_at: _dt.datetime
+    updated_at: _dt.datetime
     model_config = {"from_attributes": True}

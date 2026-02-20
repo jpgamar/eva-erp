@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import uuid
-from datetime import date, datetime
+import datetime as _dt
 from decimal import Decimal
 from pydantic import BaseModel
 
@@ -19,7 +21,7 @@ class ProspectCreate(BaseModel):
     estimated_mrr: Decimal | None = None
     estimated_mrr_currency: str = "MXN"
     notes: str | None = None
-    next_follow_up: date | None = None
+    next_follow_up: _dt.date | None = None
     assigned_to: uuid.UUID | None = None
     tags: list[str] | None = None
 
@@ -38,7 +40,7 @@ class ProspectUpdate(BaseModel):
     estimated_plan: str | None = None
     estimated_mrr: Decimal | None = None
     notes: str | None = None
-    next_follow_up: date | None = None
+    next_follow_up: _dt.date | None = None
     assigned_to: uuid.UUID | None = None
     tags: list[str] | None = None
     lost_reason: str | None = None
@@ -61,20 +63,20 @@ class ProspectResponse(BaseModel):
     estimated_mrr_currency: str
     estimated_mrr_mxn: Decimal | None
     notes: str | None
-    next_follow_up: date | None
+    next_follow_up: _dt.date | None
     assigned_to: uuid.UUID | None
     tags: list[str] | None
     lost_reason: str | None
     converted_to_customer_id: uuid.UUID | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: _dt.datetime
+    updated_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
 class InteractionCreate(BaseModel):
     type: str
     summary: str
-    date: date
+    date: _dt.date
 
 
 class InteractionResponse(BaseModel):
@@ -82,9 +84,9 @@ class InteractionResponse(BaseModel):
     prospect_id: uuid.UUID
     type: str
     summary: str
-    date: date
+    date: _dt.date
     created_by: uuid.UUID
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 

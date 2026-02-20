@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import uuid
-from datetime import date, datetime
+import datetime as _dt
 from decimal import Decimal
 from pydantic import BaseModel
 
@@ -10,14 +12,14 @@ class ExchangeRateResponse(BaseModel):
     from_currency: str
     to_currency: str
     rate: Decimal
-    effective_date: date
+    effective_date: _dt.date
     source: str
     model_config = {"from_attributes": True}
 
 
 class ExchangeRateUpdate(BaseModel):
     rate: Decimal
-    effective_date: date | None = None
+    effective_date: _dt.date | None = None
 
 
 # Income
@@ -26,7 +28,7 @@ class IncomeCreate(BaseModel):
     amount: Decimal
     currency: str = "MXN"
     category: str = "subscription"
-    date: date
+    date: _dt.date
     is_recurring: bool = False
     customer_id: uuid.UUID | None = None
 
@@ -36,7 +38,7 @@ class IncomeUpdate(BaseModel):
     amount: Decimal | None = None
     currency: str | None = None
     category: str | None = None
-    date: date | None = None
+    date: _dt.date | None = None
     is_recurring: bool | None = None
 
 
@@ -50,9 +52,9 @@ class IncomeResponse(BaseModel):
     currency: str
     amount_mxn: Decimal
     category: str
-    date: date
+    date: _dt.date
     is_recurring: bool
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -75,7 +77,7 @@ class ExpenseCreate(BaseModel):
     paid_by: uuid.UUID
     is_recurring: bool = False
     recurrence: str | None = None
-    date: date
+    date: _dt.date
     vault_credential_id: uuid.UUID | None = None
 
 
@@ -89,7 +91,7 @@ class ExpenseUpdate(BaseModel):
     paid_by: uuid.UUID | None = None
     is_recurring: bool | None = None
     recurrence: str | None = None
-    date: date | None = None
+    date: _dt.date | None = None
 
 
 class ExpenseResponse(BaseModel):
@@ -104,10 +106,10 @@ class ExpenseResponse(BaseModel):
     paid_by: uuid.UUID
     is_recurring: bool
     recurrence: str | None
-    date: date
+    date: _dt.date
     receipt_url: str | None
     vault_credential_id: uuid.UUID | None
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -138,8 +140,8 @@ class InvoiceCreate(BaseModel):
     line_items: list[LineItem]
     tax: Decimal | None = None
     currency: str = "MXN"
-    issue_date: date
-    due_date: date
+    issue_date: _dt.date
+    due_date: _dt.date
     notes: str | None = None
 
 
@@ -150,7 +152,7 @@ class InvoiceUpdate(BaseModel):
     line_items: list[LineItem] | None = None
     tax: Decimal | None = None
     status: str | None = None
-    paid_date: date | None = None
+    paid_date: _dt.date | None = None
     notes: str | None = None
 
 
@@ -168,11 +170,11 @@ class InvoiceResponse(BaseModel):
     currency: str
     total_mxn: Decimal
     status: str
-    issue_date: date
-    due_date: date
-    paid_date: date | None
+    issue_date: _dt.date
+    due_date: _dt.date
+    paid_date: _dt.date | None
     notes: str | None
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -180,7 +182,7 @@ class InvoiceResponse(BaseModel):
 class CashBalanceCreate(BaseModel):
     amount: Decimal
     currency: str = "MXN"
-    date: date
+    date: _dt.date
     notes: str | None = None
 
 
@@ -189,7 +191,7 @@ class CashBalanceResponse(BaseModel):
     amount: Decimal
     currency: str
     amount_mxn: Decimal
-    date: date
+    date: _dt.date
     notes: str | None
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}

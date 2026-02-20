@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import uuid
-from datetime import date, datetime
+import datetime as _dt
 from pydantic import BaseModel
 
 
@@ -31,7 +33,7 @@ class TaskCreate(BaseModel):
     description: str | None = None
     assignee_id: uuid.UUID | None = None
     priority: str = "medium"
-    due_date: date | None = None
+    due_date: _dt.date | None = None
     labels: list[str] | None = None
 
 
@@ -40,7 +42,7 @@ class TaskUpdate(BaseModel):
     description: str | None = None
     assignee_id: uuid.UUID | None = None
     priority: str | None = None
-    due_date: date | None = None
+    due_date: _dt.date | None = None
     labels: list[str] | None = None
 
 
@@ -59,7 +61,7 @@ class CommentResponse(BaseModel):
     task_id: uuid.UUID
     user_id: uuid.UUID
     content: str
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -70,7 +72,7 @@ class ActivityResponse(BaseModel):
     action: str
     old_value: str | None
     new_value: str | None
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -82,13 +84,13 @@ class TaskResponse(BaseModel):
     description: str | None
     assignee_id: uuid.UUID | None
     priority: str
-    due_date: date | None
+    due_date: _dt.date | None
     labels: list[str] | None
     position: float
     source_meeting_id: uuid.UUID | None
     created_by: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
+    created_at: _dt.datetime
+    updated_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -113,7 +115,7 @@ class BoardResponse(BaseModel):
     description: str | None
     position: int
     created_by: uuid.UUID
-    created_at: datetime
+    created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
