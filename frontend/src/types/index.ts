@@ -126,3 +126,129 @@ export interface TaskComment {
   content: string;
   created_at: string;
 }
+
+// Finances
+export interface ExchangeRate {
+  id: string;
+  from_currency: string;
+  to_currency: string;
+  rate: number;
+  effective_date: string;
+  source: string;
+}
+
+export interface IncomeEntry {
+  id: string;
+  source: string;
+  stripe_payment_id: string | null;
+  customer_id: string | null;
+  description: string;
+  amount: number;
+  currency: string;
+  amount_mxn: number;
+  category: string;
+  date: string;
+  is_recurring: boolean;
+  created_at: string;
+}
+
+export interface IncomeSummary {
+  mrr: number;
+  arr: number;
+  total_period: number;
+  total_period_mxn: number;
+  mom_growth_pct: number | null;
+}
+
+export interface Expense {
+  id: string;
+  name: string;
+  description: string | null;
+  amount: number;
+  currency: string;
+  amount_mxn: number;
+  category: string;
+  vendor: string | null;
+  paid_by: string;
+  is_recurring: boolean;
+  recurrence: string | null;
+  date: string;
+  receipt_url: string | null;
+  vault_credential_id: string | null;
+  created_at: string;
+}
+
+export interface ExpenseSummary {
+  total_mxn: number;
+  by_category: Record<string, number>;
+  by_person: Record<string, number>;
+  recurring_total_mxn: number;
+}
+
+export interface InvoiceEntry {
+  id: string;
+  invoice_number: string;
+  customer_id: string | null;
+  customer_name: string;
+  customer_email: string | null;
+  description: string | null;
+  line_items_json: any[] | null;
+  subtotal: number;
+  tax: number | null;
+  total: number;
+  currency: string;
+  total_mxn: number;
+  status: string;
+  issue_date: string;
+  due_date: string;
+  paid_date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface CashBalanceEntry {
+  id: string;
+  amount: number;
+  currency: string;
+  amount_mxn: number;
+  date: string;
+  notes: string | null;
+  created_at: string;
+}
+
+// Customers
+export interface Customer {
+  id: string;
+  company_name: string;
+  contact_name: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  industry: string | null;
+  website: string | null;
+  plan_tier: string | null;
+  mrr: number | null;
+  mrr_currency: string;
+  mrr_mxn: number | null;
+  arr: number | null;
+  billing_interval: string | null;
+  signup_date: string | null;
+  status: string;
+  churn_date: string | null;
+  churn_reason: string | null;
+  stripe_customer_id: string | null;
+  lifetime_value: number | null;
+  lifetime_value_mxn: number | null;
+  referral_source: string | null;
+  notes: string | null;
+  tags: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerSummary {
+  total_customers: number;
+  active_customers: number;
+  mrr_mxn: number;
+  arpu_mxn: number;
+  churn_rate_pct: number;
+}

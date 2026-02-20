@@ -43,7 +43,7 @@ const bottomItems = [
   { label: "Settings", icon: Settings, href: "/settings", phase: 1 },
 ];
 
-const CURRENT_PHASE = 2;
+const CURRENT_PHASE = 3;
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
