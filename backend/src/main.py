@@ -47,6 +47,7 @@ from src.kpis.router import router as kpis_router
 from src.prospects.router import router as prospects_router
 from src.meetings.router import router as meetings_router
 from src.documents.router import router as documents_router
+from src.okrs.router import router as okrs_router
 
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -60,6 +61,7 @@ api_router.include_router(kpis_router)
 api_router.include_router(prospects_router)
 api_router.include_router(meetings_router)
 api_router.include_router(documents_router)
+api_router.include_router(okrs_router)
 
 app.include_router(api_router)
 

@@ -252,3 +252,40 @@ export interface CustomerSummary {
   arpu_mxn: number;
   churn_rate_pct: number;
 }
+
+// OKRs
+export interface KeyResult {
+  id: string;
+  objective_id: string;
+  title: string;
+  target_value: number;
+  current_value: number;
+  unit: string;
+  tracking_mode: string;
+  auto_metric: string | null;
+  start_value: number;
+  progress_pct: number;
+  created_at: string;
+}
+
+export interface Objective {
+  id: string;
+  period_id: string;
+  title: string;
+  description: string | null;
+  owner_id: string;
+  position: number;
+  status: string;
+  key_results: KeyResult[];
+  created_at: string;
+}
+
+export interface OKRPeriod {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  objectives: Objective[];
+  created_at: string;
+}
