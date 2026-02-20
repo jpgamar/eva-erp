@@ -289,3 +289,17 @@ export interface OKRPeriod {
   objectives: Objective[];
   created_at: string;
 }
+
+// Assistant
+export interface AssistantMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AssistantConversation {
+  id: string;
+  title: string | null;
+  messages_json: AssistantMessage[];
+  created_at: string;
+  updated_at: string;
+}

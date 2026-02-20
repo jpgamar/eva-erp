@@ -10,3 +10,4 @@ from src.prospects.models import Prospect, ProspectInteraction  # noqa: F401
 from src.meetings.models import Meeting  # noqa: F401
 from src.documents.models import Folder, Document  # noqa: F401
 from src.okrs.models import OKRPeriod, Objective, KeyResult  # noqa: F401
+from src.assistant.models import AssistantConversation  # noqa: F401
