@@ -5,3 +5,4 @@ from src.vault.models import VaultConfig, Credential, VaultAuditLog  # noqa: F40
 from src.tasks.models import Board, Column, Task, TaskComment, TaskActivity  # noqa: F401
 from src.customers.models import Customer  # noqa: F401
 from src.finances.models import ExchangeRate, IncomeEntry, Expense, Invoice, CashBalance  # noqa: F401
+from src.kpis.models import KPISnapshot  # noqa: F401

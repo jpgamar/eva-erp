@@ -43,6 +43,7 @@ from src.tasks.router import router as boards_router
 from src.tasks.router import task_router
 from src.finances.router import router as finances_router
 from src.customers.router import router as customers_router
+from src.kpis.router import router as kpis_router
 
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -52,6 +53,7 @@ api_router.include_router(boards_router)
 api_router.include_router(task_router)
 api_router.include_router(finances_router)
 api_router.include_router(customers_router)
+api_router.include_router(kpis_router)
 
 app.include_router(api_router)
 
