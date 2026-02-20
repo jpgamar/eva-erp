@@ -6,3 +6,6 @@ from src.tasks.models import Board, Column, Task, TaskComment, TaskActivity  # n
 from src.customers.models import Customer  # noqa: F401
 from src.finances.models import ExchangeRate, IncomeEntry, Expense, Invoice, CashBalance  # noqa: F401
 from src.kpis.models import KPISnapshot  # noqa: F401
+from src.prospects.models import Prospect, ProspectInteraction  # noqa: F401
+from src.meetings.models import Meeting  # noqa: F401
+from src.documents.models import Folder, Document  # noqa: F401
