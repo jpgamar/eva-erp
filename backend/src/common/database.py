@@ -3,7 +3,13 @@ from sqlalchemy.orm import DeclarativeBase
 
 from src.common.config import settings
 
-engine = create_async_engine(settings.database_url, echo=settings.environment == "development")
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.environment == "development",
+    connect_args={"statement_cache_size": 0},
+    pool_size=5,
+    max_overflow=10,
+)
 
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
