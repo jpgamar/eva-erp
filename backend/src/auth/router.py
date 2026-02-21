@@ -37,12 +37,13 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
     access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
 
+    is_prod = settings.environment == "production"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
-        secure=False,  # Set to True in production
+        secure=is_prod,
         max_age=60 * 15,  # 15 minutes
     )
     response.set_cookie(
@@ -50,7 +51,7 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
         value=refresh_token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=is_prod,
         max_age=60 * 60 * 24 * 7,  # 7 days
     )
 
@@ -78,12 +79,13 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
 
     access_token = create_access_token(user.id)
 
+    is_prod = settings.environment == "production"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=is_prod,
         max_age=60 * 15,
     )
 
