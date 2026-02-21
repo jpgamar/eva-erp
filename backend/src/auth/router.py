@@ -18,6 +18,7 @@ from src.auth.service import (
     hash_password,
     verify_password,
 )
+from src.common.config import settings
 from src.common.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
