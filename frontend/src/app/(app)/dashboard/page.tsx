@@ -3,61 +3,11 @@
 import { useEffect, useState } from "react";
 import {
   TrendingUp, TrendingDown, Users, DollarSign,
-  ArrowUpRight, Wallet, Target, Lock, Unlock, CheckSquare, CalendarDays,
+  ArrowUpRight, Wallet, Target, Lock, CheckSquare,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { kpisApi } from "@/lib/api/kpis";
-import { incomeApi, expenseApi } from "@/lib/api/finances";
-import { prospectsApi } from "@/lib/api/prospects";
-import { vaultApi } from "@/lib/api/vault";
-import { tasksApi } from "@/lib/api/tasks";
-import type { Task } from "@/types";
-
-interface KPICurrent {
-  mrr: number;
-  arr: number;
-  mrr_growth_pct: number | null;
-  total_revenue: number;
-  total_expenses_usd: number;
-  net_profit: number;
-  total_customers: number;
-  new_customers: number;
-  churned_customers: number;
-  arpu: number;
-  open_tasks: number;
-  overdue_tasks: number;
-  prospects_in_pipeline: number;
-  cash_balance_usd: number | null;
-}
-
-interface IncomeSummary {
-  mrr: number;
-  arr: number;
-  total_period: number;
-  total_period_usd: number;
-  mom_growth_pct: number | null;
-}
-
-interface ExpenseSummary {
-  total_usd: number;
-  by_category: Record<string, number>;
-  by_person: Record<string, number>;
-  recurring_total_usd: number;
-}
-
-interface ProspectSummary {
-  total: number;
-  by_status: Record<string, number>;
-}
-
-interface CostSummary {
-  total_usd: number;
-  total_mxn: number;
-  combined_usd: number;
-  by_category: Record<string, number>;
-  service_count: number;
-}
+import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
 
 function fmt(amount: number | null | undefined, currency = "USD") {
   if (amount == null) return "\u2014";
@@ -93,59 +43,14 @@ const EXPENSE_COLORS: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const [current, setCurrent] = useState<KPICurrent | null>(null);
-  const [incomeSummary, setIncomeSummary] = useState<IncomeSummary | null>(null);
-  const [expenseSummary, setExpenseSummary] = useState<ExpenseSummary | null>(null);
-  const [prospectSummary, setProspectSummary] = useState<ProspectSummary | null>(null);
-  const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [urgencyCounts, setUrgencyCounts] = useState<{ urgent: number; soso: number; canWait: number }>({ urgent: 0, soso: 0, canWait: 0 });
-  const [recentTasks, setRecentTasks] = useState<Task[]>([]);
-  const [vaultPw, setVaultPw] = useState("");
-  const [vaultUnlocking, setVaultUnlocking] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [c, inc, exp, pros, prospectList] = await Promise.all([
-          kpisApi.current(),
-          incomeApi.summary().catch(() => null),
-          expenseApi.summary().catch(() => null),
-          prospectsApi.summary().catch(() => null),
-          prospectsApi.list().catch(() => []),
-        ]);
-        setCurrent(c);
-        setIncomeSummary(inc);
-        setExpenseSummary(exp);
-        setProspectSummary(pros);
-
-        if (Array.isArray(prospectList)) {
-          let urgent = 0, soso = 0, canWait = 0;
-          for (const p of prospectList) {
-            const tags: string[] = p.tags || [];
-            if (tags.includes("priority_high")) urgent++;
-            else if (tags.includes("priority_medium")) soso++;
-            else if (tags.includes("priority_low")) canWait++;
-          }
-          setUrgencyCounts({ urgent, soso, canWait });
-        }
-
-        try {
-          const taskList = await tasksApi.list({ status: "todo" });
-          const inProgress = await tasksApi.list({ status: "in_progress" });
-          setRecentTasks([...inProgress, ...taskList].slice(0, 6));
-        } catch { /* tasks optional */ }
-
-        try {
-          const v = await vaultApi.costSummary();
-          setCostSummary(v);
-        } catch { /* vault locked */ }
-      } catch {
-        toast.error("Failed to load dashboard data");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    dashboardApi.summary()
+      .then(setData)
+      .catch(() => toast.error("Failed to load dashboard data"))
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
@@ -156,17 +61,12 @@ export default function DashboardPage() {
     );
   }
 
-  if (!current) return null;
+  if (!data) return null;
 
-  const allExpenses = expenseSummary
-    ? Object.entries(expenseSummary.by_category).sort(([, a], [, b]) => b - a)
-    : [];
-  const expenseTotal = expenseSummary ? expenseSummary.total_usd : current.total_expenses_usd;
+  const allExpenses = Object.entries(data.expense_by_category).sort(([, a], [, b]) => b - a);
   const topExpenses = allExpenses.slice(0, 3);
 
-  const topVaultCats = costSummary
-    ? Object.entries(costSummary.by_category).sort(([, a], [, b]) => b - a).slice(0, 3)
-    : [];
+  const topVaultCats = Object.entries(data.vault_by_category).sort(([, a], [, b]) => b - a).slice(0, 3);
 
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-7rem)] animate-erp-entrance">
@@ -183,17 +83,7 @@ export default function DashboardPage() {
               <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
               <p className="text-xs font-medium text-emerald-600/70">MRR</p>
             </div>
-            <p className="font-mono text-2xl font-bold tracking-tight text-emerald-900">{fmt(current.mrr)}</p>
-            {current.mrr_growth_pct != null && (
-              <div className="mt-1.5 flex items-center gap-1.5">
-                {current.mrr_growth_pct >= 0
-                  ? <TrendingUp className="h-3 w-3 text-emerald-500" />
-                  : <TrendingDown className="h-3 w-3 text-red-500" />}
-                <span className={`text-xs font-semibold ${current.mrr_growth_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {current.mrr_growth_pct > 0 ? "+" : ""}{current.mrr_growth_pct}% MoM
-                </span>
-              </div>
-            )}
+            <p className="font-mono text-2xl font-bold tracking-tight text-emerald-900">{fmt(data.mrr)}</p>
           </div>
         </div>
 
@@ -206,13 +96,13 @@ export default function DashboardPage() {
               <Users className="h-3.5 w-3.5 text-indigo-500" />
               <p className="text-xs font-medium text-indigo-600/70">Active Customers</p>
             </div>
-            <p className="font-mono text-2xl font-bold tracking-tight text-indigo-900">{current.total_customers}</p>
+            <p className="font-mono text-2xl font-bold tracking-tight text-indigo-900">{data.total_customers}</p>
             <div className="mt-1.5 flex items-center gap-3">
               <span className="text-xs text-indigo-600/70">
-                <span className="font-semibold text-indigo-700">+{current.new_customers}</span> new
+                <span className="font-semibold text-indigo-700">+{data.new_customers}</span> new
               </span>
               <span className="text-xs text-indigo-600/70">
-                <span className="font-semibold text-indigo-700">-{current.churned_customers}</span> churned
+                <span className="font-semibold text-indigo-700">-{data.churned_customers}</span> churned
               </span>
             </div>
           </div>
@@ -220,22 +110,22 @@ export default function DashboardPage() {
 
         {/* Net P/L */}
         <div className={`relative overflow-hidden rounded-2xl border p-4 ${
-          current.net_profit >= 0
+          data.net_profit >= 0
             ? "border-green-200 bg-green-50"
             : "border-red-200 bg-red-50"
         }`}>
-          <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full ${current.net_profit >= 0 ? "bg-green-100/60" : "bg-red-100/60"}`} />
-          <div className={`absolute -right-2 -top-2 h-12 w-12 rounded-full ${current.net_profit >= 0 ? "bg-green-100/60" : "bg-red-100/60"}`} />
+          <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full ${data.net_profit >= 0 ? "bg-green-100/60" : "bg-red-100/60"}`} />
+          <div className={`absolute -right-2 -top-2 h-12 w-12 rounded-full ${data.net_profit >= 0 ? "bg-green-100/60" : "bg-red-100/60"}`} />
           <div className="relative">
             <div className="flex items-center gap-2 mb-0.5">
-              {current.net_profit >= 0
+              {data.net_profit >= 0
                 ? <TrendingUp className="h-3.5 w-3.5 text-green-500" />
                 : <TrendingDown className="h-3.5 w-3.5 text-red-500" />}
-              <p className={`text-xs font-medium ${current.net_profit >= 0 ? "text-green-600/70" : "text-red-600/70"}`}>Net P/L</p>
+              <p className={`text-xs font-medium ${data.net_profit >= 0 ? "text-green-600/70" : "text-red-600/70"}`}>Net P/L</p>
             </div>
-            <p className={`font-mono text-2xl font-bold tracking-tight ${current.net_profit >= 0 ? "text-green-900" : "text-red-900"}`}>{fmt(current.net_profit)}</p>
+            <p className={`font-mono text-2xl font-bold tracking-tight ${data.net_profit >= 0 ? "text-green-900" : "text-red-900"}`}>{fmt(data.net_profit)}</p>
             <div className="mt-1.5">
-              <span className={`text-xs ${current.net_profit >= 0 ? "text-green-600/60" : "text-red-600/60"}`}>Revenue − Expenses</span>
+              <span className={`text-xs ${data.net_profit >= 0 ? "text-green-600/60" : "text-red-600/60"}`}>Revenue − Expenses</span>
             </div>
           </div>
         </div>
@@ -262,19 +152,19 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted">Revenue</span>
                   <span className="font-mono text-sm font-semibold text-foreground">
-                    {incomeSummary ? fmt(incomeSummary.total_period_usd) : fmt(current.total_revenue)}
+                    {fmt(data.income_total_period)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted">Expenses</span>
                   <span className="font-mono text-sm font-semibold text-foreground">
-                    {fmt(expenseTotal || 0)}
+                    {fmt(data.expense_total_usd)}
                   </span>
                 </div>
-                {current.cash_balance_usd != null && (
+                {data.cash_balance_usd != null && (
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted">Cash balance</span>
-                    <span className="font-mono text-sm font-semibold text-foreground">{fmt(current.cash_balance_usd)}</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{fmt(data.cash_balance_usd)}</span>
                   </div>
                 )}
                 {topExpenses.length > 0 && (
@@ -314,19 +204,19 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted">In pipeline</span>
                   <span className="font-mono text-sm font-semibold text-foreground">
-                    {prospectSummary ? prospectSummary.total : current.prospects_in_pipeline}
+                    {data.prospect_total}
                   </span>
                 </div>
-                {prospectSummary && prospectSummary.by_status.won != null && (
+                {data.prospect_by_status.won != null && (
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted">Won</span>
-                    <span className="font-mono text-sm font-semibold text-green-600">{prospectSummary.by_status.won}</span>
+                    <span className="font-mono text-sm font-semibold text-green-600">{data.prospect_by_status.won}</span>
                   </div>
                 )}
-                {prospectSummary && prospectSummary.by_status.lost != null && (
+                {data.prospect_by_status.lost != null && (
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted">Lost</span>
-                    <span className="font-mono text-sm font-semibold text-red-500">{prospectSummary.by_status.lost}</span>
+                    <span className="font-mono text-sm font-semibold text-red-500">{data.prospect_by_status.lost}</span>
                   </div>
                 )}
                 <div className="pt-3 mt-auto border-t border-border/50">
@@ -336,21 +226,21 @@ export default function DashboardPage() {
                       <div className="h-2 w-2 rounded-full bg-red-500" />
                       <span className="text-xs text-muted">Urgent</span>
                     </div>
-                    <span className="font-mono text-xs text-foreground">{urgencyCounts.urgent}</span>
+                    <span className="font-mono text-xs text-foreground">{data.prospect_urgency.urgent}</span>
                   </div>
                   <div className="flex items-center justify-between py-0.5">
                     <div className="flex items-center gap-1.5">
                       <div className="h-2 w-2 rounded-full bg-amber-500" />
                       <span className="text-xs text-muted">So-so</span>
                     </div>
-                    <span className="font-mono text-xs text-foreground">{urgencyCounts.soso}</span>
+                    <span className="font-mono text-xs text-foreground">{data.prospect_urgency.soso}</span>
                   </div>
                   <div className="flex items-center justify-between py-0.5">
                     <div className="flex items-center gap-1.5">
                       <div className="h-2 w-2 rounded-full bg-gray-400" />
                       <span className="text-xs text-muted">Can wait</span>
                     </div>
-                    <span className="font-mono text-xs text-foreground">{urgencyCounts.canWait}</span>
+                    <span className="font-mono text-xs text-foreground">{data.prospect_urgency.can_wait}</span>
                   </div>
                 </div>
               </div>
@@ -376,16 +266,16 @@ export default function DashboardPage() {
             <div className="space-y-3 flex-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted">Open</span>
-                <span className="font-mono text-sm font-semibold text-foreground">{current.open_tasks}</span>
+                <span className="font-mono text-sm font-semibold text-foreground">{data.open_tasks}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted">Overdue</span>
-                <span className={`font-mono text-sm font-semibold ${current.overdue_tasks > 0 ? "text-red-500" : "text-foreground"}`}>{current.overdue_tasks}</span>
+                <span className={`font-mono text-sm font-semibold ${data.overdue_tasks > 0 ? "text-red-500" : "text-foreground"}`}>{data.overdue_tasks}</span>
               </div>
-              {recentTasks.length > 0 && (
+              {data.recent_tasks.length > 0 && (
                 <div className="pt-3 mt-auto border-t border-border/50">
                   <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Active Tasks</p>
-                  {recentTasks.map((task) => (
+                  {data.recent_tasks.map((task) => (
                     <div key={task.id} className="flex items-center gap-2 py-1">
                       <div className={`h-2 w-2 rounded-full shrink-0 ${task.status === "in_progress" ? "bg-blue-500" : "bg-gray-400"}`} />
                       <span className="text-xs text-foreground truncate flex-1">{task.title}</span>
@@ -420,15 +310,14 @@ export default function DashboardPage() {
                 <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
               </div>
             </Link>
-            {costSummary ? (
-              <div className="space-y-3 flex-1">
+            <div className="space-y-3 flex-1">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted">Monthly cost</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">{fmt(costSummary.combined_usd)}</span>
+                  <span className="font-mono text-sm font-semibold text-foreground">{fmt(data.vault_combined_usd)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted">Services</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">{costSummary.service_count}</span>
+                  <span className="font-mono text-sm font-semibold text-foreground">{data.vault_service_count}</span>
                 </div>
                 {topVaultCats.length > 0 && (
                   <div className="pt-3 mt-auto border-t border-border/50">
@@ -442,48 +331,6 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center flex-1 text-center">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 mb-2">
-                  <Lock className="h-4 w-4 text-amber-400" />
-                </div>
-                <p className="text-xs font-medium text-muted mb-3">Vault is locked</p>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!vaultPw.trim()) return;
-                    setVaultUnlocking(true);
-                    try {
-                      await vaultApi.unlock(vaultPw);
-                      const v = await vaultApi.costSummary();
-                      setCostSummary(v);
-                      setVaultPw("");
-                      toast.success("Vault unlocked");
-                    } catch {
-                      toast.error("Wrong password");
-                    } finally {
-                      setVaultUnlocking(false);
-                    }
-                  }}
-                  className="flex items-center gap-1.5 w-full max-w-[200px]"
-                >
-                  <input
-                    type="password"
-                    placeholder="Master password"
-                    value={vaultPw}
-                    onChange={(e) => setVaultPw(e.target.value)}
-                    className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none transition-all focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
-                  />
-                  <button
-                    type="submit"
-                    disabled={vaultUnlocking || !vaultPw.trim()}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition-colors hover:bg-amber-100 disabled:opacity-40"
-                  >
-                    <Unlock className="h-3.5 w-3.5" />
-                  </button>
-                </form>
-              </div>
-            )}
           </div>
         </div>
       </div>

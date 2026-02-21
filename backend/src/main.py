@@ -50,6 +50,7 @@ from src.documents.router import router as documents_router
 from src.okrs.router import router as okrs_router
 from src.assistant.router import router as assistant_router
 from src.facturas.router import router as facturas_router
+from src.dashboard.router import router as dashboard_router
 
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -66,6 +67,7 @@ api_router.include_router(documents_router)
 api_router.include_router(okrs_router)
 api_router.include_router(assistant_router)
 api_router.include_router(facturas_router)
+api_router.include_router(dashboard_router)
 
 app.include_router(api_router)
 
