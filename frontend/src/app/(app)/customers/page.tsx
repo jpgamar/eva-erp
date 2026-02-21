@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, Users, TrendingUp, DollarSign, BarChart3 } from "lucide-react";
+import { Plus, Search, Users } from "lucide-react";
 import { toast } from "sonner";
 import { customersApi } from "@/lib/api/customers";
+import { TAX_SYSTEMS, CFDI_USES } from "@/lib/constants/sat";
 import type { Customer, CustomerSummary } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,8 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 
-function fmt(amount: number | null | undefined, currency = "MXN") {
-  if (amount == null) return "—";
+function fmt(amount: number | null | undefined, currency = "USD") {
+  if (amount == null) return "\u2014";
   return `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
@@ -36,6 +36,14 @@ const PLAN_COLORS: Record<string, string> = {
   custom: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
 };
 
+const INITIAL_FORM = {
+  company_name: "", contact_name: "", contact_email: "", contact_phone: "",
+  legal_name: "", rfc: "", tax_regime: "", fiscal_zip: "", default_cfdi_use: "", fiscal_email: "",
+  industry: "", website: "", plan_tier: "starter", mrr: "", mrr_currency: "MXN",
+  billing_interval: "monthly", signup_date: new Date().toISOString().split("T")[0],
+  referral_source: "", notes: "",
+};
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [summary, setSummary] = useState<CustomerSummary | null>(null);
@@ -46,12 +54,7 @@ export default function CustomersPage() {
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const [form, setForm] = useState({
-    company_name: "", contact_name: "", contact_email: "", contact_phone: "",
-    industry: "", website: "", plan_tier: "starter", mrr: "", mrr_currency: "MXN",
-    billing_interval: "monthly", signup_date: new Date().toISOString().split("T")[0],
-    referral_source: "", notes: "",
-  });
+  const [form, setForm] = useState({ ...INITIAL_FORM });
 
   const fetchData = async () => {
     try {
@@ -73,6 +76,12 @@ export default function CustomersPage() {
         mrr: form.mrr ? parseFloat(form.mrr) : null,
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
+        legal_name: form.legal_name || null,
+        rfc: form.rfc ? form.rfc.toUpperCase() : null,
+        tax_regime: form.tax_regime || null,
+        fiscal_zip: form.fiscal_zip || null,
+        default_cfdi_use: form.default_cfdi_use || null,
+        fiscal_email: form.fiscal_email || null,
         industry: form.industry || null,
         website: form.website || null,
         referral_source: form.referral_source || null,
@@ -80,7 +89,7 @@ export default function CustomersPage() {
       });
       toast.success("Customer added");
       setAddOpen(false);
-      setForm({ company_name: "", contact_name: "", contact_email: "", contact_phone: "", industry: "", website: "", plan_tier: "starter", mrr: "", mrr_currency: "MXN", billing_interval: "monthly", signup_date: new Date().toISOString().split("T")[0], referral_source: "", notes: "" });
+      setForm({ ...INITIAL_FORM });
       await fetchData();
     } catch (e: any) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
@@ -109,38 +118,63 @@ export default function CustomersPage() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center h-[calc(100vh-8rem)]"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
+    return <div className="flex items-center justify-center h-[calc(100vh-8rem)]"><div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" /></div>;
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 animate-erp-entrance">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Customers</h1>
-          <p className="text-muted-foreground text-sm">Customer registry and subscription tracking</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-light">
+            <Users className="h-5 w-5 text-accent" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Customers</p>
+            <p className="text-xs text-muted">Registry and subscription tracking</p>
+          </div>
         </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-2" /> Add Customer</Button>
+        <Button size="sm" className="rounded-lg bg-accent hover:bg-accent/90 text-white" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-2" /> Add Customer</Button>
       </div>
 
       {/* Summary Cards */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Total</div><div className="text-2xl font-bold flex items-center gap-2"><Users className="h-5 w-5 text-muted-foreground" />{summary.total_customers}</div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Active</div><div className="text-2xl font-bold text-green-600">{summary.active_customers}</div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">MRR</div><div className="text-2xl font-bold">{fmt(summary.mrr_mxn)}</div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">ARPU</div><div className="text-2xl font-bold">{fmt(summary.arpu_mxn)}</div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Churn Rate</div><div className="text-2xl font-bold">{summary.churn_rate_pct.toFixed(1)}%</div></CardContent></Card>
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <p className="text-xs font-medium text-muted">Total</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{summary.total_customers}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
+            <p className="text-xs font-medium text-muted">Active</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-green-600">{summary.active_customers}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <p className="text-xs font-medium text-muted">MRR</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{fmt(summary.mrr_usd)}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <p className="text-xs font-medium text-muted">ARPU</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{fmt(summary.arpu_usd)}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-red-500 bg-card p-5">
+            <p className="text-xs font-medium text-muted">Churn Rate</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{summary.churn_rate_pct.toFixed(1)}%</p>
+          </div>
         </div>
       )}
 
       {/* Filters */}
       <div className="flex gap-3 items-center">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search customers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+          <input
+            placeholder="Search customers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 w-full rounded-lg border-0 bg-gray-100 pl-9 pr-3 text-sm outline-none placeholder:text-muted focus:ring-2 focus:ring-accent/20"
+          />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectTrigger className="w-[150px] rounded-lg"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
             <SelectItem value="active">Active</SelectItem>
@@ -152,36 +186,48 @@ export default function CustomersPage() {
       </div>
 
       {/* Customer Table */}
-      <Card>
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Company</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Plan</TableHead>
-              <TableHead>MRR</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Signup</TableHead>
-              <TableHead>Referral</TableHead>
+            <TableRow className="bg-gray-50/80">
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Company</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Contact</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">MRR</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Fiscal</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Signup</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {customers.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No customers yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-muted py-12">No customers yet.</TableCell></TableRow>
             ) : customers.map((c) => (
-              <TableRow key={c.id} className="cursor-pointer hover:bg-accent/50" onClick={() => openDetail(c)}>
+              <TableRow key={c.id} className="cursor-pointer hover:bg-gray-50/80" onClick={() => openDetail(c)}>
                 <TableCell className="font-medium">{c.company_name}</TableCell>
                 <TableCell>{c.contact_name}</TableCell>
-                <TableCell>{c.plan_tier ? <Badge className={PLAN_COLORS[c.plan_tier] || ""}>{c.plan_tier}</Badge> : "—"}</TableCell>
+                <TableCell>{c.plan_tier ? <Badge className={`rounded-full text-xs ${PLAN_COLORS[c.plan_tier] || ""}`}>{c.plan_tier}</Badge> : "\u2014"}</TableCell>
                 <TableCell className="font-medium">{fmt(c.mrr, c.mrr_currency)}</TableCell>
-                <TableCell><Badge className={STATUS_COLORS[c.status] || ""}>{c.status}</Badge></TableCell>
-                <TableCell className="text-sm">{c.signup_date ? new Date(c.signup_date).toLocaleDateString() : "—"}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{c.referral_source || "—"}</TableCell>
+                <TableCell>
+                  {c.rfc && c.legal_name ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-green-500" />
+                      Complete
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="h-2 w-2 rounded-full bg-gray-300" />
+                      Pending
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell><Badge className={`rounded-full text-xs ${STATUS_COLORS[c.status] || ""}`}>{c.status}</Badge></TableCell>
+                <TableCell className="text-sm">{c.signup_date ? new Date(c.signup_date).toLocaleDateString() : "\u2014"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </Card>
+      </div>
 
       {/* Detail Sheet */}
       <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
@@ -194,22 +240,35 @@ export default function CustomersPage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label className="text-xs text-muted-foreground">Contact</Label><p className="text-sm font-medium">{detailCustomer.contact_name}</p></div>
-                  <div><Label className="text-xs text-muted-foreground">Email</Label><p className="text-sm">{detailCustomer.contact_email || "—"}</p></div>
-                  <div><Label className="text-xs text-muted-foreground">Phone</Label><p className="text-sm">{detailCustomer.contact_phone || "—"}</p></div>
-                  <div><Label className="text-xs text-muted-foreground">Industry</Label><p className="text-sm">{detailCustomer.industry || "—"}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">Email</Label><p className="text-sm">{detailCustomer.contact_email || "\u2014"}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">Phone</Label><p className="text-sm">{detailCustomer.contact_phone || "\u2014"}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">Industry</Label><p className="text-sm">{detailCustomer.industry || "\u2014"}</p></div>
                 </div>
                 <Separator />
                 <div className="grid grid-cols-3 gap-3">
-                  <div><Label className="text-xs text-muted-foreground">Plan</Label><p className="text-sm font-medium capitalize">{detailCustomer.plan_tier || "—"}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">Plan</Label><p className="text-sm font-medium capitalize">{detailCustomer.plan_tier || "\u2014"}</p></div>
                   <div><Label className="text-xs text-muted-foreground">MRR</Label><p className="text-sm font-medium">{fmt(detailCustomer.mrr, detailCustomer.mrr_currency)}</p></div>
                   <div><Label className="text-xs text-muted-foreground">ARR</Label><p className="text-sm">{fmt(detailCustomer.arr, detailCustomer.mrr_currency)}</p></div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><Label className="text-xs text-muted-foreground">Billing</Label><p className="text-sm capitalize">{detailCustomer.billing_interval || "—"}</p></div>
-                  <div><Label className="text-xs text-muted-foreground">LTV</Label><p className="text-sm">{fmt(detailCustomer.lifetime_value_mxn)}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">Billing</Label><p className="text-sm capitalize">{detailCustomer.billing_interval || "\u2014"}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">LTV</Label><p className="text-sm">{fmt(detailCustomer.lifetime_value_usd)}</p></div>
                 </div>
                 <Separator />
-                <div><Label className="text-xs text-muted-foreground">Referral Source</Label><p className="text-sm">{detailCustomer.referral_source || "—"}</p></div>
+                {/* Fiscal Info Section */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Fiscal Info</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label className="text-xs text-muted-foreground">Legal Name</Label><p className="text-sm">{detailCustomer.legal_name || "\u2014"}</p></div>
+                    <div><Label className="text-xs text-muted-foreground">RFC</Label><p className="text-sm font-mono">{detailCustomer.rfc || "\u2014"}</p></div>
+                    <div><Label className="text-xs text-muted-foreground">Tax Regime</Label><p className="text-sm">{detailCustomer.tax_regime ? TAX_SYSTEMS.find(t => t.value === detailCustomer.tax_regime)?.label || detailCustomer.tax_regime : "\u2014"}</p></div>
+                    <div><Label className="text-xs text-muted-foreground">Fiscal ZIP</Label><p className="text-sm">{detailCustomer.fiscal_zip || "\u2014"}</p></div>
+                    <div><Label className="text-xs text-muted-foreground">Default CFDI Use</Label><p className="text-sm">{detailCustomer.default_cfdi_use ? CFDI_USES.find(u => u.value === detailCustomer.default_cfdi_use)?.label || detailCustomer.default_cfdi_use : "\u2014"}</p></div>
+                    <div><Label className="text-xs text-muted-foreground">Fiscal Email</Label><p className="text-sm">{detailCustomer.fiscal_email || "\u2014"}</p></div>
+                  </div>
+                </div>
+                <Separator />
+                <div><Label className="text-xs text-muted-foreground">Referral Source</Label><p className="text-sm">{detailCustomer.referral_source || "\u2014"}</p></div>
                 {detailCustomer.notes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm whitespace-pre-wrap">{detailCustomer.notes}</p></div>}
                 {detailCustomer.tags && detailCustomer.tags.length > 0 && (
                   <div><Label className="text-xs text-muted-foreground">Tags</Label><div className="flex flex-wrap gap-1.5 mt-1">{detailCustomer.tags.map(t => <Badge key={t} variant="secondary">{t}</Badge>)}</div></div>
@@ -226,38 +285,71 @@ export default function CustomersPage() {
 
       {/* Add Customer Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Customer</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-3">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <h2 className="text-base font-semibold text-foreground">Add Customer</h2>
+            <p className="text-xs text-muted">Fill in the details to register a new customer</p>
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-3 px-6 py-4">
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Company Name *</Label><Input value={form.company_name} onChange={(e) => setForm(f => ({ ...f, company_name: e.target.value }))} required /></div>
-              <div><Label>Contact Name *</Label><Input value={form.contact_name} onChange={(e) => setForm(f => ({ ...f, contact_name: e.target.value }))} required /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Company Name *</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.company_name} onChange={(e) => setForm(f => ({ ...f, company_name: e.target.value }))} required /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Contact Name *</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.contact_name} onChange={(e) => setForm(f => ({ ...f, contact_name: e.target.value }))} required /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Email</Label><Input value={form.contact_email} onChange={(e) => setForm(f => ({ ...f, contact_email: e.target.value }))} /></div>
-              <div><Label>Phone</Label><Input value={form.contact_phone} onChange={(e) => setForm(f => ({ ...f, contact_phone: e.target.value }))} /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Email</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.contact_email} onChange={(e) => setForm(f => ({ ...f, contact_email: e.target.value }))} /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Phone</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.contact_phone} onChange={(e) => setForm(f => ({ ...f, contact_phone: e.target.value }))} /></div>
+            </div>
+
+            {/* Fiscal Info Section */}
+            <Separator />
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted">Fiscal Info (for CFDI)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Legal Name</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.legal_name} onChange={(e) => setForm(f => ({ ...f, legal_name: e.target.value }))} /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">RFC</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.rfc} maxLength={13} onChange={(e) => setForm(f => ({ ...f, rfc: e.target.value.toUpperCase() }))} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Plan</Label>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Tax Regime</Label>
+                <Select value={form.tax_regime} onValueChange={(v) => setForm(f => ({ ...f, tax_regime: v }))}>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>{TAX_SYSTEMS.map(ts => <SelectItem key={ts.value} value={ts.value}>{ts.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Fiscal ZIP</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.fiscal_zip} maxLength={5} onChange={(e) => setForm(f => ({ ...f, fiscal_zip: e.target.value }))} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Default CFDI Use</Label>
+                <Select value={form.default_cfdi_use} onValueChange={(v) => setForm(f => ({ ...f, default_cfdi_use: v }))}>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>{CFDI_USES.map(u => <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Fiscal Email</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" type="email" value={form.fiscal_email} onChange={(e) => setForm(f => ({ ...f, fiscal_email: e.target.value }))} /></div>
+            </div>
+            <Separator />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</Label>
                 <Select value={form.plan_tier} onValueChange={(v) => setForm(f => ({ ...f, plan_tier: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="starter">Starter ($999 MXN)</SelectItem>
-                    <SelectItem value="standard">Standard ($3,999 MXN)</SelectItem>
-                    <SelectItem value="pro">Pro ($9,999 MXN)</SelectItem>
+                    <SelectItem value="starter">Starter ($50 USD)</SelectItem>
+                    <SelectItem value="standard">Standard ($200 USD)</SelectItem>
+                    <SelectItem value="pro">Pro ($500 USD)</SelectItem>
                     <SelectItem value="custom">Custom</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div><Label>MRR</Label><Input type="number" step="0.01" value={form.mrr} onChange={(e) => setForm(f => ({ ...f, mrr: e.target.value }))} /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">MRR</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" type="number" step="0.01" value={form.mrr} onChange={(e) => setForm(f => ({ ...f, mrr: e.target.value }))} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Industry</Label><Input value={form.industry} onChange={(e) => setForm(f => ({ ...f, industry: e.target.value }))} /></div>
-              <div><Label>Signup Date</Label><Input type="date" value={form.signup_date} onChange={(e) => setForm(f => ({ ...f, signup_date: e.target.value }))} /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Industry</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.industry} onChange={(e) => setForm(f => ({ ...f, industry: e.target.value }))} /></div>
+              <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Signup Date</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" type="date" value={form.signup_date} onChange={(e) => setForm(f => ({ ...f, signup_date: e.target.value }))} /></div>
             </div>
-            <div><Label>Referral Source</Label><Input value={form.referral_source} onChange={(e) => setForm(f => ({ ...f, referral_source: e.target.value }))} placeholder="Who referred them?" /></div>
-            <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} /></div>
-            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button><Button type="submit">Add Customer</Button></div>
+            <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Referral Source</Label><Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.referral_source} onChange={(e) => setForm(f => ({ ...f, referral_source: e.target.value }))} placeholder="Who referred them?" /></div>
+            <div><Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label><Textarea className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} /></div>
+            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" className="rounded-lg" onClick={() => setAddOpen(false)}>Cancel</Button><Button type="submit" className="rounded-lg bg-accent hover:bg-accent/90 text-white">Add Customer</Button></div>
           </form>
         </DialogContent>
       </Dialog>

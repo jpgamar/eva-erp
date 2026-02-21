@@ -137,10 +137,10 @@ async def create_credential(
     if not key:
         raise HTTPException(status_code=403, detail="Vault is locked")
 
-    # Simple MXN conversion (default rate 20)
-    cost_mxn = None
+    # Convert to USD equivalent
+    cost_usd = None
     if data.monthly_cost is not None:
-        cost_mxn = data.monthly_cost * 20 if data.cost_currency == "USD" else data.monthly_cost
+        cost_usd = data.monthly_cost if data.cost_currency == "USD" else data.monthly_cost / 20
 
     cred = Credential(
         name=data.name,
@@ -153,7 +153,7 @@ async def create_credential(
         notes_encrypted=encrypt_field(data.notes or "", key) or None,
         monthly_cost=data.monthly_cost,
         cost_currency=data.cost_currency,
-        monthly_cost_mxn=cost_mxn,
+        monthly_cost_usd=cost_usd,
         billing_cycle=data.billing_cycle,
         who_has_access=data.who_has_access,
         created_by=current_user.id,
@@ -200,7 +200,7 @@ async def get_credential(
         notes=decrypt_field(cred.notes_encrypted, key) if cred.notes_encrypted else None,
         monthly_cost=float(cred.monthly_cost) if cred.monthly_cost else None,
         cost_currency=cred.cost_currency,
-        monthly_cost_mxn=float(cred.monthly_cost_mxn) if cred.monthly_cost_mxn else None,
+        monthly_cost_usd=float(cred.monthly_cost_usd) if cred.monthly_cost_usd else None,
         billing_cycle=cred.billing_cycle,
         who_has_access=cred.who_has_access,
         created_at=cred.created_at,
@@ -239,9 +239,9 @@ async def update_credential(
     if data.billing_cycle is not None: cred.billing_cycle = data.billing_cycle
     if data.who_has_access is not None: cred.who_has_access = data.who_has_access
 
-    # Recalculate MXN
+    # Recalculate USD equivalent
     if cred.monthly_cost is not None:
-        cred.monthly_cost_mxn = float(cred.monthly_cost) * 20 if cred.cost_currency == "USD" else float(cred.monthly_cost)
+        cred.monthly_cost_usd = float(cred.monthly_cost) if cred.cost_currency == "USD" else float(cred.monthly_cost) / 20
 
     db.add(cred)
     db.add(VaultAuditLog(user_id=current_user.id, credential_id=cred.id, action="edit"))
@@ -279,17 +279,17 @@ async def cost_summary(
 
     total_usd = sum(float(c.monthly_cost) for c in creds if c.cost_currency == "USD")
     total_mxn = sum(float(c.monthly_cost) for c in creds if c.cost_currency == "MXN")
-    combined_mxn = sum(float(c.monthly_cost_mxn or 0) for c in creds)
+    combined_usd = sum(float(c.monthly_cost_usd or 0) for c in creds)
 
     by_category: dict[str, float] = {}
     for c in creds:
         cat = c.category
-        by_category[cat] = by_category.get(cat, 0) + float(c.monthly_cost_mxn or 0)
+        by_category[cat] = by_category.get(cat, 0) + float(c.monthly_cost_usd or 0)
 
     return CostSummaryResponse(
         total_usd=total_usd,
         total_mxn=total_mxn,
-        combined_mxn=combined_mxn,
+        combined_usd=combined_usd,
         by_category=by_category,
         service_count=len(creds),
     )

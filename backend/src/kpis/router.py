@@ -13,7 +13,7 @@ from src.customers.models import Customer
 from src.finances.models import CashBalance, Expense, IncomeEntry
 from src.kpis.models import KPISnapshot
 from src.kpis.schemas import KPICurrentResponse, KPISnapshotResponse
-from src.tasks.models import Column, Task
+from src.tasks.models import Task
 
 router = APIRouter(prefix="/kpis", tags=["kpis"])
 
@@ -27,7 +27,7 @@ async def current_kpis(
 
     # MRR from active customers
     mrr_result = await db.execute(
-        select(func.coalesce(func.sum(Customer.mrr_mxn), 0))
+        select(func.coalesce(func.sum(Customer.mrr_usd), 0))
         .where(Customer.status == "active")
     )
     mrr = mrr_result.scalar() or Decimal("0")
@@ -35,7 +35,7 @@ async def current_kpis(
 
     # Total revenue this month
     rev_result = await db.execute(
-        select(func.coalesce(func.sum(IncomeEntry.amount_mxn), 0))
+        select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0))
         .where(
             func.extract("year", IncomeEntry.date) == today.year,
             func.extract("month", IncomeEntry.date) == today.month,
@@ -45,13 +45,13 @@ async def current_kpis(
 
     # Total expenses
     exp_result = await db.execute(
-        select(func.coalesce(func.sum(Expense.amount_mxn), 0))
+        select(func.coalesce(func.sum(Expense.amount_usd), 0))
     )
-    total_expenses_mxn = exp_result.scalar() or Decimal("0")
+    total_expenses_usd = exp_result.scalar() or Decimal("0")
 
     # Burn rate (recurring expenses)
     burn_result = await db.execute(
-        select(func.coalesce(func.sum(Expense.amount_mxn), 0))
+        select(func.coalesce(func.sum(Expense.amount_usd), 0))
         .where(Expense.is_recurring == True)
     )
     burn_rate = burn_result.scalar() or Decimal("0")
@@ -61,8 +61,8 @@ async def current_kpis(
         select(CashBalance).order_by(CashBalance.date.desc()).limit(1)
     )
     cash = cash_result.scalar_one_or_none()
-    cash_balance_mxn = cash.amount_mxn if cash else None
-    runway = Decimal(str(cash_balance_mxn / burn_rate)) if cash_balance_mxn and burn_rate > 0 else None
+    cash_balance_usd = cash.amount_usd if cash else None
+    runway = Decimal(str(cash_balance_usd / burn_rate)) if cash_balance_usd and burn_rate > 0 else None
 
     # Customers
     total_cust = (await db.execute(select(func.count(Customer.id)).where(Customer.status == "active"))).scalar() or 0
@@ -76,31 +76,25 @@ async def current_kpis(
     )).scalar() or 0
     arpu = Decimal(str(mrr / total_cust)) if total_cust > 0 else Decimal("0")
 
-    # Tasks
-    # Open tasks = not in "Done" column
-    done_cols = await db.execute(select(Column.id).where(Column.name == "Done"))
-    done_ids = [row[0] for row in done_cols.fetchall()]
-    if done_ids:
-        open_tasks_result = await db.execute(
-            select(func.count(Task.id)).where(Task.column_id.not_in(done_ids))
-        )
-    else:
-        open_tasks_result = await db.execute(select(func.count(Task.id)))
+    # Tasks — open = not done
+    open_tasks_result = await db.execute(
+        select(func.count(Task.id)).where(Task.status != "done")
+    )
     open_tasks = open_tasks_result.scalar() or 0
 
     overdue_result = await db.execute(
-        select(func.count(Task.id)).where(Task.due_date < today)
+        select(func.count(Task.id)).where(Task.due_date < today, Task.status != "done")
     )
     overdue_tasks = overdue_result.scalar() or 0
 
-    net_profit = total_revenue - total_expenses_mxn
+    net_profit = total_revenue - total_expenses_usd
 
     return KPICurrentResponse(
         mrr=mrr,
         arr=arr,
         mrr_growth_pct=None,
         total_revenue=total_revenue,
-        total_expenses_mxn=total_expenses_mxn,
+        total_expenses_usd=total_expenses_usd,
         net_profit=net_profit,
         burn_rate=burn_rate,
         runway_months=runway,
@@ -111,7 +105,7 @@ async def current_kpis(
         open_tasks=open_tasks,
         overdue_tasks=overdue_tasks,
         prospects_in_pipeline=0,
-        cash_balance_mxn=cash_balance_mxn,
+        cash_balance_usd=cash_balance_usd,
     )
 
 
@@ -148,7 +142,7 @@ async def force_snapshot(
             .values(
                 mrr=current.mrr, arr=current.arr,
                 total_revenue=current.total_revenue,
-                total_expenses_mxn=current.total_expenses_mxn,
+                total_expenses_usd=current.total_expenses_usd,
                 net_profit=current.net_profit,
                 burn_rate=current.burn_rate,
                 total_customers=current.total_customers,
@@ -164,7 +158,7 @@ async def force_snapshot(
         period=period,
         mrr=current.mrr, arr=current.arr,
         total_revenue=current.total_revenue,
-        total_expenses_mxn=current.total_expenses_mxn,
+        total_expenses_usd=current.total_expenses_usd,
         net_profit=current.net_profit,
         burn_rate=current.burn_rate,
         total_customers=current.total_customers,

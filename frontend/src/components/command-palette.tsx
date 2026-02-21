@@ -20,9 +20,10 @@ import {
   Calendar,
   FolderOpen,
   Trophy,
-  Sparkles,
   Settings,
+  UsersRound,
 } from "lucide-react";
+import { OwlIcon } from "@/components/owl-icon";
 
 const pages = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", keywords: "home overview kpis metrics" },
@@ -34,7 +35,8 @@ const pages = [
   { label: "Meetings", icon: Calendar, href: "/meetings", keywords: "calendar schedule calls" },
   { label: "Documents", icon: FolderOpen, href: "/documents", keywords: "files storage uploads" },
   { label: "OKRs", icon: Trophy, href: "/okrs", keywords: "objectives key results goals" },
-  { label: "AI Assistant", icon: Sparkles, href: "/assistant", keywords: "chat ai query ask" },
+  { label: "Eva", icon: OwlIcon, href: "/assistant", keywords: "chat ai query ask eva" },
+  { label: "Team", icon: UsersRound, href: "/team", keywords: "users members invite admin people" },
   { label: "Settings", icon: Settings, href: "/settings", keywords: "profile preferences account" },
 ];
 

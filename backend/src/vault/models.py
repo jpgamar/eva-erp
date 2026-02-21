@@ -32,7 +32,7 @@ class Credential(Base):
     notes_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     monthly_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     cost_currency: Mapped[str] = mapped_column(String(3), default="USD")
-    monthly_cost_mxn: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    monthly_cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     billing_cycle: Mapped[str | None] = mapped_column(String(20), nullable=True)
     who_has_access: Mapped[list | None] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)

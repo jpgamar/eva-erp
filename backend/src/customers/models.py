@@ -26,12 +26,21 @@ class Customer(Base):
     contact_name: Mapped[str] = mapped_column(String(255), nullable=False)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Fiscal info (for CFDI invoicing)
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rfc: Mapped[str | None] = mapped_column(String(13), nullable=True)
+    tax_regime: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    fiscal_zip: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    default_cfdi_use: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    fiscal_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
     website: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)  # starter/standard/pro/custom
     mrr: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     mrr_currency: Mapped[str] = mapped_column(String(3), default="MXN")
-    mrr_mxn: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    mrr_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     arr: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     billing_interval: Mapped[str | None] = mapped_column(String(20), nullable=True)  # monthly/annual
     signup_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -41,7 +50,7 @@ class Customer(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     lifetime_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     lifetime_value_currency: Mapped[str] = mapped_column(String(3), default="MXN")
-    lifetime_value_mxn: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    lifetime_value_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     referral_source: Mapped[str | None] = mapped_column(Text, nullable=True)
     prospect_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # FK added later when prospects exist
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

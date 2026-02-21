@@ -12,35 +12,76 @@ import {
   Calendar,
   FolderOpen,
   Trophy,
-  Sparkles,
   Settings,
-  ChevronLeft,
-  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  UsersRound,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { OwlIcon } from "@/components/owl-icon";
 
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
 }
 
-const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", phase: 4 },
-  { label: "Finances", icon: DollarSign, href: "/finances", phase: 3 },
-  { label: "Customers", icon: Users, href: "/customers", phase: 3 },
-  { label: "Vault", icon: Lock, href: "/vault", phase: 2 },
-  { label: "Tasks", icon: CheckSquare, href: "/tasks", phase: 2 },
-  { label: "Prospects", icon: Target, href: "/prospects", phase: 5 },
-  { label: "Meetings", icon: Calendar, href: "/meetings", phase: 5 },
-  { label: "Documents", icon: FolderOpen, href: "/documents", phase: 5 },
-  { label: "OKRs", icon: Trophy, href: "/okrs", phase: 6 },
-  { label: "AI Assistant", icon: Sparkles, href: "/assistant", phase: 7 },
-];
+interface NavItem {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  href: string;
+  phase: number;
+}
 
-const bottomItems = [
-  { label: "Settings", icon: Settings, href: "/settings", phase: 1 },
+interface NavGroup {
+  group?: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    items: [
+      { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", phase: 4 },
+    ],
+  },
+  {
+    group: "Core",
+    items: [
+      { label: "Finances", icon: DollarSign, href: "/finances", phase: 3 },
+      { label: "Facturas", icon: FileText, href: "/facturas", phase: 7 },
+      { label: "Customers", icon: Users, href: "/customers", phase: 3 },
+    ],
+  },
+  {
+    group: "Manage",
+    items: [
+      { label: "Vault", icon: Lock, href: "/vault", phase: 2 },
+      { label: "Tasks", icon: CheckSquare, href: "/tasks", phase: 2 },
+    ],
+  },
+  {
+    group: "Growth",
+    items: [
+      { label: "Prospects", icon: Target, href: "/prospects", phase: 5 },
+      { label: "Meetings", icon: Calendar, href: "/meetings", phase: 5 },
+      { label: "Documents", icon: FolderOpen, href: "/documents", phase: 5 },
+    ],
+  },
+  {
+    group: "Strategy",
+    items: [
+      { label: "OKRs", icon: Trophy, href: "/okrs", phase: 6 },
+      { label: "Eva", icon: OwlIcon, href: "/assistant", phase: 7 },
+    ],
+  },
+  {
+    group: "Admin",
+    items: [
+      { label: "Team", icon: UsersRound, href: "/team", phase: 1 },
+      { label: "Settings", icon: Settings, href: "/settings", phase: 1 },
+    ],
+  },
 ];
 
 const CURRENT_PHASE = 7;
@@ -48,7 +89,7 @@ const CURRENT_PHASE = 7;
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
 
-  const renderNavItem = (item: typeof navItems[0]) => {
+  const renderNavItem = (item: NavItem) => {
     const isActive = pathname.startsWith(item.href);
     const isBuilt = item.phase <= CURRENT_PHASE;
     const Icon = item.icon;
@@ -59,9 +100,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         className={cn(
           "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
           isActive
-            ? "bg-primary/10 text-primary"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground",
-          !isBuilt && "opacity-50 cursor-not-allowed"
+            ? "bg-white/10 text-white font-medium"
+            : "text-sidebar-foreground hover:text-white hover:bg-white/5",
+          !isBuilt && "opacity-50 cursor-not-allowed",
+          collapsed && "justify-center px-0"
         )}
         onClick={(e) => !isBuilt && e.preventDefault()}
       >
@@ -93,39 +135,77 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r bg-card transition-all duration-200",
-        collapsed ? "w-16" : "w-64"
+        "fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar transition-all duration-200",
+        collapsed ? "w-16" : "w-60"
       )}
     >
       {/* Logo */}
-      <div className="flex h-14 items-center justify-between border-b px-4">
-        {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-              E
-            </div>
-            <span className="font-semibold text-lg">EVA ERP</span>
-          </Link>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={onToggle}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
+      <div className="flex h-16 items-center gap-2 border-b border-gray-800 px-4">
+        <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
+          <OwlIcon className="h-7 w-7 shrink-0" />
+          {!collapsed && <span className="font-semibold text-lg text-white truncate">EVA ERP</span>}
+        </Link>
       </div>
 
       {/* Main nav */}
-      <nav className="flex-1 space-y-1 px-2 py-3 overflow-y-auto">
-        {navItems.map(renderNavItem)}
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        {navGroups.map((group, groupIdx) => (
+          <div key={group.group || "top"} className={groupIdx > 0 ? "mt-4" : ""}>
+            {group.group && !collapsed && (
+              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-accent">
+                {group.group}
+              </p>
+            )}
+            {group.group && collapsed && groupIdx > 0 && (
+              <div className="mx-2 mb-2 border-t border-gray-700/50" />
+            )}
+            <div className="space-y-0.5">
+              {group.items.map(renderNavItem)}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      {/* Bottom nav */}
-      <div className="border-t px-2 py-3 space-y-1">
-        {bottomItems.map(renderNavItem)}
+      {/* Powered by Eva footer */}
+      <div className="border-t border-gray-800 px-3 py-3">
+        {!collapsed ? (
+          <a
+            href="https://goeva.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-xs text-sidebar-foreground hover:text-white transition-colors"
+          >
+            <OwlIcon className="h-4 w-auto shrink-0 opacity-60" />
+            <span>Powered by Eva</span>
+          </a>
+        ) : (
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <a
+                href="https://goeva.ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex justify-center"
+              >
+                <OwlIcon className="h-4 w-auto opacity-60 hover:opacity-100 transition-opacity" />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent side="right">Powered by Eva</TooltipContent>
+          </Tooltip>
+        )}
       </div>
+
+      {/* Collapse toggle */}
+      <button
+        onClick={onToggle}
+        className="flex h-12 items-center justify-center border-t border-gray-800 text-sidebar-foreground hover:text-white transition-colors"
+      >
+        {collapsed ? (
+          <ChevronsRight className="h-4 w-4" />
+        ) : (
+          <ChevronsLeft className="h-4 w-4" />
+        )}
+      </button>
     </aside>
   );
 }

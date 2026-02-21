@@ -78,10 +78,10 @@ export default function DocumentsPage() {
     } catch { toast.error("Failed"); }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-[calc(100vh-8rem)]"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
+  if (loading) return <div className="flex items-center justify-center h-[calc(100vh-8rem)]"><div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" /></div>;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 animate-erp-entrance">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Documents</h1><p className="text-muted-foreground text-sm">Contracts, legal, brand assets</p></div>
         <div className="flex gap-2">
@@ -95,13 +95,13 @@ export default function DocumentsPage() {
 
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
-        <button onClick={() => setCurrentFolder(null)} className="text-primary hover:underline">Root</button>
+        <button onClick={() => setCurrentFolder(null)} className="text-accent hover:underline">Root</button>
         {currentFolder && <span className="text-muted-foreground">/ (subfolder)</span>}
       </div>
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Search files..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+        <input placeholder="Search files..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 w-full rounded-lg border-0 bg-gray-100 pl-9 pr-3 text-sm outline-none placeholder:text-muted focus:ring-2 focus:ring-accent/20" />
       </div>
 
       {/* Folders */}
@@ -110,9 +110,9 @@ export default function DocumentsPage() {
           <h3 className="text-sm font-semibold text-muted-foreground mb-2">Folders</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {folders.map((f) => (
-              <Card key={f.id} className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setCurrentFolder(f.id)}>
+              <Card key={f.id} className="cursor-pointer hover:border-accent/50 transition-colors" onClick={() => setCurrentFolder(f.id)}>
                 <CardContent className="pt-4 pb-4 flex items-center gap-2">
-                  <FolderIcon className="h-5 w-5 text-primary shrink-0" />
+                  <FolderIcon className="h-5 w-5 text-accent shrink-0" />
                   <span className="text-sm font-medium truncate">{f.name}</span>
                 </CardContent>
               </Card>

@@ -9,7 +9,7 @@ class KPICurrentResponse(BaseModel):
     arr: Decimal
     mrr_growth_pct: Decimal | None
     total_revenue: Decimal
-    total_expenses_mxn: Decimal
+    total_expenses_usd: Decimal
     net_profit: Decimal
     burn_rate: Decimal
     runway_months: Decimal | None
@@ -20,7 +20,7 @@ class KPICurrentResponse(BaseModel):
     open_tasks: int
     overdue_tasks: int
     prospects_in_pipeline: int
-    cash_balance_mxn: Decimal | None
+    cash_balance_usd: Decimal | None
 
 
 class KPISnapshotResponse(BaseModel):
@@ -29,7 +29,7 @@ class KPISnapshotResponse(BaseModel):
     mrr: Decimal
     arr: Decimal
     total_revenue: Decimal
-    total_expenses_mxn: Decimal
+    total_expenses_usd: Decimal
     net_profit: Decimal
     burn_rate: Decimal
     total_customers: int

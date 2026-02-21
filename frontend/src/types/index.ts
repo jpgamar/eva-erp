@@ -42,7 +42,7 @@ export interface Credential {
   url: string | null;
   monthly_cost: number | null;
   cost_currency: string;
-  monthly_cost_mxn: number | null;
+  monthly_cost_usd: number | null;
   billing_cycle: string | null;
   who_has_access: string[] | null;
   created_at: string;
@@ -60,7 +60,7 @@ export interface CredentialDetail extends Credential {
 export interface CostSummary {
   total_mxn: number;
   total_usd: number;
-  combined_mxn: number;
+  combined_usd: number;
   by_category: Record<string, number>;
   service_count: number;
 }
@@ -74,41 +74,26 @@ export interface AuditLogEntry {
   created_at: string;
 }
 
-// Tasks / Kanban
+// Tasks
 export interface Board {
   id: string;
   name: string;
   slug: string;
   description: string | null;
-  position: number;
   created_by: string;
   created_at: string;
 }
 
-export interface BoardDetail extends Board {
-  columns: Column[];
-}
-
-export interface Column {
-  id: string;
-  board_id: string;
-  name: string;
-  position: number;
-  color: string;
-  tasks: Task[];
-}
-
 export interface Task {
   id: string;
-  column_id: string;
-  board_id: string;
+  board_id: string | null;
   title: string;
   description: string | null;
+  status: string;
   assignee_id: string | null;
   priority: string;
   due_date: string | null;
   labels: string[] | null;
-  position: number;
   source_meeting_id: string | null;
   created_by: string;
   created_at: string;
@@ -145,7 +130,7 @@ export interface IncomeEntry {
   description: string;
   amount: number;
   currency: string;
-  amount_mxn: number;
+  amount_usd: number;
   category: string;
   date: string;
   is_recurring: boolean;
@@ -156,7 +141,7 @@ export interface IncomeSummary {
   mrr: number;
   arr: number;
   total_period: number;
-  total_period_mxn: number;
+  total_period_usd: number;
   mom_growth_pct: number | null;
 }
 
@@ -166,7 +151,7 @@ export interface Expense {
   description: string | null;
   amount: number;
   currency: string;
-  amount_mxn: number;
+  amount_usd: number;
   category: string;
   vendor: string | null;
   paid_by: string;
@@ -179,10 +164,10 @@ export interface Expense {
 }
 
 export interface ExpenseSummary {
-  total_mxn: number;
+  total_usd: number;
   by_category: Record<string, number>;
   by_person: Record<string, number>;
-  recurring_total_mxn: number;
+  recurring_total_usd: number;
 }
 
 export interface InvoiceEntry {
@@ -197,7 +182,7 @@ export interface InvoiceEntry {
   tax: number | null;
   total: number;
   currency: string;
-  total_mxn: number;
+  total_usd: number;
   status: string;
   issue_date: string;
   due_date: string;
@@ -210,7 +195,7 @@ export interface CashBalanceEntry {
   id: string;
   amount: number;
   currency: string;
-  amount_mxn: number;
+  amount_usd: number;
   date: string;
   notes: string | null;
   created_at: string;
@@ -223,12 +208,18 @@ export interface Customer {
   contact_name: string;
   contact_email: string | null;
   contact_phone: string | null;
+  legal_name: string | null;
+  rfc: string | null;
+  tax_regime: string | null;
+  fiscal_zip: string | null;
+  default_cfdi_use: string | null;
+  fiscal_email: string | null;
   industry: string | null;
   website: string | null;
   plan_tier: string | null;
   mrr: number | null;
   mrr_currency: string;
-  mrr_mxn: number | null;
+  mrr_usd: number | null;
   arr: number | null;
   billing_interval: string | null;
   signup_date: string | null;
@@ -237,7 +228,7 @@ export interface Customer {
   churn_reason: string | null;
   stripe_customer_id: string | null;
   lifetime_value: number | null;
-  lifetime_value_mxn: number | null;
+  lifetime_value_usd: number | null;
   referral_source: string | null;
   notes: string | null;
   tags: string[] | null;
@@ -248,8 +239,8 @@ export interface Customer {
 export interface CustomerSummary {
   total_customers: number;
   active_customers: number;
-  mrr_mxn: number;
-  arpu_mxn: number;
+  mrr_usd: number;
+  arpu_usd: number;
   churn_rate_pct: number;
 }
 

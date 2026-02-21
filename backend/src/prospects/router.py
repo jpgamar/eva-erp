@@ -41,15 +41,15 @@ async def create_prospect(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    estimated_mrr_mxn = None
+    estimated_mrr_usd = None
     if data.estimated_mrr is not None:
-        from src.finances.router import _get_usd_to_mxn, _to_mxn
-        rate = await _get_usd_to_mxn(db)
-        estimated_mrr_mxn = _to_mxn(data.estimated_mrr, data.estimated_mrr_currency, rate)
+        from src.finances.router import _get_mxn_to_usd, _to_usd
+        rate = await _get_mxn_to_usd(db)
+        estimated_mrr_usd = _to_usd(data.estimated_mrr, data.estimated_mrr_currency, rate)
 
     prospect = Prospect(
         **data.model_dump(exclude={"estimated_mrr_currency"}),
-        estimated_mrr_mxn=estimated_mrr_mxn,
+        estimated_mrr_usd=estimated_mrr_usd,
         created_by=user.id,
     )
     db.add(prospect)
@@ -66,12 +66,12 @@ async def prospect_summary(
     result = await db.execute(select(Prospect))
     prospects = result.scalars().all()
     by_status: dict[str, int] = {}
-    pipeline_mxn = 0.0
+    pipeline_usd = 0.0
     for p in prospects:
         by_status[p.status] = by_status.get(p.status, 0) + 1
-        if p.status not in ("won", "lost") and p.estimated_mrr_mxn:
-            pipeline_mxn += float(p.estimated_mrr_mxn)
-    return ProspectSummary(total=len(prospects), by_status=by_status, total_estimated_pipeline_mxn=pipeline_mxn)
+        if p.status not in ("won", "lost") and p.estimated_mrr_usd:
+            pipeline_usd += float(p.estimated_mrr_usd)
+    return ProspectSummary(total=len(prospects), by_status=by_status, total_estimated_pipeline_usd=pipeline_usd)
 
 
 @router.get("/due-followups", response_model=list[ProspectResponse])
@@ -184,7 +184,7 @@ async def convert_to_customer(
         plan_tier=prospect.estimated_plan,
         mrr=prospect.estimated_mrr,
         mrr_currency=prospect.estimated_mrr_currency,
-        mrr_mxn=prospect.estimated_mrr_mxn,
+        mrr_usd=prospect.estimated_mrr_usd,
         arr=prospect.estimated_mrr * 12 if prospect.estimated_mrr else None,
         signup_date=date.today(),
         status="active",

@@ -54,7 +54,7 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
         max_age=60 * 60 * 24 * 7,  # 7 days
     )
 
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=access_token, name=user.name)
 
 
 @router.post("/refresh", response_model=TokenResponse)

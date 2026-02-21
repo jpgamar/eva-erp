@@ -79,8 +79,13 @@ async def create_period(
     period = OKRPeriod(name=data.name, start_date=data.start_date, end_date=data.end_date, status=data.status)
     db.add(period)
     await db.flush()
-    await db.refresh(period)
-    return period
+    # Re-fetch with relationships so PeriodResponse can serialize objectives
+    result = await db.execute(
+        select(OKRPeriod)
+        .where(OKRPeriod.id == period.id)
+        .options(selectinload(OKRPeriod.objectives).selectinload(Objective.key_results))
+    )
+    return result.scalar_one()
 
 
 @router.post("/objectives", response_model=ObjectiveResponse, status_code=201)
@@ -95,8 +100,12 @@ async def create_objective(
     )
     db.add(obj)
     await db.flush()
-    await db.refresh(obj)
-    return obj
+    result = await db.execute(
+        select(Objective)
+        .where(Objective.id == obj.id)
+        .options(selectinload(Objective.key_results))
+    )
+    return result.scalar_one()
 
 
 @router.patch("/objectives/{objective_id}", response_model=ObjectiveResponse)

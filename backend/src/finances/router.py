@@ -31,10 +31,11 @@ from src.finances.schemas import (
 
 router = APIRouter(prefix="/finances", tags=["finances"])
 
-DEFAULT_RATE = Decimal("20.0")
+DEFAULT_RATE = Decimal("0.05")
 
 
-async def _get_usd_to_mxn(db: AsyncSession) -> Decimal:
+async def _get_mxn_to_usd(db: AsyncSession) -> Decimal:
+    """Get MXN→USD rate. Looks up stored USD→MXN rate and inverts it."""
     result = await db.execute(
         select(ExchangeRate)
         .where(ExchangeRate.from_currency == "USD", ExchangeRate.to_currency == "MXN")
@@ -42,11 +43,13 @@ async def _get_usd_to_mxn(db: AsyncSession) -> Decimal:
         .limit(1)
     )
     rate = result.scalar_one_or_none()
-    return rate.rate if rate else DEFAULT_RATE
+    if rate and rate.rate > 0:
+        return round(Decimal("1") / rate.rate, 6)
+    return DEFAULT_RATE
 
 
-def _to_mxn(amount: Decimal, currency: str, rate: Decimal) -> Decimal:
-    if currency == "MXN":
+def _to_usd(amount: Decimal, currency: str, rate: Decimal) -> Decimal:
+    if currency == "USD":
         return amount
     return round(amount * rate, 2)
 
@@ -119,13 +122,13 @@ async def create_income(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rate = await _get_usd_to_mxn(db)
+    rate = await _get_mxn_to_usd(db)
     entry = IncomeEntry(
         source="manual",
         description=data.description,
         amount=data.amount,
         currency=data.currency,
-        amount_mxn=_to_mxn(data.amount, data.currency, rate),
+        amount_usd=_to_usd(data.amount, data.currency, rate),
         category=data.category,
         date=data.date,
         is_recurring=data.is_recurring,
@@ -152,12 +155,12 @@ async def update_income(
     if entry.source != "manual":
         raise HTTPException(status_code=400, detail="Cannot edit Stripe-synced entries")
 
-    rate = await _get_usd_to_mxn(db)
+    rate = await _get_mxn_to_usd(db)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(entry, field, value)
 
-    # Recalculate MXN
-    entry.amount_mxn = _to_mxn(entry.amount, entry.currency, rate)
+    # Recalculate USD
+    entry.amount_usd = _to_usd(entry.amount, entry.currency, rate)
     db.add(entry)
     return entry
 
@@ -186,7 +189,7 @@ async def income_summary(
     # MRR: sum of recurring income in current month
     now = date.today()
     result = await db.execute(
-        select(func.coalesce(func.sum(IncomeEntry.amount_mxn), 0))
+        select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0))
         .where(IncomeEntry.is_recurring == True)
     )
     mrr = result.scalar() or Decimal("0")
@@ -194,7 +197,7 @@ async def income_summary(
 
     # Total this month
     result = await db.execute(
-        select(func.coalesce(func.sum(IncomeEntry.amount_mxn), 0))
+        select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0))
         .where(
             func.extract("year", IncomeEntry.date) == now.year,
             func.extract("month", IncomeEntry.date) == now.month,
@@ -205,7 +208,7 @@ async def income_summary(
     return IncomeSummary(
         mrr=mrr, arr=arr,
         total_period=total_period,
-        total_period_mxn=total_period,
+        total_period_usd=total_period,
         mom_growth_pct=None,
     )
 
@@ -243,13 +246,13 @@ async def create_expense(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rate = await _get_usd_to_mxn(db)
+    rate = await _get_mxn_to_usd(db)
     expense = Expense(
         name=data.name,
         description=data.description,
         amount=data.amount,
         currency=data.currency,
-        amount_mxn=_to_mxn(data.amount, data.currency, rate),
+        amount_usd=_to_usd(data.amount, data.currency, rate),
         category=data.category,
         vendor=data.vendor,
         paid_by=data.paid_by,
@@ -277,10 +280,10 @@ async def update_expense(
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
 
-    rate = await _get_usd_to_mxn(db)
+    rate = await _get_mxn_to_usd(db)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(expense, field, value)
-    expense.amount_mxn = _to_mxn(expense.amount, expense.currency, rate)
+    expense.amount_usd = _to_usd(expense.amount, expense.currency, rate)
     db.add(expense)
     return expense
 
@@ -307,23 +310,23 @@ async def expense_summary(
     result = await db.execute(select(Expense))
     expenses = result.scalars().all()
 
-    total_mxn = sum(float(e.amount_mxn) for e in expenses)
+    total_usd = sum(float(e.amount_usd) for e in expenses)
     by_category: dict[str, float] = {}
     by_person: dict[str, float] = {}
     recurring_total = Decimal("0")
 
     for e in expenses:
-        by_category[e.category] = by_category.get(e.category, 0) + float(e.amount_mxn)
+        by_category[e.category] = by_category.get(e.category, 0) + float(e.amount_usd)
         pid = str(e.paid_by)
-        by_person[pid] = by_person.get(pid, 0) + float(e.amount_mxn)
+        by_person[pid] = by_person.get(pid, 0) + float(e.amount_usd)
         if e.is_recurring:
-            recurring_total += e.amount_mxn
+            recurring_total += e.amount_usd
 
     return ExpenseSummary(
-        total_mxn=Decimal(str(total_mxn)),
+        total_usd=Decimal(str(total_usd)),
         by_category=by_category,
         by_person=by_person,
-        recurring_total_mxn=recurring_total,
+        recurring_total_usd=recurring_total,
     )
 
 
@@ -343,7 +346,7 @@ async def partner_summary(
     totals: dict[str, float] = {}
     for e in expenses:
         name = users.get(str(e.paid_by), str(e.paid_by))
-        totals[name] = totals.get(name, 0) + float(e.amount_mxn)
+        totals[name] = totals.get(name, 0) + float(e.amount_usd)
 
     return PartnerSummary(partner_totals=totals)
 
@@ -372,7 +375,7 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rate = await _get_usd_to_mxn(db)
+    rate = await _get_mxn_to_usd(db)
 
     # Generate invoice number
     year = data.issue_date.year
@@ -398,7 +401,7 @@ async def create_invoice(
         tax=data.tax,
         total=total,
         currency=data.currency,
-        total_mxn=_to_mxn(total, data.currency, rate),
+        total_usd=_to_usd(total, data.currency, rate),
         status="draft",
         issue_date=data.issue_date,
         due_date=data.due_date,
@@ -443,8 +446,8 @@ async def update_invoice(
         invoice.line_items_json = [i.model_dump() if hasattr(i, "model_dump") else i for i in items]
         invoice.subtotal = sum(Decimal(str(i.get("total", i.total) if isinstance(i, dict) else i.total)) for i in (data.line_items or []))
         invoice.total = invoice.subtotal + (invoice.tax or Decimal("0"))
-        rate = await _get_usd_to_mxn(db)
-        invoice.total_mxn = _to_mxn(invoice.total, invoice.currency, rate)
+        rate = await _get_mxn_to_usd(db)
+        invoice.total_usd = _to_usd(invoice.total, invoice.currency, rate)
 
     for field, value in update_data.items():
         setattr(invoice, field, value)
@@ -488,11 +491,11 @@ async def update_cash_balance(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rate = await _get_usd_to_mxn(db)
+    rate = await _get_mxn_to_usd(db)
     balance = CashBalance(
         amount=data.amount,
         currency=data.currency,
-        amount_mxn=_to_mxn(data.amount, data.currency, rate),
+        amount_usd=_to_usd(data.amount, data.currency, rate),
         date=data.date,
         notes=data.notes,
         updated_by=user.id,

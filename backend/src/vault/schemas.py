@@ -53,7 +53,7 @@ class CredentialListItem(BaseModel):
     url: str | None
     monthly_cost: float | None
     cost_currency: str
-    monthly_cost_mxn: float | None
+    monthly_cost_usd: float | None
     billing_cycle: str | None
     who_has_access: list[uuid.UUID] | None
     created_at: datetime
@@ -72,7 +72,7 @@ class CredentialDetail(CredentialListItem):
 class CostSummaryResponse(BaseModel):
     total_mxn: float
     total_usd: float
-    combined_mxn: float
+    combined_usd: float
     by_category: dict[str, float]
     service_count: int
 

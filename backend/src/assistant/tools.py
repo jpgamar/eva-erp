@@ -157,16 +157,16 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
         from datetime import date as date_type
         today = date_type.today()
         # MRR
-        mrr_r = await db.execute(select(func.coalesce(func.sum(Customer.mrr_mxn), 0)).where(Customer.status == "active"))
+        mrr_r = await db.execute(select(func.coalesce(func.sum(Customer.mrr_usd), 0)).where(Customer.status == "active"))
         mrr = float(mrr_r.scalar() or 0)
         # Revenue this month
         rev_r = await db.execute(
-            select(func.coalesce(func.sum(IncomeEntry.amount_mxn), 0))
+            select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0))
             .where(func.extract("year", IncomeEntry.date) == today.year, func.extract("month", IncomeEntry.date) == today.month)
         )
         revenue = float(rev_r.scalar() or 0)
         # Expenses
-        exp_r = await db.execute(select(func.coalesce(func.sum(Expense.amount_mxn), 0)))
+        exp_r = await db.execute(select(func.coalesce(func.sum(Expense.amount_usd), 0)))
         expenses = float(exp_r.scalar() or 0)
         # Customers
         cust_r = await db.execute(select(func.count(Customer.id)).where(Customer.status == "active"))
@@ -175,10 +175,10 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
         cash_r = await db.execute(select(CashBalance).order_by(CashBalance.date.desc()).limit(1))
         cash = cash_r.scalar_one_or_none()
         return json.dumps({
-            "mrr_mxn": mrr, "arr_mxn": mrr * 12, "revenue_this_month_mxn": revenue,
-            "total_expenses_mxn": expenses, "net_profit_mxn": revenue - expenses,
-            "active_customers": active_customers, "arpu_mxn": round(mrr / active_customers, 2) if active_customers else 0,
-            "cash_balance_mxn": float(cash.amount_mxn) if cash else None,
+            "mrr_usd": mrr, "arr_usd": mrr * 12, "revenue_this_month_usd": revenue,
+            "total_expenses_usd": expenses, "net_profit_usd": revenue - expenses,
+            "active_customers": active_customers, "arpu_usd": round(mrr / active_customers, 2) if active_customers else 0,
+            "cash_balance_usd": float(cash.amount_usd) if cash else None,
         })
 
     elif name == "query_customers":
@@ -203,7 +203,7 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
         items = result.scalars().all()
         return json.dumps([
             {"source": i.source, "description": i.description, "amount": _dec(i.amount),
-             "currency": i.currency, "amount_mxn": _dec(i.amount_mxn), "date": str(i.date), "category": i.category}
+             "currency": i.currency, "amount_usd": _dec(i.amount_usd), "date": str(i.date), "category": i.category}
             for i in items
         ])
 
@@ -217,7 +217,7 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
         items = result.scalars().all()
         return json.dumps([
             {"name": e.name, "amount": _dec(e.amount), "currency": e.currency,
-             "amount_mxn": _dec(e.amount_mxn), "category": e.category, "vendor": e.vendor,
+             "amount_usd": _dec(e.amount_usd), "category": e.category, "vendor": e.vendor,
              "date": str(e.date), "is_recurring": e.is_recurring}
             for e in items
         ])
@@ -242,7 +242,7 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
         result = await db.execute(q)
         items = result.scalars().all()
         return json.dumps([
-            {"title": t.title, "priority": t.priority, "due_date": str(t.due_date) if t.due_date else None}
+            {"title": t.title, "priority": t.priority, "due_date": str(t.due_date) if t.due_date else None, "status": t.status}
             for t in items
         ])
 
@@ -264,12 +264,12 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
             q = q.where(Credential.category == args["category"])
         result = await db.execute(q)
         items = result.scalars().all()
-        total_mxn = sum(_dec(c.monthly_cost_mxn) or 0 for c in items)
+        total_usd = sum(_dec(c.monthly_cost_usd) or 0 for c in items)
         return json.dumps({
-            "total_monthly_mxn": total_mxn,
+            "total_monthly_usd": total_usd,
             "services": [
                 {"name": c.name, "category": c.category, "monthly_cost": _dec(c.monthly_cost),
-                 "currency": c.cost_currency, "monthly_cost_mxn": _dec(c.monthly_cost_mxn)}
+                 "currency": c.cost_currency, "monthly_cost_usd": _dec(c.monthly_cost_usd)}
                 for c in items
             ],
         })

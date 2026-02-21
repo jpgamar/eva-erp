@@ -25,7 +25,7 @@ class KPISnapshot(Base):
 
     # Expenses
     total_expenses: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
-    total_expenses_mxn: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    total_expenses_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     net_profit: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     burn_rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     runway_months: Mapped[Decimal | None] = mapped_column(Numeric(8, 1), nullable=True)

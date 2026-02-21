@@ -50,7 +50,7 @@ class IncomeResponse(BaseModel):
     description: str
     amount: Decimal
     currency: str
-    amount_mxn: Decimal
+    amount_usd: Decimal
     category: str
     date: _dt.date
     is_recurring: bool
@@ -62,7 +62,7 @@ class IncomeSummary(BaseModel):
     mrr: Decimal
     arr: Decimal
     total_period: Decimal
-    total_period_mxn: Decimal
+    total_period_usd: Decimal
     mom_growth_pct: Decimal | None
 
 
@@ -100,7 +100,7 @@ class ExpenseResponse(BaseModel):
     description: str | None
     amount: Decimal
     currency: str
-    amount_mxn: Decimal
+    amount_usd: Decimal
     category: str
     vendor: str | None
     paid_by: uuid.UUID
@@ -114,10 +114,10 @@ class ExpenseResponse(BaseModel):
 
 
 class ExpenseSummary(BaseModel):
-    total_mxn: Decimal
+    total_usd: Decimal
     by_category: dict[str, float]
     by_person: dict[str, float]
-    recurring_total_mxn: Decimal
+    recurring_total_usd: Decimal
 
 
 class PartnerSummary(BaseModel):
@@ -168,7 +168,7 @@ class InvoiceResponse(BaseModel):
     tax: Decimal | None
     total: Decimal
     currency: str
-    total_mxn: Decimal
+    total_usd: Decimal
     status: str
     issue_date: _dt.date
     due_date: _dt.date
@@ -190,7 +190,7 @@ class CashBalanceResponse(BaseModel):
     id: uuid.UUID
     amount: Decimal
     currency: str
-    amount_mxn: Decimal
+    amount_usd: Decimal
     date: _dt.date
     notes: str | None
     created_at: _dt.datetime

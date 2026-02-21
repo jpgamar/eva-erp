@@ -172,7 +172,7 @@ export default function VaultPage() {
 
   // Sorting
   const sortedCredentials = [...credentials].sort((a, b) => {
-    if (sortBy === "cost") return (b.monthly_cost_mxn ?? 0) - (a.monthly_cost_mxn ?? 0);
+    if (sortBy === "cost") return (b.monthly_cost_usd ?? 0) - (a.monthly_cost_usd ?? 0);
     if (sortBy === "date") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     return a.name.localeCompare(b.name);
   });
@@ -180,7 +180,7 @@ export default function VaultPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        <div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" />
       </div>
     );
   }
@@ -226,18 +226,23 @@ export default function VaultPage() {
 
   // Main vault view
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 animate-erp-entrance">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Credential Vault</h1>
-          <p className="text-muted-foreground text-sm">Manage service credentials and track costs</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-light">
+            <Lock className="h-5 w-5 text-accent" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Credential Vault</p>
+            <p className="text-xs text-muted">Manage credentials and track costs</p>
+          </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleLock}>
+          <Button variant="outline" size="sm" className="rounded-lg" onClick={handleLock}>
             <Lock className="h-4 w-4 mr-2" /> Lock Vault
           </Button>
-          <Button size="sm" onClick={() => setAddOpen(true)}>
+          <Button size="sm" className="rounded-lg bg-accent hover:bg-accent/90 text-white" onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4 mr-2" /> Add Credential
           </Button>
         </div>
@@ -245,49 +250,38 @@ export default function VaultPage() {
 
       {/* Cost Summary Cards */}
       {costSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">Total Monthly (MXN eq.)</div>
-              <div className="text-2xl font-bold">{formatCurrency(costSummary.combined_mxn, "MXN")}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">USD Services</div>
-              <div className="text-2xl font-bold">{formatCurrency(costSummary.total_usd, "USD")}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">MXN Services</div>
-              <div className="text-2xl font-bold">{formatCurrency(costSummary.total_mxn, "MXN")}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">Services</div>
-              <div className="text-2xl font-bold flex items-center gap-2">
-                <Server className="h-5 w-5 text-muted-foreground" />
-                {costSummary.service_count}
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <p className="text-xs font-medium text-muted">Total Monthly (USD eq.)</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{formatCurrency(costSummary.combined_usd, "USD")}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
+            <p className="text-xs font-medium text-muted">USD Services</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{formatCurrency(costSummary.total_usd, "USD")}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-5">
+            <p className="text-xs font-medium text-muted">MXN Services</p>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{formatCurrency(costSummary.total_mxn, "MXN")}</p>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <div className="flex items-center gap-2">
+              <Server className="h-4 w-4 text-muted" />
+              <p className="text-xs font-medium text-muted">Services</p>
+            </div>
+            <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{costSummary.service_count}</p>
+          </div>
         </div>
       )}
 
       {/* Category Breakdown */}
       {costSummary && Object.keys(costSummary.by_category).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Cost by Category (MXN eq.)</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <p className="mb-4 text-sm font-semibold text-foreground">Cost by Category (USD eq.)</p>
             <div className="space-y-3">
               {Object.entries(costSummary.by_category)
                 .sort(([, a], [, b]) => b - a)
                 .map(([cat, amount]) => {
-                  const pct = costSummary.combined_mxn > 0 ? (amount / costSummary.combined_mxn) * 100 : 0;
+                  const pct = costSummary.combined_usd > 0 ? (amount / costSummary.combined_usd) * 100 : 0;
                   return (
                     <div key={cat} className="flex items-center gap-3">
                       <div className="w-32 text-sm truncate">{categoryLabel(cat)}</div>
@@ -298,29 +292,28 @@ export default function VaultPage() {
                         />
                       </div>
                       <div className="w-28 text-sm text-right font-medium">
-                        {formatCurrency(amount, "MXN")}
+                        {formatCurrency(amount, "USD")}
                       </div>
                     </div>
                   );
                 })}
             </div>
-          </CardContent>
-        </Card>
+        </div>
       )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+          <input
             placeholder="Search credentials..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="h-9 w-full rounded-lg border-0 bg-gray-100 pl-9 pr-3 text-sm outline-none placeholder:text-muted focus:ring-2 focus:ring-accent/20"
           />
         </div>
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[180px] rounded-lg">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
@@ -331,7 +324,7 @@ export default function VaultPage() {
           </SelectContent>
         </Select>
         <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-[150px] rounded-lg">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
@@ -343,28 +336,28 @@ export default function VaultPage() {
       </div>
 
       {/* Credentials Table */}
-      <Card>
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>URL</TableHead>
-              <TableHead className="text-right">Monthly Cost</TableHead>
-              <TableHead>Billing</TableHead>
+            <TableRow className="bg-gray-50/80">
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Category</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">URL</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted text-right">Monthly Cost</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Billing</TableHead>
               <TableHead className="w-[60px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedCredentials.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={6} className="text-center text-muted py-12">
                   {credentials.length === 0 ? "No credentials yet. Add your first one." : "No results match your search."}
                 </TableCell>
               </TableRow>
             ) : (
               sortedCredentials.map((cred) => (
-                <TableRow key={cred.id} className="cursor-pointer hover:bg-accent/50" onClick={() => openDetail(cred.id)}>
+                <TableRow key={cred.id} className="cursor-pointer hover:bg-gray-50/80" onClick={() => openDetail(cred.id)}>
                   <TableCell className="font-medium">{cred.name}</TableCell>
                   <TableCell>
                     <Badge variant="secondary" style={{ backgroundColor: categoryColor(cred.category) + "20", color: categoryColor(cred.category) }}>
@@ -377,7 +370,7 @@ export default function VaultPage() {
                         href={cred.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-primary hover:underline flex items-center gap-1"
+                        className="text-accent hover:underline flex items-center gap-1"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {new URL(cred.url).hostname} <ExternalLink className="h-3 w-3" />
@@ -398,7 +391,7 @@ export default function VaultPage() {
             )}
           </TableBody>
         </Table>
-      </Card>
+      </div>
 
       {/* Detail Modal */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
@@ -418,7 +411,7 @@ export default function VaultPage() {
                 <div>
                   <Label className="text-xs text-muted-foreground">URL</Label>
                   <div className="flex items-center gap-2">
-                    <a href={detailCred.url} target="_blank" rel="noreferrer" className="text-primary hover:underline text-sm">{detailCred.url}</a>
+                    <a href={detailCred.url} target="_blank" rel="noreferrer" className="text-accent hover:underline text-sm">{detailCred.url}</a>
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(detailCred.url!, "URL")}>
                       <Copy className="h-3 w-3" />
                     </Button>
@@ -429,7 +422,7 @@ export default function VaultPage() {
                 <div>
                   <Label className="text-xs text-muted-foreground">Login URL</Label>
                   <div className="flex items-center gap-2">
-                    <a href={detailCred.login_url} target="_blank" rel="noreferrer" className="text-primary hover:underline text-sm">{detailCred.login_url}</a>
+                    <a href={detailCred.login_url} target="_blank" rel="noreferrer" className="text-accent hover:underline text-sm">{detailCred.login_url}</a>
                   </div>
                 </div>
               )}
@@ -491,10 +484,10 @@ export default function VaultPage() {
                   <Label className="text-xs text-muted-foreground">Monthly Cost</Label>
                   <p className="text-sm font-medium">{formatCurrency(detailCred.monthly_cost, detailCred.cost_currency)}</p>
                 </div>
-                {detailCred.cost_currency === "USD" && detailCred.monthly_cost_mxn != null && (
+                {detailCred.cost_currency === "MXN" && detailCred.monthly_cost_usd != null && (
                   <div>
-                    <Label className="text-xs text-muted-foreground">MXN Equivalent</Label>
-                    <p className="text-sm">{formatCurrency(detailCred.monthly_cost_mxn, "MXN")}</p>
+                    <Label className="text-xs text-muted-foreground">USD Equivalent</Label>
+                    <p className="text-sm">{formatCurrency(detailCred.monthly_cost_usd, "USD")}</p>
                   </div>
                 )}
                 <div>
@@ -516,23 +509,24 @@ export default function VaultPage() {
 
       {/* Add Credential Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Credential</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <h2 className="text-base font-semibold text-foreground">Add Credential</h2>
+            <p className="text-xs text-muted">Store a new service credential</p>
+          </div>
           <form
             onSubmit={(e) => { e.preventDefault(); handleAddCredential(); }}
-            className="space-y-4"
+            className="space-y-4 px-6 py-4"
           >
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
-                <Label>Name *</Label>
-                <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Name *</Label>
+                <Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
               </div>
               <div>
-                <Label>Category</Label>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Category</Label>
                 <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {CATEGORIES.map((c) => (
                       <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
@@ -541,9 +535,9 @@ export default function VaultPage() {
                 </Select>
               </div>
               <div>
-                <Label>Billing Cycle</Label>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Billing Cycle</Label>
                 <Select value={form.billing_cycle} onValueChange={(v) => setForm((f) => ({ ...f, billing_cycle: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="monthly">Monthly</SelectItem>
                     <SelectItem value="annual">Annual</SelectItem>
@@ -553,33 +547,33 @@ export default function VaultPage() {
                 </Select>
               </div>
               <div>
-                <Label>URL</Label>
-                <Input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="https://..." />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">URL</Label>
+                <Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="https://..." />
               </div>
               <div>
-                <Label>Login URL</Label>
-                <Input value={form.login_url} onChange={(e) => setForm((f) => ({ ...f, login_url: e.target.value }))} placeholder="https://..." />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Login URL</Label>
+                <Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.login_url} onChange={(e) => setForm((f) => ({ ...f, login_url: e.target.value }))} placeholder="https://..." />
               </div>
               <div>
-                <Label>Username</Label>
-                <Input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Username</Label>
+                <Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
               </div>
               <div>
-                <Label>Password</Label>
-                <Input type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Password</Label>
+                <Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
               </div>
               <div className="col-span-2">
-                <Label>API Keys</Label>
-                <Textarea value={form.api_keys} onChange={(e) => setForm((f) => ({ ...f, api_keys: e.target.value }))} rows={2} />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">API Keys</Label>
+                <Textarea className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.api_keys} onChange={(e) => setForm((f) => ({ ...f, api_keys: e.target.value }))} rows={2} />
               </div>
               <div>
-                <Label>Monthly Cost</Label>
-                <Input type="number" step="0.01" value={form.monthly_cost} onChange={(e) => setForm((f) => ({ ...f, monthly_cost: e.target.value }))} />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Monthly Cost</Label>
+                <Input className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" type="number" step="0.01" value={form.monthly_cost} onChange={(e) => setForm((f) => ({ ...f, monthly_cost: e.target.value }))} />
               </div>
               <div>
-                <Label>Currency</Label>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Currency</Label>
                 <Select value={form.cost_currency} onValueChange={(v) => setForm((f) => ({ ...f, cost_currency: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="USD">USD</SelectItem>
                     <SelectItem value="MXN">MXN</SelectItem>
@@ -587,13 +581,13 @@ export default function VaultPage() {
                 </Select>
               </div>
               <div className="col-span-2">
-                <Label>Notes</Label>
-                <Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label>
+                <Textarea className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
               </div>
             </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={!form.name}>Add Credential</Button>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" className="rounded-lg" onClick={() => setAddOpen(false)}>Cancel</Button>
+              <Button type="submit" className="rounded-lg bg-accent hover:bg-accent/90 text-white" disabled={!form.name}>Add Credential</Button>
             </div>
           </form>
         </DialogContent>

@@ -26,7 +26,7 @@ class Prospect(Base):
     estimated_plan: Mapped[str | None] = mapped_column(String(20), nullable=True)
     estimated_mrr: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     estimated_mrr_currency: Mapped[str] = mapped_column(String(3), default="MXN")
-    estimated_mrr_mxn: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    estimated_mrr_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_follow_up: Mapped[date | None] = mapped_column(Date, nullable=True)
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

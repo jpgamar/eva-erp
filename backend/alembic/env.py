@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -11,6 +12,10 @@ import src.models  # noqa: F401 — registers all models
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Use DATABASE_URL env var if set (production), otherwise fall back to alembic.ini
+if os.environ.get("DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
 target_metadata = Base.metadata
 

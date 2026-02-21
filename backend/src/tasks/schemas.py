@@ -5,6 +5,7 @@ import datetime as _dt
 from pydantic import BaseModel
 
 
+# Board schemas
 class BoardCreate(BaseModel):
     name: str
     description: str | None = None
@@ -15,26 +16,26 @@ class BoardUpdate(BaseModel):
     description: str | None = None
 
 
-class ColumnCreate(BaseModel):
+class BoardResponse(BaseModel):
+    id: uuid.UUID
     name: str
-    color: str = "#6b7280"
+    slug: str
+    description: str | None
+    created_by: uuid.UUID
+    created_at: _dt.datetime
+    model_config = {"from_attributes": True}
 
 
-class ColumnUpdate(BaseModel):
-    name: str | None = None
-    position: int | None = None
-    color: str | None = None
-
-
+# Task schemas
 class TaskCreate(BaseModel):
-    board_id: uuid.UUID
-    column_id: uuid.UUID
     title: str
     description: str | None = None
     assignee_id: uuid.UUID | None = None
     priority: str = "medium"
     due_date: _dt.date | None = None
     labels: list[str] | None = None
+    status: str = "todo"
+    board_id: uuid.UUID | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -44,11 +45,8 @@ class TaskUpdate(BaseModel):
     priority: str | None = None
     due_date: _dt.date | None = None
     labels: list[str] | None = None
-
-
-class TaskMove(BaseModel):
-    column_id: uuid.UUID
-    position: float
+    status: str | None = None
+    board_id: uuid.UUID | None = None
 
 
 class CommentCreate(BaseModel):
@@ -65,28 +63,16 @@ class CommentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ActivityResponse(BaseModel):
-    id: uuid.UUID
-    task_id: uuid.UUID
-    user_id: uuid.UUID
-    action: str
-    old_value: str | None
-    new_value: str | None
-    created_at: _dt.datetime
-    model_config = {"from_attributes": True}
-
-
 class TaskResponse(BaseModel):
     id: uuid.UUID
-    column_id: uuid.UUID
-    board_id: uuid.UUID
+    board_id: uuid.UUID | None
     title: str
     description: str | None
+    status: str
     assignee_id: uuid.UUID | None
     priority: str
     due_date: _dt.date | None
     labels: list[str] | None
-    position: float
     source_meeting_id: uuid.UUID | None
     created_by: uuid.UUID
     created_at: _dt.datetime
@@ -96,28 +82,3 @@ class TaskResponse(BaseModel):
 
 class TaskDetailResponse(TaskResponse):
     comments: list[CommentResponse] = []
-
-
-class ColumnResponse(BaseModel):
-    id: uuid.UUID
-    board_id: uuid.UUID
-    name: str
-    position: int
-    color: str
-    tasks: list[TaskResponse] = []
-    model_config = {"from_attributes": True}
-
-
-class BoardResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    description: str | None
-    position: int
-    created_by: uuid.UUID
-    created_at: _dt.datetime
-    model_config = {"from_attributes": True}
-
-
-class BoardDetailResponse(BoardResponse):
-    columns: list[ColumnResponse] = []

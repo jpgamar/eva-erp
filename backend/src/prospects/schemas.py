@@ -61,7 +61,7 @@ class ProspectResponse(BaseModel):
     estimated_plan: str | None
     estimated_mrr: Decimal | None
     estimated_mrr_currency: str
-    estimated_mrr_mxn: Decimal | None
+    estimated_mrr_usd: Decimal | None
     notes: str | None
     next_follow_up: _dt.date | None
     assigned_to: uuid.UUID | None
@@ -93,4 +93,4 @@ class InteractionResponse(BaseModel):
 class ProspectSummary(BaseModel):
     total: int
     by_status: dict[str, int]
-    total_estimated_pipeline_mxn: float
+    total_estimated_pipeline_usd: float

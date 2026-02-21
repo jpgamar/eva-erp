@@ -1,44 +1,105 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Plus, LayoutGrid, CheckSquare, Clock } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import {
+  Plus, Search, Send, MessageSquare, X, CalendarDays, Trash2,
+  FolderOpen,
+} from "lucide-react";
 import { toast } from "sonner";
-import { boardsApi } from "@/lib/api/tasks";
-import type { Board } from "@/types";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { tasksApi, boardsApi } from "@/lib/api/tasks";
+import type { Task, TaskDetail, Board } from "@/types";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+
+const STATUSES = ["todo", "in_progress", "done"] as const;
+
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  todo: { label: "To Do", color: "bg-gray-100 text-gray-600" },
+  in_progress: { label: "In Progress", color: "bg-blue-50 text-blue-700" },
+  done: { label: "Done", color: "bg-green-50 text-green-700" },
+};
+
+const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
+  low: { label: "Low", color: "bg-green-50 text-green-700" },
+  medium: { label: "Medium", color: "bg-amber-50 text-amber-700" },
+  high: { label: "High", color: "bg-red-50 text-red-700" },
+  urgent: { label: "Urgent", color: "bg-red-100 text-red-800" },
+};
 
 export default function TasksPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [boardFilter, setBoardFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  // Dialogs
   const [addOpen, setAddOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const [addBoardOpen, setAddBoardOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
+
+  // New task form
+  const [form, setForm] = useState({ title: "", description: "", priority: "medium", due_date: "", status: "todo", board_id: "" });
+
+  // New board form
+  const [boardForm, setBoardForm] = useState({ name: "", description: "" });
+
+  // Comment
+  const [newComment, setNewComment] = useState("");
 
   const fetchBoards = async () => {
+    try { setBoards(await boardsApi.list()); } catch { /* optional */ }
+  };
+
+  const fetchTasks = useCallback(async () => {
     try {
-      const data = await boardsApi.list();
-      setBoards(data);
+      const params: Record<string, string> = {};
+      if (statusFilter !== "all") params.status = statusFilter;
+      if (boardFilter) params.board_id = boardFilter;
+      setTasks(await tasksApi.list(params));
     } catch {
-      toast.error("Failed to load boards");
+      toast.error("Failed to load tasks");
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, boardFilter]);
 
   useEffect(() => { fetchBoards(); }, []);
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  const filtered = tasks.filter((t) =>
+    !search || t.title.toLowerCase().includes(search.toLowerCase())
+  );
 
   const handleCreate = async () => {
     try {
-      await boardsApi.create({ name, description: description || undefined });
+      await tasksApi.create({
+        title: form.title,
+        description: form.description || undefined,
+        priority: form.priority,
+        due_date: form.due_date || undefined,
+        status: form.status,
+        board_id: form.board_id || undefined,
+      });
       setAddOpen(false);
-      setName("");
-      setDescription("");
+      setForm({ title: "", description: "", priority: "medium", due_date: "", status: "todo", board_id: boardFilter ?? "" });
+      toast.success("Task created");
+      await fetchTasks();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to create task");
+    }
+  };
+
+  const handleCreateBoard = async () => {
+    try {
+      await boardsApi.create({ name: boardForm.name, description: boardForm.description || undefined });
+      setAddBoardOpen(false);
+      setBoardForm({ name: "", description: "" });
       toast.success("Board created");
       await fetchBoards();
     } catch (e: any) {
@@ -46,86 +107,569 @@ export default function TasksPage() {
     }
   };
 
+  const handleDeleteBoard = async (id: string) => {
+    try {
+      await boardsApi.delete(id);
+      if (boardFilter === id) setBoardFilter(null);
+      toast.success("Board deleted");
+      await Promise.all([fetchBoards(), fetchTasks()]);
+    } catch { toast.error("Failed to delete board"); }
+  };
+
+  const openDetail = async (id: string) => {
+    try {
+      setTaskDetail(await tasksApi.get(id));
+      setDetailOpen(true);
+    } catch { toast.error("Failed to load task"); }
+  };
+
+  const handleUpdate = async (field: string, value: any) => {
+    if (!taskDetail) return;
+    try {
+      const updated = await tasksApi.update(taskDetail.id, { [field]: value });
+      setTaskDetail((p) => (p ? { ...p, ...updated } : p));
+      await fetchTasks();
+    } catch { toast.error("Failed to update task"); }
+  };
+
+  const handleDelete = async () => {
+    if (!taskDetail) return;
+    try {
+      await tasksApi.delete(taskDetail.id);
+      setDetailOpen(false);
+      setTaskDetail(null);
+      toast.success("Task deleted");
+      await fetchTasks();
+    } catch { toast.error("Failed to delete task"); }
+  };
+
+  const handleAddComment = async () => {
+    if (!taskDetail || !newComment.trim()) return;
+    try {
+      const comment = await tasksApi.addComment(taskDetail.id, newComment);
+      setTaskDetail((p) => (p ? { ...p, comments: [...p.comments, comment] } : p));
+      setNewComment("");
+    } catch { toast.error("Failed to add comment"); }
+  };
+
+  const isOverdue = (d: string | null) => d ? new Date(d) < new Date(new Date().toISOString().split("T")[0]) : false;
+
+  const showBoardCol = !boardFilter && boards.length > 0;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        <div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Task Boards</h1>
-          <p className="text-muted-foreground text-sm">Organize work across Kanban boards</p>
-        </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> New Board
-        </Button>
-      </div>
-
-      {boards.length === 0 ? (
-        <Card className="text-center py-12">
-          <CardContent>
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
-              <LayoutGrid className="h-8 w-8 text-primary" />
-            </div>
-            <h2 className="text-lg font-semibold mb-1">No boards yet</h2>
-            <p className="text-muted-foreground text-sm mb-4">Create your first board to start organizing tasks.</p>
-            <Button onClick={() => setAddOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" /> Create Board
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="space-y-5 animate-erp-entrance">
+      {/* Board chips */}
+      {boards.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setBoardFilter(null)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all",
+              !boardFilter
+                ? "bg-accent text-white shadow-sm"
+                : "border border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+            )}
+          >
+            All
+          </button>
           {boards.map((board) => (
-            <Link key={board.id} href={`/tasks/${board.slug}`}>
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">{board.name}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                    {board.description || "No description"}
-                  </p>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {new Date(board.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
+            <div key={board.id} className="group relative">
+              <button
+                onClick={() => setBoardFilter(boardFilter === board.id ? null : board.id)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all",
+                  boardFilter === board.id
+                    ? "bg-accent text-white shadow-sm"
+                    : "border border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                )}
+              >
+                <FolderOpen className="h-3 w-3" />
+                {board.name}
+              </button>
+              <button
+                onClick={() => handleDeleteBoard(board.id)}
+                className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white group-hover:flex"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
           ))}
+          <button
+            onClick={() => setAddBoardOpen(true)}
+            className="flex items-center gap-1 rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600"
+          >
+            <Plus className="h-3 w-3" />
+            Board
+          </button>
         </div>
       )}
 
-      {/* Create Board Dialog */}
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search tasks..."
+              className="h-9 w-56 rounded-lg bg-gray-100 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted focus:bg-white focus:ring-2 focus:ring-accent/20"
+            />
+          </div>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setStatusFilter("all")}
+              className={cn(
+                "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                statusFilter === "all" ? "bg-gray-200 text-foreground" : "text-gray-400 hover:text-gray-600"
+              )}
+            >
+              All
+            </button>
+            {STATUSES.map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(statusFilter === s ? "all" : s)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  statusFilter === s ? STATUS_CONFIG[s].color : "text-gray-400 hover:text-gray-600"
+                )}
+              >
+                {STATUS_CONFIG[s].label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button
+          onClick={() => { setForm((f) => ({ ...f, board_id: boardFilter ?? "" })); setAddOpen(true); }}
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98]"
+        >
+          <Plus className="h-4 w-4" />
+          New Task
+        </button>
+      </div>
+
+      {/* Task Table */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-gray-50/80">
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[100px]">Status</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Task</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[90px]">Priority</TableHead>
+              {showBoardCol && (
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[120px]">Board</TableHead>
+              )}
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[100px]">Due</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={showBoardCol ? 5 : 4} className="text-center text-muted py-12">
+                  No tasks yet.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((task) => {
+                const sCfg = STATUS_CONFIG[task.status];
+                const pCfg = PRIORITY_CONFIG[task.priority];
+                const overdue = isOverdue(task.due_date) && task.status !== "done";
+                const board = boards.find((b) => b.id === task.board_id);
+                return (
+                  <TableRow
+                    key={task.id}
+                    className="cursor-pointer transition-colors hover:bg-gray-50/60"
+                    onClick={() => openDetail(task.id)}
+                  >
+                    <TableCell>
+                      <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-medium", sCfg?.color)}>
+                        {sCfg?.label}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-medium text-foreground">{task.title}</TableCell>
+                    <TableCell>
+                      <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-medium", pCfg?.color)}>
+                        {pCfg?.label}
+                      </span>
+                    </TableCell>
+                    {showBoardCol && (
+                      <TableCell>
+                        {board ? (
+                          <span className="text-xs text-muted-foreground">{board.name}</span>
+                        ) : (
+                          <span className="text-xs text-gray-300">&mdash;</span>
+                        )}
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      {task.due_date ? (
+                        <span className={cn("flex items-center gap-1 text-xs", overdue ? "font-medium text-red-600" : "text-muted-foreground")}>
+                          <CalendarDays className="h-3 w-3" />
+                          {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-300">&mdash;</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* ── New Task Dialog ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Board</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-4">
+        <DialogContent className="max-w-md overflow-hidden rounded-xl p-0">
+          <DialogHeader className="sr-only"><DialogTitle>New Task</DialogTitle></DialogHeader>
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <h2 className="text-sm font-bold text-foreground">New Task</h2>
+            <p className="text-xs text-muted mt-0.5">What needs to be done?</p>
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-4 px-6 pb-6 pt-5">
             <div>
-              <Label>Board Name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Product Development" autoFocus required />
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Title *</label>
+              <input
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Review pull request"
+                autoFocus
+                required
+                className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all placeholder:text-gray-300 focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+              />
             </div>
             <div>
-              <Label>Description</Label>
-              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this board for?" rows={3} />
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Description</label>
+              <Textarea
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Add details..."
+                rows={2}
+                className="rounded-lg border-gray-200 bg-gray-50/80 text-sm placeholder:text-gray-300"
+              />
             </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={!name.trim()}>Create Board</Button>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {STATUSES.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, status: s }))}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                        form.status === s ? STATUS_CONFIG[s].color : "border border-gray-200 text-gray-400 hover:border-gray-300"
+                      )}
+                    >
+                      {STATUS_CONFIG[s].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Priority</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(["low", "medium", "high", "urgent"] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, priority: p }))}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                        form.priority === p ? PRIORITY_CONFIG[p].color : "border border-gray-200 text-gray-400 hover:border-gray-300"
+                      )}
+                    >
+                      {PRIORITY_CONFIG[p].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Due Date</label>
+                <input
+                  type="date"
+                  value={form.due_date}
+                  onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
+                  className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+                />
+              </div>
+              {boards.length > 0 && (
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Board</label>
+                  <select
+                    value={form.board_id}
+                    onChange={(e) => setForm((f) => ({ ...f, board_id: e.target.value }))}
+                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+                  >
+                    <option value="">No board</option>
+                    {boards.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setAddOpen(false)} className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-foreground">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!form.title.trim()}
+                className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-5 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40"
+              >
+                Create
+              </button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* ── New Board Dialog ── */}
+      <Dialog open={addBoardOpen} onOpenChange={setAddBoardOpen}>
+        <DialogContent className="max-w-sm overflow-hidden rounded-xl p-0">
+          <DialogHeader className="sr-only"><DialogTitle>New Board</DialogTitle></DialogHeader>
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <h2 className="text-sm font-bold text-foreground">New Board</h2>
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreateBoard(); }} className="space-y-4 px-6 pb-6 pt-5">
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Name *</label>
+              <input
+                value={boardForm.name}
+                onChange={(e) => setBoardForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Product Development"
+                autoFocus
+                required
+                className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all placeholder:text-gray-300 focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Description</label>
+              <input
+                value={boardForm.description}
+                onChange={(e) => setBoardForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Optional..."
+                className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all placeholder:text-gray-300 focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setAddBoardOpen(false)} className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-foreground">
+                Cancel
+              </button>
+              <button type="submit" disabled={!boardForm.name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-5 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40">
+                Create
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Task Detail Sheet ── */}
+      <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
+        <SheetContent className="w-[480px] sm:w-[520px] overflow-y-auto border-l border-border p-0">
+          <SheetTitle className="sr-only">Task Details</SheetTitle>
+          {taskDetail && (
+            <div className="flex h-full flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-border bg-gray-50/80 px-6 py-4">
+                <div className="flex-1 min-w-0 mr-3">
+                  <input
+                    value={taskDetail.title}
+                    onChange={(e) => setTaskDetail((p) => p ? { ...p, title: e.target.value } : p)}
+                    onBlur={(e) => handleUpdate("title", e.target.value)}
+                    className="w-full bg-transparent text-base font-bold text-foreground outline-none"
+                  />
+                </div>
+                <button
+                  onClick={() => setDetailOpen(false)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-gray-200 hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 px-6 py-5 space-y-5">
+                {/* Status */}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Status</label>
+                  <div className="flex gap-1.5">
+                    {STATUSES.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => { setTaskDetail((p) => p ? { ...p, status: s } : p); handleUpdate("status", s); }}
+                        className={cn(
+                          "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                          taskDetail.status === s ? STATUS_CONFIG[s].color : "border border-gray-200 text-gray-400 hover:border-gray-300"
+                        )}
+                      >
+                        {STATUS_CONFIG[s].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Priority */}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Priority</label>
+                  <div className="flex gap-1.5">
+                    {(["low", "medium", "high", "urgent"] as const).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => handleUpdate("priority", p)}
+                        className={cn(
+                          "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                          taskDetail.priority === p ? PRIORITY_CONFIG[p].color : "border border-gray-200 text-gray-400 hover:border-gray-300"
+                        )}
+                      >
+                        {PRIORITY_CONFIG[p].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Due date + Board */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Due Date</label>
+                    <input
+                      type="date"
+                      value={taskDetail.due_date ?? ""}
+                      onChange={(e) => handleUpdate("due_date", e.target.value || null)}
+                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+                    />
+                  </div>
+                  {boards.length > 0 && (
+                    <div>
+                      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Board</label>
+                      <select
+                        value={taskDetail.board_id ?? ""}
+                        onChange={(e) => handleUpdate("board_id", e.target.value || null)}
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+                      >
+                        <option value="">No board</option>
+                        {boards.map((b) => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Description</label>
+                  <Textarea
+                    value={taskDetail.description ?? ""}
+                    onChange={(e) => setTaskDetail((p) => p ? { ...p, description: e.target.value } : p)}
+                    onBlur={(e) => handleUpdate("description", e.target.value || null)}
+                    rows={3}
+                    placeholder="Add a description..."
+                    className="rounded-lg border-gray-200 bg-gray-50/80 text-sm placeholder:text-gray-300"
+                  />
+                </div>
+
+                {/* Labels */}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Labels</label>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {taskDetail.labels?.map((label) => (
+                      <span
+                        key={label}
+                        onClick={() => handleUpdate("labels", taskDetail.labels?.filter((l) => l !== label) ?? [])}
+                        className="flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 cursor-pointer hover:bg-red-50 hover:text-red-600 transition-colors"
+                      >
+                        {label} <X className="h-2.5 w-2.5" />
+                      </span>
+                    ))}
+                    <input
+                      placeholder="Add label..."
+                      className="h-6 w-20 rounded bg-transparent text-xs outline-none placeholder:text-gray-300"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                          handleUpdate("labels", [...(taskDetail.labels ?? []), (e.target as HTMLInputElement).value.trim()]);
+                          (e.target as HTMLInputElement).value = "";
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Comments */}
+                <div className="border-t border-border pt-5">
+                  <h4 className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    <MessageSquare className="h-3.5 w-3.5" /> Comments ({taskDetail.comments.length})
+                  </h4>
+                  <div className="space-y-2.5 mb-3">
+                    {taskDetail.comments.map((c) => (
+                      <div key={c.id} className="rounded-lg bg-gray-50 p-3">
+                        <p className="text-sm text-foreground">{c.content}</p>
+                        <p className="mt-1 text-[10px] text-muted">
+                          {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <form onSubmit={(e) => { e.preventDefault(); handleAddComment(); }} className="flex gap-2">
+                    <input
+                      placeholder="Add a comment..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      className="h-9 flex-1 rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all placeholder:text-gray-300 focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!newComment.trim()}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-all hover:opacity-90 disabled:opacity-40"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-border px-6 py-4">
+                <button
+                  onClick={handleDelete}
+                  className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-red-200 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 active:scale-[0.98]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Task
+                </button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Empty state — show when no boards exist */}
+      {boards.length === 0 && (
+        <div className="text-center py-2">
+          <button
+            onClick={() => setAddBoardOpen(true)}
+            className="text-xs text-gray-400 hover:text-accent transition-colors"
+          >
+            + Create your first board to organize tasks
+          </button>
+        </div>
+      )}
     </div>
   );
 }

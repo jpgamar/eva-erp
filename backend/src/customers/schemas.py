@@ -11,6 +11,12 @@ class CustomerCreate(BaseModel):
     contact_name: str
     contact_email: str | None = None
     contact_phone: str | None = None
+    legal_name: str | None = None
+    rfc: str | None = None
+    tax_regime: str | None = None
+    fiscal_zip: str | None = None
+    default_cfdi_use: str | None = None
+    fiscal_email: str | None = None
     industry: str | None = None
     website: str | None = None
     plan_tier: str | None = None
@@ -29,6 +35,12 @@ class CustomerUpdate(BaseModel):
     contact_name: str | None = None
     contact_email: str | None = None
     contact_phone: str | None = None
+    legal_name: str | None = None
+    rfc: str | None = None
+    tax_regime: str | None = None
+    fiscal_zip: str | None = None
+    default_cfdi_use: str | None = None
+    fiscal_email: str | None = None
     industry: str | None = None
     website: str | None = None
     plan_tier: str | None = None
@@ -49,12 +61,18 @@ class CustomerResponse(BaseModel):
     contact_name: str
     contact_email: str | None
     contact_phone: str | None
+    legal_name: str | None
+    rfc: str | None
+    tax_regime: str | None
+    fiscal_zip: str | None
+    default_cfdi_use: str | None
+    fiscal_email: str | None
     industry: str | None
     website: str | None
     plan_tier: str | None
     mrr: Decimal | None
     mrr_currency: str
-    mrr_mxn: Decimal | None
+    mrr_usd: Decimal | None
     arr: Decimal | None
     billing_interval: str | None
     signup_date: _dt.date | None
@@ -63,7 +81,7 @@ class CustomerResponse(BaseModel):
     churn_reason: str | None
     stripe_customer_id: str | None
     lifetime_value: Decimal | None
-    lifetime_value_mxn: Decimal | None
+    lifetime_value_usd: Decimal | None
     referral_source: str | None
     notes: str | None
     tags: list[str] | None
@@ -75,6 +93,6 @@ class CustomerResponse(BaseModel):
 class CustomerSummary(BaseModel):
     total_customers: int
     active_customers: int
-    mrr_mxn: float
-    arpu_mxn: float
+    mrr_usd: float
+    arpu_usd: float
     churn_rate_pct: float
