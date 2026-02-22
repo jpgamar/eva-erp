@@ -144,8 +144,8 @@ export default function DashboardPage() {
             <Link href="/finances" className="group flex">
               <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full">
                 <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-500" />
-                <div className="p-5">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
                         <Wallet className="h-4 w-4 text-emerald-600" />
@@ -185,7 +185,7 @@ export default function DashboardPage() {
 
                   {/* Expense breakdown stacked bar */}
                   {allExpenses.length > 0 && (
-                    <div className="pt-3.5 mt-3 border-t border-border/50">
+                    <div className="pt-4 mt-4 border-t border-border/50">
                       <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Expense Breakdown</p>
                       <div className="h-3 rounded-full overflow-hidden flex">
                         {allExpenses.map(([cat, amount]) => (
@@ -227,8 +227,8 @@ export default function DashboardPage() {
             <Link href="/prospects" className="group flex">
               <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full">
                 <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500" />
-                <div className="p-5">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">
                         <Target className="h-4 w-4 text-indigo-600" />
@@ -239,14 +239,14 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Pipeline hero number */}
-                  <div className="text-center mb-3">
+                  <div className="text-center mb-4">
                     <p className="font-mono text-3xl font-bold text-foreground">{data.prospect_total}</p>
                     <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">In Pipeline</p>
                   </div>
 
                   {/* Status funnel bars */}
                   {statusEntries.length > 0 && (
-                    <div className="space-y-1.5 mb-3">
+                    <div className="space-y-2 mb-4">
                       {statusEntries.slice(0, 4).map(([status, count]) => (
                         <div key={status} className="flex items-center gap-2">
                           <span className="text-[10px] text-muted w-16 truncate capitalize">{status}</span>
@@ -263,7 +263,7 @@ export default function DashboardPage() {
                   )}
 
                   {/* Urgency segmented bar */}
-                  <div className="pt-3 mt-3 border-t border-border/50">
+                  <div className="pt-4 mt-4 border-t border-border/50">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Urgency</p>
                     <div className="h-3 rounded-full overflow-hidden flex">
                       {urgent > 0 && <div className="h-full bg-red-500" style={{ width: `${(urgent / urgTotal) * 100}%` }} />}
@@ -291,9 +291,9 @@ export default function DashboardPage() {
           return (
             <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
               <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500" />
-              <div className="p-5">
+              <div className="p-6">
                 <Link href="/tasks" className="group">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50">
                         <CheckSquare className="h-4 w-4 text-sky-600" />
@@ -305,7 +305,7 @@ export default function DashboardPage() {
                 </Link>
 
                 {/* Ring chart + stats */}
-                <div className="flex items-center gap-4 mb-3">
+                <div className="flex items-center gap-4 mb-4">
                   <div className="relative h-[76px] w-[76px] shrink-0">
                     <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
                       <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" className="text-muted/15" strokeWidth="7" />
@@ -337,7 +337,7 @@ export default function DashboardPage() {
 
                 {/* Active task list */}
                 {data.recent_tasks.length > 0 && (
-                  <div className="pt-3 mt-3 border-t border-border/50">
+                  <div className="pt-4 mt-4 border-t border-border/50">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Active Tasks</p>
                     {data.recent_tasks.map((task) => (
                       <div key={task.id} className="flex items-center gap-2 py-1">
@@ -380,9 +380,9 @@ export default function DashboardPage() {
           return (
             <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
               <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
-              <div className="p-5">
+              <div className="p-6">
                 <Link href="/vault" className="group">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
                         <Lock className="h-4 w-4 text-amber-600" />
@@ -394,7 +394,7 @@ export default function DashboardPage() {
                 </Link>
 
                 {/* Hero cost + services badge */}
-                <div className="text-center mb-3">
+                <div className="text-center mb-4">
                   <p className="font-mono text-2xl font-bold text-foreground">{fmt(data.vault_combined_usd)}</p>
                   <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">Monthly Cost</p>
                   <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/60">
@@ -405,7 +405,7 @@ export default function DashboardPage() {
 
                 {/* Category horizontal bars */}
                 {topVaultCats.length > 0 && (
-                  <div className="pt-3 mt-3 border-t border-border/50">
+                  <div className="pt-4 mt-4 border-t border-border/50">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2.5">Cost by Category</p>
                     <div className="space-y-2.5">
                       {topVaultCats.map(([cat, amount]) => (
