@@ -13,8 +13,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
+const TABS = [
+  { key: "active", label: "Active Accounts" },
+  { key: "drafts", label: "Draft Accounts" },
+];
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
@@ -207,15 +212,27 @@ export default function EvaCustomersPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="active">Active Accounts</TabsTrigger>
-          <TabsTrigger value="drafts">Draft Accounts</TabsTrigger>
-        </TabsList>
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "rounded-md px-4 py-2 text-sm font-medium transition-colors",
+              tab === t.key
+                ? "bg-accent text-white shadow-sm"
+                : "text-muted hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* Active Accounts Tab */}
-        <TabsContent value="active" className="space-y-4">
+      {/* Active Accounts */}
+      {tab === "active" && (
+        <div className="space-y-4">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
             <input
@@ -261,9 +278,17 @@ export default function EvaCustomersPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge className={`rounded-full text-xs ${a.is_active ? STATUS_COLORS.active : STATUS_COLORS.inactive}`}>
-                          {a.is_active ? "active" : "inactive"}
-                        </Badge>
+                        {a.is_active ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs">
+                            <span className="h-2 w-2 rounded-full bg-green-500" />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="h-2 w-2 rounded-full bg-red-500" />
+                            Inactive
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm">
                         {new Date(a.created_at).toLocaleDateString()}
@@ -274,10 +299,12 @@ export default function EvaCustomersPage() {
               </TableBody>
             </Table>
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        {/* Draft Accounts Tab */}
-        <TabsContent value="drafts" className="space-y-4">
+      {/* Draft Accounts */}
+      {tab === "drafts" && (
+        <div className="space-y-4">
           <div className="overflow-hidden rounded-xl border border-border bg-card">
             <Table>
               <TableHeader>
@@ -351,8 +378,8 @@ export default function EvaCustomersPage() {
               </TableBody>
             </Table>
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
 
       {/* New Account Dialog */}
       <Dialog open={addAccountOpen} onOpenChange={setAddAccountOpen}>
