@@ -281,6 +281,128 @@ export interface OKRPeriod {
   created_at: string;
 }
 
+// Eva Platform
+export interface EvaAccount {
+  id: string;
+  name: string;
+  owner_user_id: string;
+  account_type: string;
+  partner_id: string | null;
+  plan_tier: string | null;
+  billing_interval: string | null;
+  subscription_status: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountDraft {
+  id: string;
+  name: string;
+  account_type: string;
+  owner_email: string;
+  owner_name: string;
+  partner_id: string | null;
+  plan_tier: string;
+  billing_cycle: string;
+  facturapi_org_api_key: string | null;
+  notes: string | null;
+  status: string;
+  prospect_id: string | null;
+  provisioned_account_id: string | null;
+  created_by: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MonitoringOverview {
+  open_critical: number;
+  open_high: number;
+  total_open: number;
+  resolved_today: number;
+}
+
+export interface MonitoringIssue {
+  id: string;
+  fingerprint: string;
+  source: string;
+  category: string;
+  severity: string;
+  status: string;
+  title: string;
+  summary: string | null;
+  occurrences: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+}
+
+export interface MonitoringCheck {
+  id: string;
+  check_key: string;
+  service: string;
+  target: string;
+  status: string;
+  http_status: number | null;
+  latency_ms: number | null;
+  error_message: string | null;
+  checked_at: string;
+}
+
+export interface EvaPartner {
+  id: string;
+  name: string;
+  slug: string;
+  brand_name: string | null;
+  type: string;
+  is_active: boolean;
+  contact_email: string | null;
+  deal_count: number;
+  account_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EvaPartnerDetail extends EvaPartner {
+  logo_url: string | null;
+  primary_color: string | null;
+  custom_domain: string | null;
+  won_deals: number;
+  accounts: EvaAccount[];
+  deals: PartnerDeal[];
+}
+
+export interface PartnerDeal {
+  id: string;
+  partner_id: string | null;
+  company_name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  stage: string;
+  plan_tier: string;
+  billing_cycle: string;
+  won_at: string | null;
+  lost_at: string | null;
+  lost_reason: string | null;
+  linked_account_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformDashboard {
+  active_accounts: number;
+  total_accounts: number;
+  active_partners: number;
+  open_issues: number;
+  critical_issues: number;
+  draft_accounts_pending: number;
+}
+
 // Assistant
 export interface AssistantMessage {
   role: "user" | "assistant";

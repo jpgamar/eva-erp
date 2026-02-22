@@ -10,6 +10,8 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db
 from src.customers.models import Customer
+from src.eva_platform.drafts.models import AccountDraft
+from src.eva_platform.schemas import AccountDraftCreate, AccountDraftResponse
 from src.prospects.models import Prospect, ProspectInteraction
 from src.prospects.schemas import (
     InteractionCreate, InteractionResponse, ProspectCreate,
@@ -199,3 +201,42 @@ async def convert_to_customer(
     prospect.converted_to_customer_id = customer.id
     db.add(prospect)
     return prospect
+
+
+@router.post("/{prospect_id}/create-draft", response_model=AccountDraftResponse, status_code=201)
+async def create_draft_from_prospect(
+    prospect_id: uuid.UUID,
+    data: AccountDraftCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create an account draft linked to a won prospect."""
+    result = await db.execute(select(Prospect).where(Prospect.id == prospect_id))
+    prospect = result.scalar_one_or_none()
+    if not prospect:
+        raise HTTPException(status_code=404, detail="Prospect not found")
+    if prospect.status != "won":
+        raise HTTPException(status_code=400, detail="Prospect must be in 'won' status")
+    if prospect.converted_to_draft_id:
+        raise HTTPException(status_code=400, detail="Prospect already has a draft")
+
+    draft = AccountDraft(
+        name=data.name,
+        account_type=data.account_type,
+        owner_email=data.owner_email,
+        owner_name=data.owner_name,
+        partner_id=data.partner_id,
+        plan_tier=data.plan_tier,
+        billing_cycle=data.billing_cycle,
+        facturapi_org_api_key=data.facturapi_org_api_key,
+        notes=data.notes,
+        prospect_id=prospect.id,
+        created_by=user.id,
+    )
+    db.add(draft)
+    await db.flush()
+
+    prospect.converted_to_draft_id = draft.id
+    db.add(prospect)
+    await db.refresh(draft)
+    return draft

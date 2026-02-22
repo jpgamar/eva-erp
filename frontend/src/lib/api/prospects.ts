@@ -11,4 +11,5 @@ export const prospectsApi = {
   addInteraction: (id: string, data: any) => api.post(`/prospects/${id}/interactions`, data).then(r => r.data),
   listInteractions: (id: string) => api.get(`/prospects/${id}/interactions`).then(r => r.data),
   convert: (id: string) => api.post(`/prospects/${id}/convert`).then(r => r.data),
+  createDraft: (id: string, data: any) => api.post(`/prospects/${id}/create-draft`, data).then(r => r.data),
 };

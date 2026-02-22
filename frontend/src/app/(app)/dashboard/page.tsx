@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import {
   TrendingUp, TrendingDown, Users, DollarSign,
   ArrowUpRight, Wallet, Target, Lock, CheckSquare,
+  Building2, Activity, Handshake, AlertTriangle, FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
+import { evaPlatformApi } from "@/lib/api/eva-platform";
+import type { PlatformDashboard } from "@/types";
 
 function fmt(amount: number | null | undefined, currency = "USD") {
   if (amount == null) return "\u2014";
@@ -44,11 +47,15 @@ const EXPENSE_COLORS: Record<string, string> = {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [platform, setPlatform] = useState<PlatformDashboard | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    dashboardApi.summary()
-      .then(setData)
+    Promise.all([
+      dashboardApi.summary(),
+      evaPlatformApi.dashboard().catch(() => null),
+    ])
+      .then(([d, p]) => { setData(d); setPlatform(p); })
       .catch(() => toast.error("Failed to load dashboard data"))
       .finally(() => setLoading(false));
   }, []);
@@ -364,7 +371,7 @@ export default function DashboardPage() {
           );
         })()}
 
-        {/* Vault */}
+        {/* Vault / Eva Platform */}
         {(() => {
           const vaultMax = topVaultCats.length > 0 ? topVaultCats[0][1] : 1;
           const VAULT_CAT_COLORS: Record<string, string> = {
@@ -430,6 +437,94 @@ export default function DashboardPage() {
           );
         })()}
       </div>
+
+      {/* ── Eva Platform ─────────────────────────────── */}
+      {platform && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Link href="/eva-customers" className="group">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+              <div className="h-1 bg-gradient-to-r from-violet-400 to-violet-500" />
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50">
+                      <Building2 className="h-4 w-4 text-violet-600" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">Accounts</p>
+                  </div>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </div>
+                <p className="font-mono text-2xl font-bold text-foreground">{platform.active_accounts}</p>
+                <p className="text-[10px] text-muted mt-0.5">{platform.total_accounts} total</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link href="/partners" className="group">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+              <div className="h-1 bg-gradient-to-r from-teal-400 to-teal-500" />
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50">
+                      <Handshake className="h-4 w-4 text-teal-600" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">Partners</p>
+                  </div>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </div>
+                <p className="font-mono text-2xl font-bold text-foreground">{platform.active_partners}</p>
+                <p className="text-[10px] text-muted mt-0.5">active partners</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link href="/monitoring" className="group">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+              <div className={`h-1 bg-gradient-to-r ${platform.critical_issues > 0 ? "from-red-400 to-red-500" : "from-green-400 to-green-500"}`} />
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${platform.critical_issues > 0 ? "bg-red-50" : "bg-green-50"}`}>
+                      {platform.critical_issues > 0
+                        ? <AlertTriangle className="h-4 w-4 text-red-600" />
+                        : <Activity className="h-4 w-4 text-green-600" />}
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">Issues</p>
+                  </div>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </div>
+                <p className={`font-mono text-2xl font-bold ${platform.critical_issues > 0 ? "text-red-600" : "text-foreground"}`}>{platform.open_issues}</p>
+                {platform.critical_issues > 0 && (
+                  <p className="text-[10px] text-red-600 font-medium mt-0.5">{platform.critical_issues} critical</p>
+                )}
+                {platform.critical_issues === 0 && (
+                  <p className="text-[10px] text-green-600 mt-0.5">All clear</p>
+                )}
+              </div>
+            </div>
+          </Link>
+
+          <Link href="/eva-customers" className="group">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+              <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
+                      <FileText className="h-4 w-4 text-amber-600" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">Pending Drafts</p>
+                  </div>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </div>
+                <p className="font-mono text-2xl font-bold text-foreground">{platform.draft_accounts_pending}</p>
+                <p className="text-[10px] text-muted mt-0.5">awaiting approval</p>
+              </div>
+            </div>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

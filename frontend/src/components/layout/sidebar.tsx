@@ -17,6 +17,9 @@ import {
   ChevronsRight,
   UsersRound,
   FileText,
+  Activity,
+  Building2,
+  Handshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -72,7 +75,20 @@ const navGroups: NavGroup[] = [
     group: "Strategy",
     items: [
       { label: "OKRs", icon: Trophy, href: "/okrs", phase: 6 },
-      { label: "Eva", icon: OwlIcon, href: "/assistant", phase: 7 },
+      { label: "Eva AI", icon: OwlIcon, href: "/assistant", phase: 7 },
+    ],
+  },
+  {
+    group: "Eva Platform",
+    items: [
+      { label: "Eva Customers", icon: Building2, href: "/eva-customers", phase: 8 },
+      { label: "Monitoring", icon: Activity, href: "/monitoring", phase: 8 },
+    ],
+  },
+  {
+    group: "Partners",
+    items: [
+      { label: "Partners", icon: Handshake, href: "/partners", phase: 8 },
     ],
   },
   {
@@ -84,7 +100,7 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-const CURRENT_PHASE = 7;
+const CURRENT_PHASE = 8;
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();

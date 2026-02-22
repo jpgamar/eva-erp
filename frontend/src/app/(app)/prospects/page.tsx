@@ -14,7 +14,10 @@ import { useAuth } from "@/lib/auth/context";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { KanbanBoard } from "@/components/kanban/kanban-board";
@@ -161,6 +164,16 @@ export default function ProspectsPage() {
   const [editStep, setEditStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // Draft account dialog (shown when prospect status changes to "won")
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftProspect, setDraftProspect] = useState<Prospect | null>(null);
+  const [draftForm, setDraftForm] = useState({
+    name: "", owner_email: "", owner_name: "",
+    account_type: "COMMERCE", plan_tier: "starter", billing_cycle: "monthly",
+    notes: "",
+  });
+  const [creatingDraft, setCreatingDraft] = useState(false);
+
   const fetchData = useCallback(async () => {
     try {
       const [list, sum] = await Promise.all([
@@ -215,6 +228,8 @@ export default function ProspectsPage() {
   const handleSave = async () => {
     if (!detail || !editForm) return;
     setSaving(true);
+    const wasWon = detail.status === "won";
+    const nowWon = editForm.status === "won";
     try {
       const updated = await prospectsApi.update(detail.id, {
         company_name: editForm.company_name,
@@ -230,10 +245,48 @@ export default function ProspectsPage() {
       toast.success("Prospect updated");
       setDetailOpen(false);
       await fetchData();
+
+      // If status just changed to "won", offer to create a draft account
+      if (!wasWon && nowWon) {
+        setDraftProspect(updated);
+        setDraftForm({
+          name: updated.company_name,
+          owner_email: updated.contact_email || "",
+          owner_name: updated.contact_name,
+          account_type: "COMMERCE",
+          plan_tier: "starter",
+          billing_cycle: "monthly",
+          notes: "",
+        });
+        setDraftOpen(true);
+      }
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed to update");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateDraft = async () => {
+    if (!draftProspect) return;
+    setCreatingDraft(true);
+    try {
+      await prospectsApi.createDraft(draftProspect.id, {
+        name: draftForm.name,
+        owner_email: draftForm.owner_email,
+        owner_name: draftForm.owner_name,
+        account_type: draftForm.account_type,
+        plan_tier: draftForm.plan_tier,
+        billing_cycle: draftForm.billing_cycle,
+        notes: draftForm.notes || null,
+      });
+      toast.success("Draft account created — go to Eva Customers to approve it");
+      setDraftOpen(false);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to create draft");
+    } finally {
+      setCreatingDraft(false);
     }
   };
 
@@ -822,6 +875,107 @@ export default function ProspectsPage() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---------- Create Draft Account Dialog (after winning) ---------- */}
+      <Dialog open={draftOpen} onOpenChange={setDraftOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-foreground">Create Draft Account</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted">
+              This prospect was marked as won. Create a draft account to provision later.
+            </p>
+          </div>
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleCreateDraft(); }}
+            className="space-y-3 px-6 py-4"
+          >
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Account Name *</Label>
+              <Input
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={draftForm.name}
+                onChange={(e) => setDraftForm(f => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Owner Email *</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  type="email"
+                  value={draftForm.owner_email}
+                  onChange={(e) => setDraftForm(f => ({ ...f, owner_email: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Owner Name *</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  value={draftForm.owner_name}
+                  onChange={(e) => setDraftForm(f => ({ ...f, owner_name: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Account Type *</Label>
+                <Select value={draftForm.account_type} onValueChange={(v) => setDraftForm(f => ({ ...f, account_type: v }))}>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COMMERCE">Commerce</SelectItem>
+                    <SelectItem value="PROPERTY_MANAGEMENT">Property Management</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Plan Tier *</Label>
+                <Select value={draftForm.plan_tier} onValueChange={(v) => setDraftForm(f => ({ ...f, plan_tier: v }))}>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="starter">Starter</SelectItem>
+                    <SelectItem value="standard">Standard</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Billing Cycle *</Label>
+              <Select value={draftForm.billing_cycle} onValueChange={(v) => setDraftForm(f => ({ ...f, billing_cycle: v }))}>
+                <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="yearly">Yearly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label>
+              <Textarea
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={draftForm.notes}
+                onChange={(e) => setDraftForm(f => ({ ...f, notes: e.target.value }))}
+                rows={2}
+                placeholder="Optional notes..."
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" className="rounded-lg" onClick={() => setDraftOpen(false)}>
+                Skip
+              </Button>
+              <Button type="submit" className="rounded-lg bg-accent hover:bg-accent/90 text-white" disabled={creatingDraft}>
+                {creatingDraft ? "Creating..." : "Create Draft"}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

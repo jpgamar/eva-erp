@@ -1,0 +1,86 @@
+import api from "./client";
+import type {
+  EvaAccount,
+  AccountDraft,
+  MonitoringOverview,
+  MonitoringIssue,
+  MonitoringCheck,
+  EvaPartner,
+  EvaPartnerDetail,
+  PartnerDeal,
+  PlatformDashboard,
+} from "@/types";
+
+export const evaPlatformApi = {
+  // Accounts
+  listAccounts: (params?: { search?: string; partner_id?: string }): Promise<EvaAccount[]> =>
+    api.get("/eva-platform/accounts", { params }).then((r) => r.data),
+  getAccount: (id: string): Promise<EvaAccount> =>
+    api.get(`/eva-platform/accounts/${id}`).then((r) => r.data),
+  createAccount: (data: any): Promise<EvaAccount> =>
+    api.post("/eva-platform/accounts", data).then((r) => r.data),
+
+  // Drafts
+  listDrafts: (params?: { status?: string }): Promise<AccountDraft[]> =>
+    api.get("/eva-platform/drafts", { params }).then((r) => r.data),
+  createDraft: (data: any): Promise<AccountDraft> =>
+    api.post("/eva-platform/drafts", data).then((r) => r.data),
+  updateDraft: (id: string, data: any): Promise<AccountDraft> =>
+    api.patch(`/eva-platform/drafts/${id}`, data).then((r) => r.data),
+  approveDraft: (id: string): Promise<AccountDraft> =>
+    api.post(`/eva-platform/drafts/${id}/approve`).then((r) => r.data),
+  deleteDraft: (id: string): Promise<void> =>
+    api.delete(`/eva-platform/drafts/${id}`).then((r) => r.data),
+
+  // Monitoring
+  monitoringOverview: (): Promise<MonitoringOverview> =>
+    api.get("/eva-platform/monitoring/overview").then((r) => r.data),
+  listIssues: (params?: { status?: string; severity?: string }): Promise<MonitoringIssue[]> =>
+    api.get("/eva-platform/monitoring/issues", { params }).then((r) => r.data),
+  listChecks: (params?: { service?: string }): Promise<MonitoringCheck[]> =>
+    api.get("/eva-platform/monitoring/checks", { params }).then((r) => r.data),
+  acknowledgeIssue: (id: string): Promise<MonitoringIssue> =>
+    api.post(`/eva-platform/monitoring/issues/${id}/acknowledge`).then((r) => r.data),
+  resolveIssue: (id: string): Promise<MonitoringIssue> =>
+    api.post(`/eva-platform/monitoring/issues/${id}/resolve`).then((r) => r.data),
+
+  // Partners
+  listPartners: (params?: { search?: string; type?: string }): Promise<EvaPartner[]> =>
+    api.get("/eva-platform/partners", { params }).then((r) => r.data),
+  createPartner: (data: any): Promise<EvaPartnerDetail> =>
+    api.post("/eva-platform/partners", data).then((r) => r.data),
+  getPartner: (id: string): Promise<EvaPartnerDetail> =>
+    api.get(`/eva-platform/partners/${id}`).then((r) => r.data),
+  updatePartner: (id: string, data: any): Promise<EvaPartner> =>
+    api.patch(`/eva-platform/partners/${id}`, data).then((r) => r.data),
+  deactivatePartner: (id: string): Promise<void> =>
+    api.delete(`/eva-platform/partners/${id}`).then((r) => r.data),
+
+  // Deals
+  listDeals: (params?: { partner_id?: string; stage?: string }): Promise<PartnerDeal[]> =>
+    api.get("/eva-platform/deals", { params }).then((r) => r.data),
+  createDeal: (data: any): Promise<PartnerDeal> =>
+    api.post("/eva-platform/deals", data).then((r) => r.data),
+  updateDeal: (id: string, data: any): Promise<PartnerDeal> =>
+    api.patch(`/eva-platform/deals/${id}`, data).then((r) => r.data),
+  deleteDeal: (id: string): Promise<void> =>
+    api.delete(`/eva-platform/deals/${id}`).then((r) => r.data),
+  markDealWon: (id: string): Promise<PartnerDeal> =>
+    api.post(`/eva-platform/deals/${id}/won`).then((r) => r.data),
+  markDealLost: (id: string, reason?: string): Promise<PartnerDeal> =>
+    api.post(`/eva-platform/deals/${id}/lost`, { reason }).then((r) => r.data),
+  createAccountFromDeal: (id: string, data: any): Promise<PartnerDeal> =>
+    api.post(`/eva-platform/deals/${id}/create-account`, data).then((r) => r.data),
+
+  // Impersonation
+  impersonateAccount: (id: string): Promise<{ magic_link_url: string; account_id: string; account_name: string }> =>
+    api.post(`/eva-platform/impersonate/account/${id}`).then((r) => r.data),
+
+  // Dashboard
+  dashboard: (): Promise<PlatformDashboard> =>
+    api.get("/eva-platform/dashboard").then((r) => r.data),
+
+  // Health
+  health: (): Promise<{ status: string; detail?: string }> =>
+    api.get("/eva-platform/health").then((r) => r.data),
+};

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # EVA DB (read-only)
     eva_database_url: str = ""
 
+    # Supabase Admin (Eva platform provisioning)
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+
     # OpenAI
     openai_api_key: str = ""
 

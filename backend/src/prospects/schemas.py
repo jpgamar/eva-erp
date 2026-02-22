@@ -68,6 +68,7 @@ class ProspectResponse(BaseModel):
     tags: list[str] | None
     lost_reason: str | None
     converted_to_customer_id: uuid.UUID | None
+    converted_to_draft_id: uuid.UUID | None = None
     created_at: _dt.datetime
     updated_at: _dt.datetime
     model_config = {"from_attributes": True}
