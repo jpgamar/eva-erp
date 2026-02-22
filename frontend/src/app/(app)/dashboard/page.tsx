@@ -135,204 +135,300 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 flex-1 min-h-0">
 
         {/* Finances */}
-        <Link href="/finances" className="group flex">
-          <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full flex flex-col">
-            <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-500 shrink-0" />
-            <div className="p-5 flex flex-col flex-1">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
-                    <Wallet className="h-4 w-4 text-emerald-600" />
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">Finances</p>
-                </div>
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              </div>
-              <div className="space-y-3 flex-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted">Revenue</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">
-                    {fmt(data.income_total_period)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted">Expenses</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">
-                    {fmt(data.expense_total_usd)}
-                  </span>
-                </div>
-                {data.cash_balance_usd != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted">Cash balance</span>
-                    <span className="font-mono text-sm font-semibold text-foreground">{fmt(data.cash_balance_usd)}</span>
-                  </div>
-                )}
-                {topExpenses.length > 0 && (
-                  <div className="pt-3 mt-auto border-t border-border/50">
-                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Top Expenses</p>
-                    {topExpenses.map(([cat, amount]) => (
-                      <div key={cat} className="flex items-center justify-between py-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <div className={`h-2 w-2 rounded-full ${EXPENSE_COLORS[cat] || "bg-gray-400"}`} />
-                          <span className="text-xs text-muted">{EXPENSE_LABELS[cat] || cat}</span>
-                        </div>
-                        <span className="font-mono text-xs text-foreground">{fmt(amount)}</span>
+        {(() => {
+          const rev = Number(data.income_total_period) || 0;
+          const exp = Number(data.expense_total_usd) || 0;
+          const maxBar = Math.max(rev, exp, 1);
+          const expTotal = allExpenses.reduce((s, [, v]) => s + v, 0) || 1;
+          return (
+            <Link href="/finances" className="group flex">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full flex flex-col">
+                <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-500 shrink-0" />
+                <div className="p-5 flex flex-col flex-1">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
+                        <Wallet className="h-4 w-4 text-emerald-600" />
                       </div>
-                    ))}
+                      <p className="text-sm font-semibold text-foreground">Finances</p>
+                    </div>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </div>
-                )}
+
+                  {/* Revenue vs Expenses bars */}
+                  <div className="space-y-2.5">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-muted">Revenue</span>
+                        <span className="font-mono text-xs font-semibold text-emerald-700">{fmt(rev)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted/20 overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700" style={{ width: `${(rev / maxBar) * 100}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-muted">Expenses</span>
+                        <span className="font-mono text-xs font-semibold text-red-600">{fmt(exp)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted/20 overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-red-400 to-red-500 transition-all duration-700" style={{ width: `${(exp / maxBar) * 100}%` }} />
+                      </div>
+                    </div>
+                    {data.cash_balance_usd != null && (
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-muted">Cash balance</span>
+                        <span className="font-mono text-xs font-bold text-foreground">{fmt(data.cash_balance_usd)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Expense breakdown stacked bar */}
+                  {allExpenses.length > 0 && (
+                    <div className="pt-3.5 mt-auto border-t border-border/50">
+                      <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Expense Breakdown</p>
+                      <div className="h-3 rounded-full overflow-hidden flex">
+                        {allExpenses.map(([cat, amount]) => (
+                          <div
+                            key={cat}
+                            className={`h-full first:rounded-l-full last:rounded-r-full ${EXPENSE_COLORS[cat] || "bg-gray-400"}`}
+                            style={{ width: `${(amount / expTotal) * 100}%` }}
+                            title={`${EXPENSE_LABELS[cat] || cat}: ${fmt(amount)}`}
+                          />
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                        {topExpenses.map(([cat]) => (
+                          <div key={cat} className="flex items-center gap-1">
+                            <div className={`h-1.5 w-1.5 rounded-full ${EXPENSE_COLORS[cat] || "bg-gray-400"}`} />
+                            <span className="text-[10px] text-muted">{EXPENSE_LABELS[cat] || cat}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
-        </Link>
+            </Link>
+          );
+        })()}
 
         {/* Prospects */}
-        <Link href="/prospects" className="group flex">
-          <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full flex flex-col">
-            <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500 shrink-0" />
-            <div className="p-5 flex flex-col flex-1">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">
-                    <Target className="h-4 w-4 text-indigo-600" />
+        {(() => {
+          const { urgent, soso, can_wait } = data.prospect_urgency;
+          const urgTotal = urgent + soso + can_wait || 1;
+          const statusEntries = Object.entries(data.prospect_by_status).sort(([, a], [, b]) => b - a);
+          const STATUS_COLORS: Record<string, string> = {
+            new: "bg-blue-500", contacted: "bg-cyan-500", qualified: "bg-indigo-500",
+            proposal: "bg-violet-500", negotiation: "bg-purple-500", won: "bg-emerald-500",
+            lost: "bg-red-500", inactive: "bg-gray-400",
+          };
+          return (
+            <Link href="/prospects" className="group flex">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full flex flex-col">
+                <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500 shrink-0" />
+                <div className="p-5 flex flex-col flex-1">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">
+                        <Target className="h-4 w-4 text-indigo-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">Prospects</p>
+                    </div>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </div>
-                  <p className="text-sm font-semibold text-foreground">Prospects</p>
+
+                  {/* Pipeline hero number */}
+                  <div className="text-center mb-3">
+                    <p className="font-mono text-3xl font-bold text-foreground">{data.prospect_total}</p>
+                    <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">In Pipeline</p>
+                  </div>
+
+                  {/* Status funnel bars */}
+                  {statusEntries.length > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {statusEntries.slice(0, 4).map(([status, count]) => (
+                        <div key={status} className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted w-16 truncate capitalize">{status}</span>
+                          <div className="flex-1 h-1.5 rounded-full bg-muted/20 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${STATUS_COLORS[status] || "bg-gray-400"} transition-all duration-700`}
+                              style={{ width: `${(count / data.prospect_total) * 100}%` }}
+                            />
+                          </div>
+                          <span className="font-mono text-[10px] font-semibold text-foreground w-5 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Urgency segmented bar */}
+                  <div className="pt-3 mt-auto border-t border-border/50">
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Urgency</p>
+                    <div className="h-3 rounded-full overflow-hidden flex">
+                      {urgent > 0 && <div className="h-full bg-red-500" style={{ width: `${(urgent / urgTotal) * 100}%` }} />}
+                      {soso > 0 && <div className="h-full bg-amber-400" style={{ width: `${(soso / urgTotal) * 100}%` }} />}
+                      {can_wait > 0 && <div className="h-full bg-gray-300" style={{ width: `${(can_wait / urgTotal) * 100}%` }} />}
+                    </div>
+                    <div className="flex justify-between mt-1.5">
+                      <span className="text-[10px] text-red-600 font-medium">{urgent} urgent</span>
+                      <span className="text-[10px] text-amber-600 font-medium">{soso} so-so</span>
+                      <span className="text-[10px] text-muted font-medium">{can_wait} wait</span>
+                    </div>
+                  </div>
                 </div>
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
               </div>
-              <div className="space-y-3 flex-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted">In pipeline</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">
-                    {data.prospect_total}
-                  </span>
-                </div>
-                {data.prospect_by_status.won != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted">Won</span>
-                    <span className="font-mono text-sm font-semibold text-green-600">{data.prospect_by_status.won}</span>
-                  </div>
-                )}
-                {data.prospect_by_status.lost != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted">Lost</span>
-                    <span className="font-mono text-sm font-semibold text-red-500">{data.prospect_by_status.lost}</span>
-                  </div>
-                )}
-                <div className="pt-3 mt-auto border-t border-border/50">
-                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">By Urgency</p>
-                  <div className="flex items-center justify-between py-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-red-500" />
-                      <span className="text-xs text-muted">Urgent</span>
-                    </div>
-                    <span className="font-mono text-xs text-foreground">{data.prospect_urgency.urgent}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-amber-500" />
-                      <span className="text-xs text-muted">So-so</span>
-                    </div>
-                    <span className="font-mono text-xs text-foreground">{data.prospect_urgency.soso}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-gray-400" />
-                      <span className="text-xs text-muted">Can wait</span>
-                    </div>
-                    <span className="font-mono text-xs text-foreground">{data.prospect_urgency.can_wait}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Link>
+            </Link>
+          );
+        })()}
 
         {/* Tasks */}
-        <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 flex flex-col">
-          <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500 shrink-0" />
-          <div className="p-5 flex flex-col flex-1">
-            <Link href="/tasks" className="group">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50">
-                    <CheckSquare className="h-4 w-4 text-sky-600" />
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">Tasks</p>
-                </div>
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              </div>
-            </Link>
-            <div className="space-y-3 flex-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">Open</span>
-                <span className="font-mono text-sm font-semibold text-foreground">{data.open_tasks}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">Overdue</span>
-                <span className={`font-mono text-sm font-semibold ${data.overdue_tasks > 0 ? "text-red-500" : "text-foreground"}`}>{data.overdue_tasks}</span>
-              </div>
-              {data.recent_tasks.length > 0 && (
-                <div className="pt-3 mt-auto border-t border-border/50">
-                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Active Tasks</p>
-                  {data.recent_tasks.map((task) => (
-                    <div key={task.id} className="flex items-center gap-2 py-1">
-                      <div className={`h-2 w-2 rounded-full shrink-0 ${task.status === "in_progress" ? "bg-blue-500" : "bg-gray-400"}`} />
-                      <span className="text-xs text-foreground truncate flex-1">{task.title}</span>
-                      {task.due_date && (
-                        <span className={`text-[10px] shrink-0 ${new Date(task.due_date) < new Date() && task.status !== "done" ? "text-red-500" : "text-muted-foreground"}`}>
-                          {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        </span>
-                      )}
+        {(() => {
+          const total = data.open_tasks || 1;
+          const overdueRatio = Math.min(data.overdue_tasks / total, 1);
+          const healthyRatio = 1 - overdueRatio;
+          const circumference = 2 * Math.PI * 36;
+          return (
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 flex flex-col">
+              <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500 shrink-0" />
+              <div className="p-5 flex flex-col flex-1">
+                <Link href="/tasks" className="group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50">
+                        <CheckSquare className="h-4 w-4 text-sky-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">Tasks</p>
                     </div>
-                  ))}
-                  <Link href="/tasks" className="text-[10px] text-sky-600 hover:text-sky-700 font-medium mt-1 block">
-                    View all tasks
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Vault */}
-        <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 flex flex-col">
-          <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500 shrink-0" />
-          <div className="p-5 flex flex-col flex-1">
-            <Link href="/vault" className="group">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
-                    <Lock className="h-4 w-4 text-amber-600" />
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </div>
-                  <p className="text-sm font-semibold text-foreground">Vault</p>
+                </Link>
+
+                {/* Ring chart + stats */}
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="relative h-[76px] w-[76px] shrink-0">
+                    <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
+                      <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" className="text-muted/15" strokeWidth="7" />
+                      <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" className="text-sky-500" strokeWidth="7" strokeLinecap="round"
+                        strokeDasharray={`${healthyRatio * circumference} ${circumference}`} />
+                      {data.overdue_tasks > 0 && (
+                        <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" className="text-red-500" strokeWidth="7" strokeLinecap="round"
+                          strokeDasharray={`${overdueRatio * circumference} ${circumference}`}
+                          strokeDashoffset={`${-healthyRatio * circumference}`} />
+                      )}
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="font-mono text-lg font-bold text-foreground">{data.open_tasks}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+                      <span className="text-xs text-muted">On track</span>
+                      <span className="font-mono text-xs font-semibold text-foreground ml-auto">{data.open_tasks - data.overdue_tasks}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                      <span className="text-xs text-muted">Overdue</span>
+                      <span className={`font-mono text-xs font-semibold ml-auto ${data.overdue_tasks > 0 ? "text-red-500" : "text-foreground"}`}>{data.overdue_tasks}</span>
+                    </div>
+                  </div>
                 </div>
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              </div>
-            </Link>
-            <div className="space-y-3 flex-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted">Monthly cost</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">{fmt(data.vault_combined_usd)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted">Services</span>
-                  <span className="font-mono text-sm font-semibold text-foreground">{data.vault_service_count}</span>
-                </div>
-                {topVaultCats.length > 0 && (
+
+                {/* Active task list */}
+                {data.recent_tasks.length > 0 && (
                   <div className="pt-3 mt-auto border-t border-border/50">
-                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Top Categories</p>
-                    {topVaultCats.map(([cat, amount]) => (
-                      <div key={cat} className="flex items-center justify-between py-0.5">
-                        <span className="text-xs text-muted capitalize">{cat.replace(/_/g, " ")}</span>
-                        <span className="font-mono text-xs text-foreground">{fmt(amount)}</span>
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Active Tasks</p>
+                    {data.recent_tasks.map((task) => (
+                      <div key={task.id} className="flex items-center gap-2 py-1">
+                        <div className={`h-2 w-2 rounded-full shrink-0 ${task.status === "in_progress" ? "bg-blue-500 ring-2 ring-blue-500/20" : "bg-gray-300"}`} />
+                        <span className="text-xs text-foreground truncate flex-1">{task.title}</span>
+                        {task.due_date && (
+                          <span className={`text-[10px] shrink-0 font-medium px-1.5 py-0.5 rounded ${
+                            new Date(task.due_date) < new Date() && task.status !== "done"
+                              ? "bg-red-50 text-red-600"
+                              : "text-muted-foreground"
+                          }`}>
+                            {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        )}
                       </div>
                     ))}
+                    <Link href="/tasks" className="text-[10px] text-sky-600 hover:text-sky-700 font-medium mt-1.5 block">
+                      View all tasks
+                    </Link>
                   </div>
                 )}
               </div>
-          </div>
-        </div>
+            </div>
+          );
+        })()}
+
+        {/* Vault */}
+        {(() => {
+          const vaultMax = topVaultCats.length > 0 ? topVaultCats[0][1] : 1;
+          const VAULT_CAT_COLORS: Record<string, string> = {
+            infrastructure: "from-blue-400 to-blue-500",
+            ai: "from-violet-400 to-violet-500",
+            communication: "from-cyan-400 to-cyan-500",
+            marketing: "from-pink-400 to-pink-500",
+            analytics: "from-teal-400 to-teal-500",
+            development: "from-indigo-400 to-indigo-500",
+            design: "from-fuchsia-400 to-fuchsia-500",
+            security: "from-orange-400 to-orange-500",
+          };
+          return (
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 flex flex-col">
+              <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500 shrink-0" />
+              <div className="p-5 flex flex-col flex-1">
+                <Link href="/vault" className="group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
+                        <Lock className="h-4 w-4 text-amber-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">Vault</p>
+                    </div>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </div>
+                </Link>
+
+                {/* Hero cost + services badge */}
+                <div className="text-center mb-3">
+                  <p className="font-mono text-2xl font-bold text-foreground">{fmt(data.vault_combined_usd)}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">Monthly Cost</p>
+                  <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/60">
+                    <Lock className="h-2.5 w-2.5 text-amber-500" />
+                    <span className="text-[10px] font-semibold text-amber-700">{data.vault_service_count} services</span>
+                  </div>
+                </div>
+
+                {/* Category horizontal bars */}
+                {topVaultCats.length > 0 && (
+                  <div className="pt-3 mt-auto border-t border-border/50">
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2.5">Cost by Category</p>
+                    <div className="space-y-2.5">
+                      {topVaultCats.map(([cat, amount]) => (
+                        <div key={cat}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-muted capitalize">{cat.replace(/_/g, " ")}</span>
+                            <span className="font-mono text-[10px] font-semibold text-foreground">{fmt(amount)}</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-muted/20 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full bg-gradient-to-r ${VAULT_CAT_COLORS[cat] || "from-amber-400 to-amber-500"} transition-all duration-700`}
+                              style={{ width: `${(amount / vaultMax) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
