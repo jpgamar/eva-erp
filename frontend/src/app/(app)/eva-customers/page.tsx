@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Plus, Search, Building2, FileText, Trash2, Check,
-  Eye, ExternalLink, X, CheckCircle2, Handshake, Users,
+  ExternalLink, CheckCircle2, Handshake,
 } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
@@ -412,15 +412,6 @@ export default function EvaCustomersPage() {
                           >
                             <ExternalLink className="h-3 w-3 mr-1" />
                             {impersonating === a.id ? "..." : "Impersonate"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 rounded-lg text-xs"
-                            onClick={() => openDetail(a)}
-                          >
-                            <Eye className="h-3 w-3 mr-1" />
-                            View
                           </Button>
                         </div>
                       </TableCell>

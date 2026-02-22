@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
@@ -29,16 +29,36 @@ async def impersonate_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    # Find owner user
+    # Find owner user — try case-insensitive role match first
     result = await eva_db.execute(
         select(EvaAccountUser).where(
             EvaAccountUser.account_id == account_id,
-            EvaAccountUser.role == "OWNER",
+            func.upper(EvaAccountUser.role) == "OWNER",
         )
     )
     owner = result.scalar_one_or_none()
+
+    # Fallback: look up by account.owner_user_id
+    if not owner and account.owner_user_id:
+        result = await eva_db.execute(
+            select(EvaAccountUser).where(
+                EvaAccountUser.account_id == account_id,
+                EvaAccountUser.user_id == account.owner_user_id,
+            )
+        )
+        owner = result.scalar_one_or_none()
+
+    # Last resort: pick the first user on this account
     if not owner:
-        raise HTTPException(status_code=404, detail="Account owner not found")
+        result = await eva_db.execute(
+            select(EvaAccountUser).where(
+                EvaAccountUser.account_id == account_id,
+            ).limit(1)
+        )
+        owner = result.scalar_one_or_none()
+
+    if not owner:
+        raise HTTPException(status_code=404, detail="No users found for this account")
 
     # Generate magic link
     try:
