@@ -76,4 +76,21 @@ app.include_router(api_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "eva-erp"}
+    from src.common.database import eva_engine
+    eva_ok = False
+    eva_error = None
+    if eva_engine:
+        try:
+            from sqlalchemy import text
+            async with eva_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+                eva_ok = True
+        except Exception as exc:
+            eva_error = str(exc)[:200]
+    return {
+        "status": "ok",
+        "service": "eva-erp",
+        "eva_db_configured": eva_engine is not None,
+        "eva_db_connected": eva_ok,
+        "eva_db_error": eva_error,
+    }
