@@ -134,6 +134,22 @@ class MonitoringCheckResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Service Status ───────────────────────────────────────
+
+class ServiceStatusItem(BaseModel):
+    name: str
+    url: str
+    status: str  # "up" | "down" | "degraded"
+    latency_ms: int | None = None
+    http_status: int | None = None
+    error: str | None = None
+
+
+class ServiceStatusResponse(BaseModel):
+    services: list[ServiceStatusItem]
+    checked_at: _dt.datetime
+
+
 # ── Partners ─────────────────────────────────────────────
 
 class EvaPartnerResponse(BaseModel):

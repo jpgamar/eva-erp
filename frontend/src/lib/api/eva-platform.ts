@@ -5,6 +5,7 @@ import type {
   MonitoringOverview,
   MonitoringIssue,
   MonitoringCheck,
+  ServiceStatusResponse,
   EvaPartner,
   EvaPartnerDetail,
   PartnerDeal,
@@ -33,6 +34,8 @@ export const evaPlatformApi = {
     api.delete(`/eva-platform/drafts/${id}`).then((r) => r.data),
 
   // Monitoring
+  serviceStatus: (): Promise<ServiceStatusResponse> =>
+    api.get("/eva-platform/monitoring/services").then((r) => r.data),
   monitoringOverview: (): Promise<MonitoringOverview> =>
     api.get("/eva-platform/monitoring/overview").then((r) => r.data),
   listIssues: (params?: { status?: string; severity?: string }): Promise<MonitoringIssue[]> =>

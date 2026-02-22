@@ -340,6 +340,20 @@ export interface MonitoringIssue {
   resolved_at: string | null;
 }
 
+export interface ServiceStatus {
+  name: string;
+  url: string;
+  status: "up" | "down" | "degraded";
+  latency_ms: number | null;
+  http_status: number | null;
+  error: string | null;
+}
+
+export interface ServiceStatusResponse {
+  services: ServiceStatus[];
+  checked_at: string;
+}
+
 export interface MonitoringCheck {
   id: string;
   check_key: string;

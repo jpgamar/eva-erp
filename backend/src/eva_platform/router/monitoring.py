@@ -1,23 +1,80 @@
-"""Monitoring dashboard: read from Eva's monitoring tables."""
+"""Monitoring dashboard: live service checks + Eva monitoring tables."""
 
+import asyncio
 import uuid
 from datetime import date, datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.common.database import get_eva_db
+from src.common.database import get_eva_db, eva_engine
 from src.eva_platform.models import EvaMonitoringCheck, EvaMonitoringIssue
 from src.eva_platform.schemas import (
     MonitoringCheckResponse,
     MonitoringIssueResponse,
     MonitoringOverviewResponse,
+    ServiceStatusItem,
+    ServiceStatusResponse,
 )
 
+# Services to health-check
+SERVICES = [
+    {"name": "Backend API", "url": "https://api.goeva.ai/api/v1/health"},
+    {"name": "Frontend", "url": "https://app.goeva.ai"},
+    {"name": "ERP API", "url": "https://eva-erp-goevaai-30a99658.koyeb.app/health"},
+    {"name": "Supabase Auth", "url": "https://emrkjhfxytpgxzejkhre.supabase.co/auth/v1/health"},
+]
+
 router = APIRouter()
+
+
+async def _check_service(client: httpx.AsyncClient, svc: dict) -> ServiceStatusItem:
+    """Ping a service URL and return its status."""
+    try:
+        start = asyncio.get_event_loop().time()
+        resp = await client.get(svc["url"], follow_redirects=True)
+        latency = int((asyncio.get_event_loop().time() - start) * 1000)
+        status = "up" if resp.status_code < 400 else "degraded" if resp.status_code < 500 else "down"
+        return ServiceStatusItem(
+            name=svc["name"], url=svc["url"], status=status,
+            latency_ms=latency, http_status=resp.status_code,
+        )
+    except Exception as exc:
+        return ServiceStatusItem(
+            name=svc["name"], url=svc["url"], status="down",
+            error=str(exc)[:200],
+        )
+
+
+async def _check_database() -> ServiceStatusItem:
+    """Check Eva DB connectivity."""
+    if not eva_engine:
+        return ServiceStatusItem(name="Database", url="supabase", status="down", error="Not configured")
+    try:
+        start = asyncio.get_event_loop().time()
+        async with eva_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        latency = int((asyncio.get_event_loop().time() - start) * 1000)
+        return ServiceStatusItem(name="Database", url="supabase", status="up", latency_ms=latency)
+    except Exception as exc:
+        return ServiceStatusItem(name="Database", url="supabase", status="down", error=str(exc)[:200])
+
+
+@router.get("/monitoring/services", response_model=ServiceStatusResponse)
+async def service_status(user: User = Depends(get_current_user)):
+    """Live health check of all Eva services."""
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        tasks = [_check_service(client, s) for s in SERVICES]
+        tasks.append(_check_database())
+        results = await asyncio.gather(*tasks)
+    return ServiceStatusResponse(
+        services=list(results),
+        checked_at=datetime.now(timezone.utc),
+    )
 
 
 @router.get("/monitoring/overview", response_model=MonitoringOverviewResponse)
