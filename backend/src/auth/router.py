@@ -243,6 +243,15 @@ async def sso_login(
         secure=is_prod,
         max_age=60 * 60 * 24 * 7,
     )
+    # Short-lived cookie for the welcome animation (readable by JS)
+    response.set_cookie(
+        key="welcome_name",
+        value=user.name or "",
+        httponly=False,
+        samesite="lax",
+        secure=is_prod,
+        max_age=30,
+    )
 
     await db.commit()
     return response

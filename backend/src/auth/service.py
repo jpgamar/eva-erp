@@ -42,53 +42,36 @@ def decode_token(token: str) -> dict | None:
 
 
 async def sync_password_to_supabase(email: str, new_password: str) -> None:
-    """Sync a password change to Supabase Auth (best-effort).
+    """Sync a password change to Supabase Auth via the EVA backend (best-effort).
 
-    Uses the Supabase Admin API to find the user by email and update
-    their password. Failures are logged but never raised so the caller's
-    own password-change flow is not disrupted.
+    Calls the EVA backend's /auth/erp-password-sync endpoint which has
+    Supabase admin access.  Uses the shared ERP_SSO_SECRET for auth.
+    Failures are logged but never raised so the caller's own
+    password-change flow is not disrupted.
     """
-    if not settings.supabase_url or not settings.supabase_service_role_key:
-        logger.warning("Supabase not configured, skipping password sync")
+    if not settings.erp_sso_secret:
+        logger.warning("ERP SSO secret not configured, skipping password sync")
         return
 
-    headers = {
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        "apikey": settings.supabase_service_role_key,
-    }
+    eva_base = "https://api.goeva.ai"
+    if settings.environment == "development":
+        eva_base = "http://localhost:8000"
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # Find the Supabase user by email (paginated)
-            supabase_uid: str | None = None
-            page = 1
-            while True:
-                resp = await client.get(
-                    f"{settings.supabase_url}/auth/v1/admin/users",
-                    headers=headers,
-                    params={"page": page, "per_page": 50},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                users = data.get("users", []) if isinstance(data, dict) else data
-                for u in users:
-                    if u.get("email", "").lower() == email.lower():
-                        supabase_uid = u["id"]
-                        break
-                if supabase_uid or len(users) < 50:
-                    break
-                page += 1
-
-            if not supabase_uid:
-                logger.warning("No Supabase user found for %s, skipping sync", email)
-                return
-
-            # Update password
-            resp = await client.put(
-                f"{settings.supabase_url}/auth/v1/admin/users/{supabase_uid}",
-                headers=headers,
-                json={"password": new_password},
+            resp = await client.post(
+                f"{eva_base}/api/v1/auth/erp-password-sync",
+                headers={"Authorization": f"Bearer {settings.erp_sso_secret}"},
+                json={"email": email, "new_password": new_password},
             )
-            resp.raise_for_status()
-            logger.info("Password synced to Supabase for %s", email)
+            if resp.status_code == 404:
+                logger.info("No Supabase user for %s, skipping sync", email)
+            elif resp.is_success:
+                logger.info("Password synced to Supabase (via EVA) for %s", email)
+            else:
+                logger.warning(
+                    "EVA password sync returned %s for %s",
+                    resp.status_code, email,
+                )
     except Exception:
         logger.warning("Failed to sync password to Supabase for %s", email, exc_info=True)

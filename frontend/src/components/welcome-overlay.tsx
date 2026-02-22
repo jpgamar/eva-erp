@@ -9,7 +9,16 @@ export function WelcomeOverlay() {
   const [phase, setPhase] = useState<"hidden" | "logo" | "greeting" | "footer" | "exit" | "done">("hidden");
 
   useEffect(() => {
-    const name = sessionStorage.getItem("welcomeName");
+    // Check sessionStorage (direct login) or cookie (SSO login)
+    let name = sessionStorage.getItem("welcomeName");
+    if (!name) {
+      const match = document.cookie.match(/(?:^|; )welcome_name=([^;]*)/);
+      if (match) {
+        name = decodeURIComponent(match[1]);
+        // Delete the cookie
+        document.cookie = "welcome_name=; max-age=0; path=/";
+      }
+    }
     if (!name) return;
     sessionStorage.removeItem("welcomeName");
     setUserName(name);
