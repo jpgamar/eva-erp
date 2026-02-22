@@ -69,7 +69,7 @@ export default function DashboardPage() {
   const topVaultCats = Object.entries(data.vault_by_category).sort(([, a], [, b]) => b - a).slice(0, 3);
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-7rem)] animate-erp-entrance">
+    <div className="flex flex-col gap-4 animate-erp-entrance">
 
       {/* ── KPI Hero Row ────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
@@ -132,7 +132,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Section Cards — stretch to fill remaining height ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
         {/* Finances */}
         {(() => {
@@ -142,9 +142,9 @@ export default function DashboardPage() {
           const expTotal = allExpenses.reduce((s, [, v]) => s + v, 0) || 1;
           return (
             <Link href="/finances" className="group flex">
-              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full flex flex-col">
-                <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-500 shrink-0" />
-                <div className="p-5 flex flex-col flex-1">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full">
+                <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-500" />
+                <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
@@ -185,7 +185,7 @@ export default function DashboardPage() {
 
                   {/* Expense breakdown stacked bar */}
                   {allExpenses.length > 0 && (
-                    <div className="pt-3.5 mt-auto border-t border-border/50">
+                    <div className="pt-3.5 mt-3 border-t border-border/50">
                       <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Expense Breakdown</p>
                       <div className="h-3 rounded-full overflow-hidden flex">
                         {allExpenses.map(([cat, amount]) => (
@@ -225,9 +225,9 @@ export default function DashboardPage() {
           };
           return (
             <Link href="/prospects" className="group flex">
-              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full flex flex-col">
-                <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500 shrink-0" />
-                <div className="p-5 flex flex-col flex-1">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full">
+                <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500" />
+                <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">
@@ -263,7 +263,7 @@ export default function DashboardPage() {
                   )}
 
                   {/* Urgency segmented bar */}
-                  <div className="pt-3 mt-auto border-t border-border/50">
+                  <div className="pt-3 mt-3 border-t border-border/50">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Urgency</p>
                     <div className="h-3 rounded-full overflow-hidden flex">
                       {urgent > 0 && <div className="h-full bg-red-500" style={{ width: `${(urgent / urgTotal) * 100}%` }} />}
@@ -289,9 +289,9 @@ export default function DashboardPage() {
           const healthyRatio = 1 - overdueRatio;
           const circumference = 2 * Math.PI * 36;
           return (
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 flex flex-col">
-              <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500 shrink-0" />
-              <div className="p-5 flex flex-col flex-1">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+              <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500" />
+              <div className="p-5">
                 <Link href="/tasks" className="group">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
@@ -337,7 +337,7 @@ export default function DashboardPage() {
 
                 {/* Active task list */}
                 {data.recent_tasks.length > 0 && (
-                  <div className="pt-3 mt-auto border-t border-border/50">
+                  <div className="pt-3 mt-3 border-t border-border/50">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2">Active Tasks</p>
                     {data.recent_tasks.map((task) => (
                       <div key={task.id} className="flex items-center gap-2 py-1">
@@ -378,9 +378,9 @@ export default function DashboardPage() {
             security: "from-orange-400 to-orange-500",
           };
           return (
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 flex flex-col">
-              <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500 shrink-0" />
-              <div className="p-5 flex flex-col flex-1">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+              <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
+              <div className="p-5">
                 <Link href="/vault" className="group">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
@@ -405,7 +405,7 @@ export default function DashboardPage() {
 
                 {/* Category horizontal bars */}
                 {topVaultCats.length > 0 && (
-                  <div className="pt-3 mt-auto border-t border-border/50">
+                  <div className="pt-3 mt-3 border-t border-border/50">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2.5">Cost by Category</p>
                     <div className="space-y-2.5">
                       {topVaultCats.map(([cat, amount]) => (
