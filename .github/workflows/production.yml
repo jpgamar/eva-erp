@@ -1,0 +1,261 @@
+name: Production Post-Deployment
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  run-migrations-in-koyeb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install Koyeb CLI
+        run: |
+          set -euo pipefail
+          TARGET="linux_amd64"
+          TAG_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/koyeb/koyeb-cli/releases/latest)"
+          VERSION="${TAG_URL##*/v}"
+          curl -fsSL -o koyeb.tar.gz "https://github.com/koyeb/koyeb-cli/releases/download/v${VERSION}/koyeb-cli_${VERSION}_${TARGET}.tar.gz"
+          mkdir -p "$HOME/.koyeb/bin"
+          tar -xzf koyeb.tar.gz -C "$HOME/.koyeb/bin"
+          chmod +x "$HOME/.koyeb/bin/koyeb"
+          echo "$HOME/.koyeb/bin" >> $GITHUB_PATH
+
+      - name: Record Workflow Start Time
+        id: start_time
+        run: |
+          PUSH_TS=""
+          if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH:-}" ] && command -v jq >/dev/null 2>&1; then
+            PUSH_TS="$(jq -r '.head_commit.timestamp // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)"
+          fi
+          if [ -n "$PUSH_TS" ]; then
+            PUSH_EPOCH="$(date -u -d "$PUSH_TS" +%s)"
+            START_TIME=$((PUSH_EPOCH - 600))
+          else
+            START_TIME=$(($(date +%s) - 1800))
+          fi
+          echo "start_time=$START_TIME" >> $GITHUB_OUTPUT
+
+      - name: Wait for Koyeb Deployment
+        id: wait_deployment
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          APP_NAME="eva-erp"
+          SERVICE_NAME="api"
+          MAX_ATTEMPTS=60
+          DEPLOYMENT_FOUND=false
+          GIT_SHA="${GITHUB_SHA:-}"
+          GIT_SHA_SHORT="${GIT_SHA:0:7}"
+          START_TIME=${{ steps.start_time.outputs.start_time }}
+          REDEPLOY_TRIGGERED=false
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo ""
+            echo "Attempt $attempt/$MAX_ATTEMPTS - Checking for new deployment..."
+
+            DEPLOYMENTS_JSON=$(koyeb deployments list \
+              --service "${APP_NAME}/${SERVICE_NAME}" \
+              -o json 2>/dev/null || echo '{"deployments":[]}')
+
+            DEPLOYMENTS_ARRAY=$(echo "$DEPLOYMENTS_JSON" | jq '.deployments // []')
+            DEPLOYMENT_COUNT=$(echo "$DEPLOYMENTS_ARRAY" | jq 'length')
+
+            if [ "$DEPLOYMENT_COUNT" -eq 0 ]; then
+              echo "   No deployments found yet, waiting..."
+              sleep 10
+              continue
+            fi
+
+            SORTED_DEPLOYMENTS=$(echo "$DEPLOYMENTS_ARRAY" | jq 'sort_by(.created_at // "") | reverse')
+
+            CANDIDATES=$(echo "$SORTED_DEPLOYMENTS" | jq --arg sha "$GIT_SHA" --arg shas "$GIT_SHA_SHORT" --argjson start "$START_TIME" '
+              def norm_ts: sub("\\.[0-9]+Z$"; "Z");
+              def has_sha: any(.. | strings; (contains($sha) or contains($shas)));
+              [ .[]
+                | . as $d
+                | ($d.created_at // "") as $ts
+                | ($ts | norm_ts) as $tsn
+                | ($tsn | (try (strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) catch 0)) as $epoch
+                | . + {__epoch: $epoch, __has_sha: (if ($sha|length)>0 then (try ($d | has_sha) catch false) else false end)}
+              ]
+              | (map(select(.__has_sha == true)) | if length>0 then . else map(select(.__epoch > $start)) end)
+            ')
+
+            CANDIDATE_COUNT=$(echo "$CANDIDATES" | jq 'length')
+
+            if [ "$CANDIDATE_COUNT" -eq 0 ]; then
+              if [ "$REDEPLOY_TRIGGERED" = false ] && [ "$attempt" -eq 6 ]; then
+                echo "   No new deployment detected. Triggering redeploy..."
+                koyeb services redeploy "$SERVICE_NAME" --app "$APP_NAME" --wait --wait-timeout 15m --use-cache
+                REDEPLOY_TRIGGERED=true
+                DEPLOYMENTS_JSON=$(koyeb deployments list --service "${APP_NAME}/${SERVICE_NAME}" -o json 2>/dev/null || echo '{"deployments":[]}')
+                DEPLOYMENTS_ARRAY=$(echo "$DEPLOYMENTS_JSON" | jq '.deployments // []')
+                SORTED_DEPLOYMENTS=$(echo "$DEPLOYMENTS_ARRAY" | jq 'sort_by(.created_at // "") | reverse')
+                HEALTHY=$(echo "$SORTED_DEPLOYMENTS" | jq -r '[.[] | select((.status // "") == "HEALTHY")] | .[0] // empty')
+                if [ -n "$HEALTHY" ]; then
+                  DEPLOYMENT_ID=$(echo "$HEALTHY" | jq -r '.id // "unknown"')
+                  echo "   Deployment is HEALTHY: $DEPLOYMENT_ID"
+                  sleep 30
+                  echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+                  DEPLOYMENT_FOUND=true
+                  break
+                fi
+              fi
+              sleep 10
+              continue
+            fi
+
+            FAILED=$(echo "$CANDIDATES" | jq -r '[.[] | select((.status // "") == "ERROR" or (.status // "") == "FAILED")] | .[0] // empty')
+            if [ -n "$FAILED" ]; then
+              DEPLOYMENT_ID=$(echo "$FAILED" | jq -r '.id // "unknown"')
+              echo "   Found failed deployment: $DEPLOYMENT_ID"
+              exit 1
+            fi
+
+            HEALTHY=$(echo "$CANDIDATES" | jq -r '[.[] | select((.status // "") == "HEALTHY")] | .[0] // empty')
+            if [ -n "$HEALTHY" ]; then
+              DEPLOYMENT_ID=$(echo "$HEALTHY" | jq -r '.id // "unknown"')
+              echo "   Deployment is HEALTHY: $DEPLOYMENT_ID"
+              sleep 30
+              echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+              DEPLOYMENT_FOUND=true
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ "$DEPLOYMENT_FOUND" = false ]; then
+            echo "Timeout: No healthy deployment found after 10 minutes"
+            exit 1
+          fi
+
+      - name: Get Instance for Deployment
+        id: get_instance
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          APP_NAME="eva-erp"
+          SERVICE_NAME="api"
+          MAX_ATTEMPTS=30
+          INSTANCE_FOUND=false
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            INSTANCES_JSON=$(koyeb instances list \
+              --service "${APP_NAME}/${SERVICE_NAME}" \
+              -o json 2>/dev/null || echo '{"instances":[]}')
+
+            INSTANCES_ARRAY=$(echo "$INSTANCES_JSON" | jq '.instances // []')
+            INSTANCE_COUNT=$(echo "$INSTANCES_ARRAY" | jq 'length')
+
+            if [ "$INSTANCE_COUNT" -gt 0 ]; then
+              for i in $(seq 0 $((INSTANCE_COUNT - 1))); do
+                INSTANCE=$(echo "$INSTANCES_ARRAY" | jq -r ".[$i]")
+                INSTANCE_ID=$(echo "$INSTANCE" | jq -r '.id // ""')
+                INSTANCE_STATUS=$(echo "$INSTANCE" | jq -r '.status // ""')
+
+                if [ "$INSTANCE_STATUS" = "HEALTHY" ] || [ "$INSTANCE_STATUS" = "RUNNING" ]; then
+                  echo "Found healthy instance: $INSTANCE_ID"
+                  echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+                  INSTANCE_FOUND=true
+                  break 2
+                fi
+              done
+            fi
+
+            echo "Attempt $attempt/$MAX_ATTEMPTS - No healthy instance yet..."
+            sleep 10
+          done
+
+          if [ "$INSTANCE_FOUND" = false ]; then
+            echo "No healthy instance found after 5 minutes"
+            exit 1
+          fi
+
+      - name: Run Migrations in Koyeb Instance
+        id: run_migrations
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          INSTANCE_ID="${{ steps.get_instance.outputs.instance_id }}"
+          SHORT_ID="${INSTANCE_ID:0:8}"
+
+          echo "Running migrations in instance: $SHORT_ID"
+
+          # Run alembic upgrade head
+          attempt=1
+          max_attempts=3
+          while true; do
+            set +e
+            OUTPUT=$(koyeb instances exec "$SHORT_ID" -- sh -lc "cd /app && alembic upgrade head" 2>&1)
+            RC=$?
+            set -e
+
+            echo "$OUTPUT"
+
+            if [ $RC -eq 0 ]; then
+              # Check for hidden errors in output
+              if echo "$OUTPUT" | grep -Eq "FAILED:|Traceback|ERROR \[alembic|sqlalchemy\.exc"; then
+                echo "Migration output indicates failure despite zero exit code"
+                RC=1
+              else
+                break
+              fi
+            fi
+
+            echo "Migration attempt $attempt failed (rc=$RC). Retrying in 15s..."
+            attempt=$((attempt+1))
+            if [ $attempt -gt $max_attempts ]; then
+              echo "Migrations failed after $max_attempts attempts."
+              exit $RC
+            fi
+            sleep 15
+          done
+
+          # Log current state
+          echo ""
+          echo "Alembic current:"
+          koyeb instances exec "$SHORT_ID" -- sh -lc "cd /app && alembic current -v" 2>&1 || true
+
+          echo ""
+          echo "MIGRATIONS COMPLETED SUCCESSFULLY"
+
+      - name: Report Status
+        if: always()
+        run: |
+          echo ""
+          echo "Deployment Summary"
+          echo "═══════════════════════════════════════"
+
+          if [ "${{ steps.wait_deployment.outcome }}" = "success" ]; then
+            echo "Deployment: HEALTHY (${{ steps.wait_deployment.outputs.deployment_id }})"
+          else
+            echo "Deployment: FAILED"
+          fi
+
+          if [ "${{ steps.get_instance.outcome }}" = "success" ]; then
+            echo "Instance: HEALTHY (${{ steps.get_instance.outputs.instance_id }})"
+          else
+            echo "Instance: NOT FOUND"
+          fi
+
+          if [ "${{ steps.run_migrations.outcome }}" = "success" ]; then
+            echo "Migrations: SUCCESS"
+          else
+            echo "Migrations: FAILED"
+          fi
+
+          echo "═══════════════════════════════════════"
+
+          if [ "${{ steps.run_migrations.outcome }}" != "success" ]; then
+            exit 1
+          fi
+
+  # Vercel auto-deploys via its GitHub integration
