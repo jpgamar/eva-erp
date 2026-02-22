@@ -90,7 +90,7 @@ export default function EvaCustomersPage() {
   // Action loading
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [impersonating, setImpersonating] = useState<string | null>(null);
+
 
   const fetchData = async () => {
     try {
@@ -172,19 +172,11 @@ export default function EvaCustomersPage() {
     }
   };
 
-  const handleImpersonate = async (account: EvaAccount) => {
-    setImpersonating(account.id);
-    try {
-      const result = await evaPlatformApi.impersonateAccount(account.id);
-      toast.success(`Impersonating ${result.account_name}`);
-      window.open(result.magic_link_url, "_blank");
-    } catch (e: any) {
-      const detail = e?.response?.data?.detail;
-      toast.error(detail || "Failed to impersonate account");
-      console.error("Impersonate error:", e?.response?.status, detail);
-    } finally {
-      setImpersonating(null);
-    }
+  const handleImpersonate = (account: EvaAccount) => {
+    const url = new URL("https://app.goeva.ai/auth/impersonate");
+    url.searchParams.set("account_id", account.id);
+    url.searchParams.set("account_name", account.name);
+    window.open(url.toString(), "_blank");
   };
 
   const openDetail = (account: EvaAccount) => {
@@ -460,10 +452,9 @@ export default function EvaCustomersPage() {
                             variant="outline"
                             className="h-7 rounded-lg text-xs border-accent/30 text-accent hover:bg-accent/10"
                             onClick={() => handleImpersonate(a)}
-                            disabled={impersonating === a.id}
                           >
                             <ExternalLink className="h-3 w-3 mr-1" />
-                            {impersonating === a.id ? "..." : "Impersonate"}
+                            Impersonate
                           </Button>
                         </div>
                       </TableCell>
@@ -637,10 +628,9 @@ export default function EvaCustomersPage() {
               <Button
                 className="w-full rounded-lg bg-accent hover:bg-accent/90 text-white"
                 onClick={() => handleImpersonate(selectedAccount)}
-                disabled={impersonating === selectedAccount.id}
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
-                {impersonating === selectedAccount.id ? "Opening..." : "Impersonate Account"}
+                Impersonate Account
               </Button>
             </div>
           )}

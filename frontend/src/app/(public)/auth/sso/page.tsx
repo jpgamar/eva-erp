@@ -1,10 +1,11 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 
 function SSOHandler() {
   const params = useSearchParams();
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -23,12 +24,12 @@ function SSOHandler() {
       })
       .then((data) => {
         if (data.name) sessionStorage.setItem("welcomeName", data.name);
-        window.location.href = "/dashboard";
+        router.push("/dashboard");
       })
       .catch(() => {
         setError("SSO authentication failed");
       });
-  }, [params]);
+  }, [params, router]);
 
   if (error) {
     return (
