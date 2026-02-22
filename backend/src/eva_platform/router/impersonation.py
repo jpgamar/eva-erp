@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
@@ -29,11 +29,11 @@ async def impersonate_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    # Find owner user — try case-insensitive role match first
+    # Find owner user — try both case variants for the role
     result = await eva_db.execute(
         select(EvaAccountUser).where(
             EvaAccountUser.account_id == account_id,
-            func.upper(EvaAccountUser.role) == "OWNER",
+            EvaAccountUser.role.cast(String).in_(["OWNER", "owner"]),
         )
     )
     owner = result.scalar_one_or_none()
