@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
-from sqlalchemy import select
+from fastapi.responses import RedirectResponse
+from jose import jwt as jose_jwt, JWTError, ExpiredSignatureError
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
@@ -131,3 +133,82 @@ async def change_password(
     current_user.password_hash = hash_password(data.new_password)
     db.add(current_user)
     return {"message": "Password changed successfully"}
+
+
+@router.get("/sso")
+async def sso_login(
+    token: str,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate a single-use SSO token from EvaAI and create an ERP session."""
+    if not settings.erp_sso_secret:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "SSO not configured")
+
+    # 1. Decode and validate JWT
+    try:
+        payload = jose_jwt.decode(
+            token,
+            settings.erp_sso_secret,
+            algorithms=["HS256"],
+            audience="erp-sso",
+            options={"require_sub": True, "require_jti": True},
+        )
+    except ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "SSO token expired")
+    except JWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid SSO token")
+
+    # Validate issuer
+    if payload.get("iss") != "eva-ai":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid SSO token")
+
+    # 2. Enforce single-use via consumed_sso_tokens
+    jti = payload.get("jti")
+    if not jti:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid SSO token")
+
+    result = await db.execute(
+        text(
+            "INSERT INTO consumed_sso_tokens (jti, consumed_at) "
+            "VALUES (:jti, NOW()) "
+            "ON CONFLICT (jti) DO NOTHING "
+            "RETURNING jti"
+        ),
+        {"jti": jti},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "SSO token already used")
+
+    # 3. Find the ERP user by email
+    email = payload.get("sub")
+    user_result = await db.execute(select(User).where(User.email == email))
+    user = user_result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No active ERP account for this email")
+
+    # 4. Create ERP session
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+
+    is_prod = settings.environment == "production"
+    response = RedirectResponse(url="/dashboard", status_code=307)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=is_prod,
+        max_age=60 * 15,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        samesite="lax",
+        secure=is_prod,
+        max_age=60 * 60 * 24 * 7,
+    )
+
+    await db.commit()
+    return response

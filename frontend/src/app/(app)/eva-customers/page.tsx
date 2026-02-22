@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import {
   Plus, Search, Building2, FileText, Trash2, Check,
-  ExternalLink, CheckCircle2, Handshake,
+  ExternalLink, CheckCircle2, Handshake, DollarSign, TrendingDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
+import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
 import type { EvaAccount, AccountDraft, PlatformDashboard } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +70,7 @@ export default function EvaCustomersPage() {
   const [accounts, setAccounts] = useState<EvaAccount[]>([]);
   const [drafts, setDrafts] = useState<AccountDraft[]>([]);
   const [dashboard, setDashboard] = useState<PlatformDashboard | null>(null);
+  const [metrics, setMetrics] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
@@ -92,14 +94,16 @@ export default function EvaCustomersPage() {
 
   const fetchData = async () => {
     try {
-      const [accts, drfts, dash] = await Promise.all([
+      const [accts, drfts, dash, met] = await Promise.all([
         evaPlatformApi.listAccounts({ search: search || undefined }),
         evaPlatformApi.listDrafts(),
         evaPlatformApi.dashboard(),
+        dashboardApi.summary().catch(() => null),
       ]);
       setAccounts(accts);
       setDrafts(drfts);
       setDashboard(dash);
+      setMetrics(met);
     } catch {
       toast.error("Failed to load Eva accounts");
     } finally {
@@ -311,6 +315,54 @@ export default function EvaCustomersPage() {
                 <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
                   {dashboard.active_partners}
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SaaS Metrics */}
+      {metrics && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-border border-l-[3px] border-l-emerald-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <DollarSign className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">MRR</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  ${Number(metrics.mrr).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-violet-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+                <DollarSign className="h-5 w-5 text-violet-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">ARPU</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  ${Number(metrics.arpu).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-red-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50">
+                <TrendingDown className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Churn Rate</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {metrics.total_customers > 0
+                    ? ((metrics.churned_customers / metrics.total_customers) * 100).toFixed(1)
+                    : "0.0"}%
+                </p>
+                <p className="text-[10px] text-muted">{metrics.churned_customers} churned this month</p>
               </div>
             </div>
           </div>

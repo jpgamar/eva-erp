@@ -14,7 +14,6 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Dashboard", subtitle: "Overview of EVA operations" },
   "/finances": { title: "Finances", subtitle: "Revenue, expenses, and cash flow" },
   "/facturas": { title: "Facturas", subtitle: "CFDI electronic invoicing" },
-  "/customers": { title: "Customers", subtitle: "Manage your customer base" },
   "/vault": { title: "Vault", subtitle: "Secure document storage" },
   "/tasks": { title: "Tasks", subtitle: "Track and manage work" },
   "/prospects": { title: "Prospects", subtitle: "Sales pipeline" },

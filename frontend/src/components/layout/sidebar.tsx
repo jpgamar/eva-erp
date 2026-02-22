@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   DollarSign,
-  Users,
   Lock,
   CheckSquare,
   Target,
@@ -53,7 +52,6 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Finances", icon: DollarSign, href: "/finances", phase: 3 },
       { label: "Facturas", icon: FileText, href: "/facturas", phase: 7 },
-      { label: "Customers", icon: Users, href: "/customers", phase: 3 },
     ],
   },
   {

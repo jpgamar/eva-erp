@@ -42,7 +42,6 @@ from src.vault.router import router as vault_router
 from src.tasks.router import router as task_router
 from src.tasks.router import board_router
 from src.finances.router import router as finances_router
-from src.customers.router import router as customers_router
 from src.kpis.router import router as kpis_router
 from src.prospects.router import router as prospects_router
 from src.meetings.router import router as meetings_router
@@ -60,7 +59,6 @@ api_router.include_router(vault_router)
 api_router.include_router(task_router)
 api_router.include_router(board_router)
 api_router.include_router(finances_router)
-api_router.include_router(customers_router)
 api_router.include_router(kpis_router)
 api_router.include_router(prospects_router)
 api_router.include_router(meetings_router)

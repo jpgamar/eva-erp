@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Facturapi (CFDI electronic invoicing)
     facturapi_api_key: str = ""
 
+    # SSO handoff from EvaAI (shared secret with EvaAI backend)
+    erp_sso_secret: str = ""
+
     # Environment
     environment: str = "development"
 
