@@ -10,7 +10,7 @@ from src.common.database import get_db
 
 
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
-    token = request.cookies.get("access_token")
+    token = request.cookies.get("erp_access_token")
     if not token:
         # Also check Authorization header as fallback
         auth_header = request.headers.get("Authorization")

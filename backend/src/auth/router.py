@@ -46,7 +46,7 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
 
     is_prod = settings.environment == "production"
     response.set_cookie(
-        key="access_token",
+        key="erp_access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
@@ -54,7 +54,7 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
         max_age=60 * 15,  # 15 minutes
     )
     response.set_cookie(
-        key="refresh_token",
+        key="erp_refresh_token",
         value=refresh_token,
         httponly=True,
         samesite="lax",
@@ -67,7 +67,7 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
-    token = request.cookies.get("refresh_token")
+    token = request.cookies.get("erp_refresh_token")
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
 
@@ -88,7 +88,7 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
 
     is_prod = settings.environment == "production"
     response.set_cookie(
-        key="access_token",
+        key="erp_access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
@@ -101,8 +101,8 @@ async def refresh(request: Request, response: Response, db: AsyncSession = Depen
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
+    response.delete_cookie("erp_access_token")
+    response.delete_cookie("erp_refresh_token")
     return {"message": "Logged out"}
 
 
@@ -227,7 +227,7 @@ async def sso_login(
     is_prod = settings.environment == "production"
     response = JSONResponse({"name": user.name or ""})
     response.set_cookie(
-        key="access_token",
+        key="erp_access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
@@ -235,7 +235,7 @@ async def sso_login(
         max_age=60 * 15,
     )
     response.set_cookie(
-        key="refresh_token",
+        key="erp_refresh_token",
         value=refresh_token,
         httponly=True,
         samesite="lax",

@@ -19,10 +19,8 @@ api.interceptors.response.use(
         await axios.post("/api/v1/auth/refresh", {}, { withCredentials: true });
         return api(originalRequest);
       } catch {
-        // Refresh failed — redirect to login
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
-        }
+        // Refresh failed — let the (app) layout handle the unauthenticated state.
+        // Never hard-redirect here; the AuthProvider will detect user=null and redirect.
       }
     }
 
