@@ -1,3 +1,5 @@
+import hmac
+
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from fastapi.responses import RedirectResponse
 from jose import jwt as jose_jwt, JWTError, ExpiredSignatureError
@@ -9,6 +11,7 @@ from src.auth.models import User
 from src.auth.schemas import (
     ChangePasswordRequest,
     LoginRequest,
+    SyncPasswordRequest,
     TokenResponse,
     UpdateProfileRequest,
     UserResponse,
@@ -18,6 +21,7 @@ from src.auth.service import (
     create_refresh_token,
     decode_token,
     hash_password,
+    sync_password_to_supabase,
     verify_password,
 )
 from src.common.config import settings
@@ -132,7 +136,37 @@ async def change_password(
 
     current_user.password_hash = hash_password(data.new_password)
     db.add(current_user)
+
+    # Sync to Supabase Auth (best-effort)
+    await sync_password_to_supabase(current_user.email, data.new_password)
+
     return {"message": "Password changed successfully"}
+
+
+@router.post("/sync-password")
+async def sync_password_from_eva(
+    data: SyncPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Internal endpoint: EvaAI calls this when a super_admin changes their
+    password on app.goeva.ai so the ERP stays in sync."""
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer ") or not settings.erp_sso_secret:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unauthorized")
+
+    token = auth.removeprefix("Bearer ")
+    if not hmac.compare_digest(token, settings.erp_sso_secret):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unauthorized")
+
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    user.password_hash = hash_password(data.new_password)
+    db.add(user)
+    return {"message": "Password synced"}
 
 
 @router.get("/sso")

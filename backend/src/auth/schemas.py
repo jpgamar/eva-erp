@@ -36,3 +36,8 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class SyncPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
