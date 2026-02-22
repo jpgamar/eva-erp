@@ -14,9 +14,20 @@ function SSOHandler() {
       return;
     }
 
-    // Redirect to the backend SSO endpoint which validates the token,
-    // sets session cookies, and 307-redirects to /dashboard.
-    window.location.href = `/api/v1/auth/sso?token=${encodeURIComponent(token)}`;
+    fetch(`/api/v1/auth/sso?token=${encodeURIComponent(token)}`, {
+      credentials: "include",
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("SSO failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (data.name) sessionStorage.setItem("welcomeName", data.name);
+        window.location.href = "/dashboard";
+      })
+      .catch(() => {
+        setError("SSO authentication failed");
+      });
   }, [params]);
 
   if (error) {

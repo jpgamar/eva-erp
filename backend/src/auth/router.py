@@ -1,7 +1,7 @@
 import hmac
 
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse
 from jose import jwt as jose_jwt, JWTError, ExpiredSignatureError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -172,7 +172,6 @@ async def sync_password_from_eva(
 @router.get("/sso")
 async def sso_login(
     token: str,
-    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Validate a single-use SSO token from EvaAI and create an ERP session."""
@@ -226,7 +225,7 @@ async def sso_login(
     refresh_token = create_refresh_token(user.id)
 
     is_prod = settings.environment == "production"
-    response = RedirectResponse(url="/dashboard", status_code=307)
+    response = JSONResponse({"name": user.name or ""})
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -242,15 +241,6 @@ async def sso_login(
         samesite="lax",
         secure=is_prod,
         max_age=60 * 60 * 24 * 7,
-    )
-    # Short-lived cookie for the welcome animation (readable by JS)
-    response.set_cookie(
-        key="welcome_name",
-        value=user.name or "",
-        httponly=False,
-        samesite="lax",
-        secure=is_prod,
-        max_age=30,
     )
 
     await db.commit()
