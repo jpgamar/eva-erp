@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { tasksApi, boardsApi } from "@/lib/api/tasks";
-import type { Task, TaskDetail, Board } from "@/types";
+import { usersApi } from "@/lib/api/users";
+import type { Task, TaskDetail, Board, User } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -32,9 +33,11 @@ const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [boardFilter, setBoardFilter] = useState<string | null>(null);
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   // Dialogs
@@ -44,7 +47,7 @@ export default function TasksPage() {
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
 
   // New task form
-  const [form, setForm] = useState({ title: "", description: "", priority: "medium", due_date: "", status: "todo", board_id: "" });
+  const [form, setForm] = useState({ title: "", description: "", priority: "medium", due_date: "", status: "todo", board_id: "", assignee_id: "" });
 
   // New board form
   const [boardForm, setBoardForm] = useState({ name: "", description: "" });
@@ -54,6 +57,16 @@ export default function TasksPage() {
 
   const fetchBoards = async () => {
     try { setBoards(await boardsApi.list()); } catch { /* optional */ }
+  };
+
+  const fetchUsers = async () => {
+    try { setUsers(await usersApi.list()); } catch { /* optional */ }
+  };
+
+  const getUserName = (id: string | null) => {
+    if (!id) return null;
+    const user = users.find((u) => u.id === id);
+    return user?.name ?? null;
   };
 
   const fetchTasks = useCallback(async () => {
@@ -69,12 +82,14 @@ export default function TasksPage() {
     }
   }, [statusFilter, boardFilter]);
 
-  useEffect(() => { fetchBoards(); }, []);
+  useEffect(() => { fetchBoards(); fetchUsers(); }, []);
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  const filtered = tasks.filter((t) =>
-    !search || t.title.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = tasks.filter((t) => {
+    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (assigneeFilter && t.assignee_id !== assigneeFilter) return false;
+    return true;
+  });
 
   const handleCreate = async () => {
     try {
@@ -85,9 +100,10 @@ export default function TasksPage() {
         due_date: form.due_date || undefined,
         status: form.status,
         board_id: form.board_id || undefined,
+        assignee_id: form.assignee_id || undefined,
       });
       setAddOpen(false);
-      setForm({ title: "", description: "", priority: "medium", due_date: "", status: "todo", board_id: boardFilter ?? "" });
+      setForm({ title: "", description: "", priority: "medium", due_date: "", status: "todo", board_id: boardFilter ?? "", assignee_id: "" });
       toast.success("Task created");
       await fetchTasks();
     } catch (e: any) {
@@ -248,6 +264,18 @@ export default function TasksPage() {
               </button>
             ))}
           </div>
+          {users.length > 0 && (
+            <select
+              value={assigneeFilter ?? ""}
+              onChange={(e) => setAssigneeFilter(e.target.value || null)}
+              className="h-8 rounded-lg border border-gray-200 bg-gray-50/80 px-2.5 text-xs outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+            >
+              <option value="">All members</option>
+              {users.filter((u) => u.is_active).map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          )}
         </div>
         <button
           onClick={() => { setForm((f) => ({ ...f, board_id: boardFilter ?? "" })); setAddOpen(true); }}
@@ -265,6 +293,7 @@ export default function TasksPage() {
             <TableRow className="bg-gray-50/80">
               <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[100px]">Status</TableHead>
               <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Task</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[120px]">Assignee</TableHead>
               <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[90px]">Priority</TableHead>
               {showBoardCol && (
                 <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[120px]">Board</TableHead>
@@ -275,7 +304,7 @@ export default function TasksPage() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={showBoardCol ? 5 : 4} className="text-center text-muted py-12">
+                <TableCell colSpan={showBoardCol ? 6 : 5} className="text-center text-muted py-12">
                   No tasks yet.
                 </TableCell>
               </TableRow>
@@ -297,6 +326,13 @@ export default function TasksPage() {
                       </span>
                     </TableCell>
                     <TableCell className="font-medium text-foreground">{task.title}</TableCell>
+                    <TableCell>
+                      {getUserName(task.assignee_id) ? (
+                        <span className="text-xs text-muted-foreground">{getUserName(task.assignee_id)}</span>
+                      ) : (
+                        <span className="text-xs text-gray-300">&mdash;</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-medium", pCfg?.color)}>
                         {pCfg?.label}
@@ -396,6 +432,19 @@ export default function TasksPage() {
                   ))}
                 </div>
               </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Assign To</label>
+              <select
+                value={form.assignee_id}
+                onChange={(e) => setForm((f) => ({ ...f, assignee_id: e.target.value }))}
+                className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+              >
+                <option value="">Unassigned</option>
+                {users.filter((u) => u.is_active).map((u) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -542,6 +591,21 @@ export default function TasksPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Assignee */}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">Assignee</label>
+                  <select
+                    value={taskDetail.assignee_id ?? ""}
+                    onChange={(e) => handleUpdate("assignee_id", e.target.value || null)}
+                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 text-sm outline-none transition-all focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/20"
+                  >
+                    <option value="">Unassigned</option>
+                    {users.filter((u) => u.is_active).map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Due date + Board */}
