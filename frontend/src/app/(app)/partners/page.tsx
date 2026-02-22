@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, Handshake, ExternalLink } from "lucide-react";
+import {
+  Plus, Search, Handshake, ExternalLink, CheckCircle2,
+  FileText, Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
 import type { EvaPartner, EvaPartnerDetail, PartnerDeal, EvaAccount } from "@/types";
@@ -75,6 +78,12 @@ export default function PartnersPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<EvaPartnerDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  /* ---- Computed KPIs ---- */
+  const totalPartners = partners.length;
+  const activePartners = partners.filter((p) => p.is_active).length;
+  const totalDeals = partners.reduce((sum, p) => sum + p.deal_count, 0);
+  const totalAccounts = partners.reduce((sum, p) => sum + p.account_count, 0);
 
   /* ---- Data fetching ---- */
 
@@ -196,8 +205,45 @@ export default function PartnersPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
-        <div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" />
+      <div className="space-y-6 animate-erp-entrance">
+        {/* Skeleton header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div>
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="mt-1 h-3 w-40" />
+            </div>
+          </div>
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+        {/* Skeleton KPI cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-11 w-11 rounded-xl shrink-0" />
+                <div className="space-y-1.5">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-5 w-10" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Skeleton filters */}
+        <div className="flex gap-3 items-center">
+          <Skeleton className="h-9 flex-1 max-w-sm rounded-lg" />
+          <Skeleton className="h-9 w-[170px] rounded-lg" />
+        </div>
+        {/* Skeleton table */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="space-y-3 p-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -222,6 +268,62 @@ export default function PartnersPage() {
         >
           <Plus className="h-4 w-4 mr-2" /> New Partner
         </Button>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-light">
+              <Handshake className="h-5 w-5 text-accent" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted">Total Partners</p>
+              <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                {totalPartners}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50">
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted">Active</p>
+              <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                {activePartners}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-5">
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50">
+              <FileText className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted">Total Deals</p>
+              <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                {totalDeals}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border border-l-[3px] border-l-purple-500 bg-card p-5">
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-50">
+              <Users className="h-5 w-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted">Linked Accounts</p>
+              <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                {totalAccounts}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -316,9 +418,9 @@ export default function PartnersPage() {
               <Skeleton className="h-4 w-32" />
               <Separator />
               <div className="grid grid-cols-3 gap-4">
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
               </div>
               <Separator />
               <Skeleton className="h-32" />
@@ -373,29 +475,50 @@ export default function PartnersPage() {
 
               <Separator />
 
-              {/* Stats */}
+              {/* Stats with icon containers */}
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Stats
                 </p>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-4">
-                    <p className="text-xs font-medium text-muted">Deals</p>
-                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
-                      {detail.deal_count}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-light">
+                        <FileText className="h-4 w-4 text-accent" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted">Deals</p>
+                        <p className="font-mono text-lg font-bold text-foreground">
+                          {detail.deal_count}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-4">
-                    <p className="text-xs font-medium text-muted">Won Deals</p>
-                    <p className="mt-0.5 font-mono text-xl font-bold text-green-600">
-                      {detail.won_deals}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50">
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted">Won</p>
+                        <p className="font-mono text-lg font-bold text-green-600">
+                          {detail.won_deals}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-4">
-                    <p className="text-xs font-medium text-muted">Accounts</p>
-                    <p className="mt-0.5 font-mono text-xl font-bold text-blue-600">
-                      {detail.account_count}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50">
+                        <Users className="h-4 w-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted">Accounts</p>
+                        <p className="font-mono text-lg font-bold text-blue-600">
+                          {detail.account_count}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -452,7 +575,7 @@ export default function PartnersPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="rounded-lg text-xs h-7"
+                                className="rounded-lg text-xs h-7 border-accent/30 text-accent hover:bg-accent/10"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleImpersonate(acc);

@@ -55,13 +55,13 @@ function ServiceCard({ svc }: { svc: ServiceStatus }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-lg",
+            "flex h-11 w-11 items-center justify-center rounded-xl",
             isUp ? "bg-green-50" : isDegraded ? "bg-yellow-50" : "bg-red-50",
           )}>
             {isUp ? (
-              <Wifi className="h-4 w-4 text-green-600" />
+              <Wifi className="h-5 w-5 text-green-600" />
             ) : (
-              <WifiOff className={cn("h-4 w-4", isDegraded ? "text-yellow-600" : "text-red-600")} />
+              <WifiOff className={cn("h-5 w-5", isDegraded ? "text-yellow-600" : "text-red-600")} />
             )}
           </div>
           <div>
@@ -220,7 +220,7 @@ export default function MonitoringPage() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center gap-3">
-                <Skeleton className="h-9 w-9 rounded-lg" />
+                <Skeleton className="h-11 w-11 rounded-xl" />
                 <div className="space-y-1.5">
                   <Skeleton className="h-3.5 w-24" />
                   <Skeleton className="h-3 w-14" />
@@ -239,42 +239,79 @@ export default function MonitoringPage() {
 
       {/* ── KPI Summary ── */}
       {overview && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className={cn(
-            "rounded-xl border border-border bg-card p-4 text-center",
-            overview.open_critical > 0 && "border-red-200 bg-red-50/40"
+            "rounded-xl border border-border border-l-[3px] border-l-red-500 bg-card p-5",
+            overview.open_critical > 0 && "bg-red-50/40"
           )}>
-            <p className="text-xs font-medium text-muted">Critical</p>
-            <p className={cn(
-              "mt-1 font-mono text-2xl font-bold",
-              overview.open_critical > 0 ? "text-red-600" : "text-foreground"
-            )}>
-              {overview.open_critical}
-            </p>
+            <div className="flex items-center gap-4">
+              <div className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+                overview.open_critical > 0 ? "bg-red-100" : "bg-red-50"
+              )}>
+                <AlertCircle className={cn("h-5 w-5", overview.open_critical > 0 ? "text-red-600" : "text-red-400")} />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Critical</p>
+                <p className={cn(
+                  "mt-0.5 font-mono text-xl font-bold",
+                  overview.open_critical > 0 ? "text-red-600" : "text-foreground"
+                )}>
+                  {overview.open_critical}
+                </p>
+              </div>
+            </div>
           </div>
+
           <div className={cn(
-            "rounded-xl border border-border bg-card p-4 text-center",
-            overview.open_high > 0 && "border-orange-200 bg-orange-50/40"
+            "rounded-xl border border-border border-l-[3px] border-l-orange-500 bg-card p-5",
+            overview.open_high > 0 && "bg-orange-50/40"
           )}>
-            <p className="text-xs font-medium text-muted">High</p>
-            <p className={cn(
-              "mt-1 font-mono text-2xl font-bold",
-              overview.open_high > 0 ? "text-orange-600" : "text-foreground"
-            )}>
-              {overview.open_high}
-            </p>
+            <div className="flex items-center gap-4">
+              <div className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+                overview.open_high > 0 ? "bg-orange-100" : "bg-orange-50"
+              )}>
+                <AlertTriangle className={cn("h-5 w-5", overview.open_high > 0 ? "text-orange-600" : "text-orange-400")} />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">High</p>
+                <p className={cn(
+                  "mt-0.5 font-mono text-xl font-bold",
+                  overview.open_high > 0 ? "text-orange-600" : "text-foreground"
+                )}>
+                  {overview.open_high}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="rounded-xl border border-border bg-card p-4 text-center">
-            <p className="text-xs font-medium text-muted">Total Open</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-foreground">
-              {overview.total_open}
-            </p>
+
+          <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                <Activity className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Total Open</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {overview.total_open}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="rounded-xl border border-border bg-card p-4 text-center">
-            <p className="text-xs font-medium text-muted">Resolved Today</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-green-600">
-              {overview.resolved_today}
-            </p>
+
+          <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Resolved Today</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-green-600">
+                  {overview.resolved_today}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -282,7 +319,15 @@ export default function MonitoringPage() {
       {/* ── Issues Table ── */}
       <div>
         <div className="flex items-center justify-between gap-3 mb-4">
-          <h2 className="text-sm font-bold text-foreground">Issues</h2>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-light">
+              <AlertCircle className="h-4 w-4 text-accent" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-foreground">Issues</h2>
+              <p className="text-xs text-muted">Track and resolve platform issues</p>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
               {["all", "open", "acknowledged", "resolved"].map((s) => (

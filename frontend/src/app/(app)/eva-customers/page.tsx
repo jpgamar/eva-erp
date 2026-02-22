@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, Building2, FileText, Trash2, Check } from "lucide-react";
+import {
+  Plus, Search, Building2, FileText, Trash2, Check,
+  Eye, ExternalLink, X, CheckCircle2, Handshake, Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
-import type { EvaAccount, AccountDraft } from "@/types";
+import type { EvaAccount, AccountDraft, PlatformDashboard } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +68,7 @@ const INITIAL_DRAFT_FORM = {
 export default function EvaCustomersPage() {
   const [accounts, setAccounts] = useState<EvaAccount[]>([]);
   const [drafts, setDrafts] = useState<AccountDraft[]>([]);
+  const [dashboard, setDashboard] = useState<PlatformDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
@@ -71,6 +77,10 @@ export default function EvaCustomersPage() {
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [addDraftOpen, setAddDraftOpen] = useState(false);
 
+  // Detail sheet
+  const [selectedAccount, setSelectedAccount] = useState<EvaAccount | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
   // Forms
   const [accountForm, setAccountForm] = useState({ ...INITIAL_ACCOUNT_FORM });
   const [draftForm, setDraftForm] = useState({ ...INITIAL_DRAFT_FORM });
@@ -78,15 +88,18 @@ export default function EvaCustomersPage() {
   // Action loading
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [impersonating, setImpersonating] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
-      const [accts, drfts] = await Promise.all([
+      const [accts, drfts, dash] = await Promise.all([
         evaPlatformApi.listAccounts({ search: search || undefined }),
         evaPlatformApi.listDrafts(),
+        evaPlatformApi.dashboard(),
       ]);
       setAccounts(accts);
       setDrafts(drfts);
+      setDashboard(dash);
     } catch {
       toast.error("Failed to load Eva accounts");
     } finally {
@@ -155,6 +168,24 @@ export default function EvaCustomersPage() {
     }
   };
 
+  const handleImpersonate = async (account: EvaAccount) => {
+    setImpersonating(account.id);
+    try {
+      const result = await evaPlatformApi.impersonateAccount(account.id);
+      toast.success(`Impersonating ${result.account_name}`);
+      window.open(result.magic_link_url, "_blank");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to impersonate account");
+    } finally {
+      setImpersonating(null);
+    }
+  };
+
+  const openDetail = (account: EvaAccount) => {
+    setSelectedAccount(account);
+    setSheetOpen(true);
+  };
+
   if (loading) {
     return (
       <div className="space-y-6 animate-erp-entrance">
@@ -167,6 +198,20 @@ export default function EvaCustomersPage() {
             </div>
           </div>
           <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+        {/* Skeleton KPI cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-11 w-11 rounded-xl shrink-0" />
+                <div className="space-y-1.5">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-5 w-12" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
         <Skeleton className="h-10 w-64 rounded-lg" />
         <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -212,6 +257,64 @@ export default function EvaCustomersPage() {
         </div>
       </div>
 
+      {/* KPI Cards */}
+      {dashboard && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-light">
+                <Building2 className="h-5 w-5 text-accent" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Total Accounts</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.total_accounts}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Active</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.active_accounts}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-amber-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+                <FileText className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Drafts Pending</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.draft_accounts_pending}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                <Handshake className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Partners</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.active_partners}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tab bar */}
       <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
         {TABS.map((t) => (
@@ -249,10 +352,10 @@ export default function EvaCustomersPage() {
                 <TableRow className="bg-gray-50/80">
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Type</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Partner</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[180px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -264,10 +367,13 @@ export default function EvaCustomersPage() {
                   </TableRow>
                 ) : (
                   accounts.map((a) => (
-                    <TableRow key={a.id} className="hover:bg-gray-50/80">
+                    <TableRow
+                      key={a.id}
+                      className="cursor-pointer hover:bg-gray-50/80"
+                      onClick={() => openDetail(a)}
+                    >
                       <TableCell className="font-medium text-foreground">{a.name}</TableCell>
                       <TableCell className="text-sm capitalize">{a.account_type?.toLowerCase().replace("_", " ") || "\u2014"}</TableCell>
-                      <TableCell className="text-sm">{a.partner_id || "\u2014"}</TableCell>
                       <TableCell>
                         {a.plan_tier ? (
                           <Badge className={`rounded-full text-xs ${PLAN_COLORS[a.plan_tier] || ""}`}>
@@ -292,6 +398,29 @@ export default function EvaCustomersPage() {
                       </TableCell>
                       <TableCell className="text-sm">
                         {new Date(a.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-accent/30 text-accent hover:bg-accent/10"
+                            onClick={() => handleImpersonate(a)}
+                            disabled={impersonating === a.id}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            {impersonating === a.id ? "..." : "Impersonate"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs"
+                            onClick={() => openDetail(a)}
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            View
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -380,6 +509,98 @@ export default function EvaCustomersPage() {
           </div>
         </div>
       )}
+
+      {/* Detail Sheet */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent className="w-[480px] sm:w-[560px] overflow-y-auto">
+          {selectedAccount && (
+            <div className="space-y-5 pt-4">
+              {/* Sheet Header */}
+              <div className="flex items-start justify-between">
+                <div className="space-y-1.5">
+                  <SheetTitle className="text-left text-lg font-semibold">
+                    {selectedAccount.name}
+                  </SheetTitle>
+                  <div className="flex items-center gap-2">
+                    {selectedAccount.plan_tier && (
+                      <Badge className={`rounded-full text-xs ${PLAN_COLORS[selectedAccount.plan_tier] || ""}`}>
+                        {selectedAccount.plan_tier}
+                      </Badge>
+                    )}
+                    {selectedAccount.is_active ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-green-600">
+                        <span className="h-2 w-2 rounded-full bg-green-500" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="h-2 w-2 rounded-full bg-red-500" />
+                        Inactive
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Info Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Account Type</p>
+                  <p className="mt-0.5 text-sm font-medium capitalize">
+                    {selectedAccount.account_type?.toLowerCase().replace("_", " ") || "\u2014"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Plan</p>
+                  <p className="mt-0.5 text-sm font-medium capitalize">
+                    {selectedAccount.plan_tier || "\u2014"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Billing Cycle</p>
+                  <p className="mt-0.5 text-sm font-medium capitalize">
+                    {selectedAccount.billing_interval || "\u2014"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Created</p>
+                  <p className="mt-0.5 text-sm font-medium">
+                    {new Date(selectedAccount.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                {selectedAccount.partner_id && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Partner ID</p>
+                    <p className="mt-0.5 text-sm font-medium font-mono">
+                      {selectedAccount.partner_id}
+                    </p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs text-muted-foreground">Subscription</p>
+                  <p className="mt-0.5 text-sm font-medium capitalize">
+                    {selectedAccount.subscription_status || "\u2014"}
+                  </p>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Impersonate Button */}
+              <Button
+                className="w-full rounded-lg bg-accent hover:bg-accent/90 text-white"
+                onClick={() => handleImpersonate(selectedAccount)}
+                disabled={impersonating === selectedAccount.id}
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                {impersonating === selectedAccount.id ? "Opening..." : "Impersonate Account"}
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* New Account Dialog */}
       <Dialog open={addAccountOpen} onOpenChange={setAddAccountOpen}>
