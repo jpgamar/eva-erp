@@ -139,17 +139,17 @@
 }
 
 /* ERP entrance animation — plays once on page load */
+/* NOTE: Do NOT use transform here — it creates a containing block
+   that breaks position:fixed for DragOverlay in @dnd-kit kanban boards. */
 @keyframes erp-entrance {
   from {
     opacity: 0;
-    transform: translateY(12px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 .animate-erp-entrance {
-  animation: erp-entrance 0.5s ease-out both;
+  animation: erp-entrance 0.35s ease-out both;
 }

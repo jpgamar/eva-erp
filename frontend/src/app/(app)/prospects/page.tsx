@@ -6,6 +6,7 @@ import {
   Phone, Building2, Trash2,
   Save, X, ChevronRight, ChevronLeft,
   ShoppingBag, Home, Check,
+  LayoutList, Columns3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { prospectsApi } from "@/lib/api/prospects";
@@ -16,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { KanbanBoard } from "@/components/kanban/kanban-board";
 
 const STATUSES = ["identified", "contacted", "interested", "demo_scheduled", "demo_done", "proposal_sent", "negotiating", "won", "lost"];
 
@@ -142,6 +144,7 @@ export default function ProspectsPage() {
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"table" | "board">("board");
 
   // Add wizard
   const [addOpen, setAddOpen] = useState(false);
@@ -246,6 +249,53 @@ export default function ProspectsPage() {
     }
   };
 
+  // Kanban helpers
+  const kanbanColumns = STATUSES.map((s) => ({
+    id: s,
+    label: STATUS_LABELS[s] || s,
+    color: STATUS_COLORS[s] || "bg-gray-100 text-gray-700",
+  }));
+
+  const handleKanbanStatusChange = async (prospectId: string, newStatus: string) => {
+    setProspects((prev) =>
+      prev.map((p) => (p.id === prospectId ? { ...p, status: newStatus } : p))
+    );
+    try {
+      await prospectsApi.update(prospectId, { status: newStatus });
+    } catch {
+      await fetchData();
+      toast.error("Failed to update status");
+    }
+  };
+
+  const renderProspectCard = (p: Prospect) => {
+    const urgency = getUrgency(p.tags);
+    return (
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold text-foreground leading-tight">{p.company_name}</p>
+        <p className="text-xs text-muted">{p.contact_name}</p>
+        <div className="flex flex-wrap items-center gap-1">
+          {urgency && (
+            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", URGENCY_COLORS[urgency])}>
+              {URGENCY_LABELS[urgency]}
+            </span>
+          )}
+          {p.tags?.includes("eva_commerce") && (
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">Commerce</span>
+          )}
+          {p.tags?.includes("eva_rents") && (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Rents</span>
+          )}
+        </div>
+        {p.estimated_mrr != null && (
+          <p className="text-[11px] font-mono text-muted">
+            ${p.estimated_mrr.toLocaleString()} /mo
+          </p>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
@@ -296,6 +346,29 @@ export default function ProspectsPage() {
               className="h-9 w-48 rounded-lg bg-gray-100 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted focus:bg-white focus:ring-2 focus:ring-accent/20"
             />
           </div>
+          {/* View toggle */}
+          <div className="flex h-9 items-center rounded-lg border border-border bg-gray-50 p-0.5">
+            <button
+              onClick={() => setViewMode("board")}
+              className={cn(
+                "flex h-7 w-8 items-center justify-center rounded-md transition-colors",
+                viewMode === "board" ? "bg-white shadow-sm text-foreground" : "text-muted hover:text-foreground"
+              )}
+              title="Board view"
+            >
+              <Columns3 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("table")}
+              className={cn(
+                "flex h-7 w-8 items-center justify-center rounded-md transition-colors",
+                viewMode === "table" ? "bg-white shadow-sm text-foreground" : "text-muted hover:text-foreground"
+              )}
+              title="Table view"
+            >
+              <LayoutList className="h-4 w-4" />
+            </button>
+          </div>
           <button
             onClick={() => setAddOpen(true)}
             className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98]"
@@ -305,68 +378,79 @@ export default function ProspectsPage() {
           </button>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-gray-50/80">
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Urgency</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Company</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Contact</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Product</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {prospects.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted py-12">
-                  No prospects yet.
-                </TableCell>
+      {/* Table / Board */}
+      {viewMode === "board" ? (
+        <KanbanBoard
+          columns={kanbanColumns}
+          items={prospects}
+          renderCard={renderProspectCard}
+          onStatusChange={handleKanbanStatusChange}
+          onCardClick={(p) => openDetail(p)}
+          columnWidth="w-60"
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50/80">
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Urgency</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Company</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Contact</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Product</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
               </TableRow>
-            ) : (
-              prospects.map((p) => {
-                const urgency = getUrgency(p.tags);
-                return (
-                  <TableRow
-                    key={p.id}
-                    className="cursor-pointer transition-colors hover:bg-gray-50/60"
-                    onClick={() => openDetail(p)}
-                  >
-                    <TableCell>
-                      {urgency ? (
-                        <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", URGENCY_COLORS[urgency])}>
-                          {URGENCY_LABELS[urgency]}
+            </TableHeader>
+            <TableBody>
+              {prospects.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted py-12">
+                    No prospects yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                prospects.map((p) => {
+                  const urgency = getUrgency(p.tags);
+                  return (
+                    <TableRow
+                      key={p.id}
+                      className="cursor-pointer transition-colors hover:bg-gray-50/60"
+                      onClick={() => openDetail(p)}
+                    >
+                      <TableCell>
+                        {urgency ? (
+                          <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", URGENCY_COLORS[urgency])}>
+                            {URGENCY_LABELS[urgency]}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-300">{"\u2014"}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium text-foreground">{p.company_name}</TableCell>
+                      <TableCell className="text-sm text-foreground">{p.contact_name}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          {p.tags?.includes("eva_commerce") && (
+                            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">Commerce</span>
+                          )}
+                          {p.tags?.includes("eva_rents") && (
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Rents</span>
+                          )}
+                          {(!p.tags || !p.tags.some(t => t === "eva_commerce" || t === "eva_rents")) && <span className="text-xs text-gray-300">{"\u2014"}</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", STATUS_COLORS[p.status])}>
+                          {STATUS_LABELS[p.status] || p.status}
                         </span>
-                      ) : (
-                        <span className="text-xs text-gray-300">{"\u2014"}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="font-medium text-foreground">{p.company_name}</TableCell>
-                    <TableCell className="text-sm text-foreground">{p.contact_name}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        {p.tags?.includes("eva_commerce") && (
-                          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">Commerce</span>
-                        )}
-                        {p.tags?.includes("eva_rents") && (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Rents</span>
-                        )}
-                        {(!p.tags || !p.tags.some(t => t === "eva_commerce" || t === "eva_rents")) && <span className="text-xs text-gray-300">{"\u2014"}</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", STATUS_COLORS[p.status])}>
-                        {STATUS_LABELS[p.status] || p.status}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* ---------- Detail / Edit Sheet ---------- */}
       <Sheet open={detailOpen} onOpenChange={setDetailOpen}>

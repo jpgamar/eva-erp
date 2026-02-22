@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Plus, Search, Send, MessageSquare, X, CalendarDays, Trash2,
-  FolderOpen,
+  FolderOpen, LayoutList, Columns3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { tasksApi, boardsApi } from "@/lib/api/tasks";
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { KanbanBoard } from "@/components/kanban/kanban-board";
 
 const STATUSES = ["todo", "in_progress", "done"] as const;
 
@@ -39,6 +40,7 @@ export default function TasksPage() {
   const [boardFilter, setBoardFilter] = useState<string | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"table" | "board">("board");
 
   // Dialogs
   const [addOpen, setAddOpen] = useState(false);
@@ -170,6 +172,44 @@ export default function TasksPage() {
 
   const isOverdue = (d: string | null) => d ? new Date(d) < new Date(new Date().toISOString().split("T")[0]) : false;
 
+  const handleKanbanStatusChange = async (taskId: string, newStatus: string) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
+    try {
+      await tasksApi.update(taskId, { status: newStatus });
+    } catch {
+      await fetchTasks();
+      toast.error("Failed to update status");
+    }
+  };
+
+  const kanbanColumns = STATUSES
+    .filter((s) => statusFilter === "all" || s === statusFilter)
+    .map((s) => ({ id: s, label: STATUS_CONFIG[s].label, color: STATUS_CONFIG[s].color }));
+
+  const renderTaskCard = (task: Task) => {
+    const pCfg = PRIORITY_CONFIG[task.priority];
+    const overdue = isOverdue(task.due_date) && task.status !== "done";
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-foreground leading-snug">{task.title}</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", pCfg?.color)}>
+            {pCfg?.label}
+          </span>
+          {task.due_date && (
+            <span className={cn("flex items-center gap-1 text-[10px]", overdue ? "font-medium text-red-600" : "text-muted-foreground")}>
+              <CalendarDays className="h-2.5 w-2.5" />
+              {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </span>
+          )}
+        </div>
+        {getUserName(task.assignee_id) && (
+          <p className="text-[10px] text-muted-foreground">{getUserName(task.assignee_id)}</p>
+        )}
+      </div>
+    );
+  };
+
   const showBoardCol = !boardFilter && boards.length > 0;
 
   if (loading) {
@@ -277,16 +317,49 @@ export default function TasksPage() {
             </select>
           )}
         </div>
-        <button
-          onClick={() => { setForm((f) => ({ ...f, board_id: boardFilter ?? "" })); setAddOpen(true); }}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98]"
-        >
-          <Plus className="h-4 w-4" />
-          New Task
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-0.5 rounded-lg border border-gray-200 p-0.5">
+            <button
+              onClick={() => setViewMode("board")}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+                viewMode === "board" ? "bg-gray-200 text-foreground" : "text-gray-400 hover:text-gray-600"
+              )}
+              title="Board view"
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode("table")}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+                viewMode === "table" ? "bg-gray-200 text-foreground" : "text-gray-400 hover:text-gray-600"
+              )}
+              title="Table view"
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <button
+            onClick={() => { setForm((f) => ({ ...f, board_id: boardFilter ?? "" })); setAddOpen(true); }}
+            className="flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98]"
+          >
+            <Plus className="h-4 w-4" />
+            New Task
+          </button>
+        </div>
       </div>
 
-      {/* Task Table */}
+      {/* Task Table / Kanban Board */}
+      {viewMode === "board" ? (
+        <KanbanBoard
+          columns={kanbanColumns}
+          items={filtered}
+          renderCard={renderTaskCard}
+          onStatusChange={handleKanbanStatusChange}
+          onCardClick={(task) => openDetail(task.id)}
+        />
+      ) : (
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <Table>
           <TableHeader>
@@ -364,6 +437,7 @@ export default function TasksPage() {
           </TableBody>
         </Table>
       </div>
+      )}
 
       {/* ── New Task Dialog ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

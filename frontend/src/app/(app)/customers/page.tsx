@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, Users } from "lucide-react";
+import { Plus, Search, Users, LayoutList, Columns3 } from "lucide-react";
 import { toast } from "sonner";
 import { customersApi } from "@/lib/api/customers";
 import { TAX_SYSTEMS, CFDI_USES } from "@/lib/constants/sat";
@@ -16,11 +16,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { KanbanBoard } from "@/components/kanban/kanban-board";
+import { cn } from "@/lib/utils";
 
 function fmt(amount: number | null | undefined, currency = "USD") {
   if (amount == null) return "\u2014";
   return `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
+
+const CUSTOMER_STATUSES = ["active", "trial", "paused", "churned"];
+
+const STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  trial: "Trial",
+  paused: "Paused",
+  churned: "Churned",
+};
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
@@ -50,6 +61,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<"table" | "board">("board");
   const [addOpen, setAddOpen] = useState(false);
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -117,6 +129,44 @@ export default function CustomersPage() {
     } catch { toast.error("Failed"); }
   };
 
+  // Kanban helpers
+  const kanbanColumns = (statusFilter === "all" ? CUSTOMER_STATUSES : [statusFilter]).map((s) => ({
+    id: s,
+    label: STATUS_LABELS[s] || s,
+    color: STATUS_COLORS[s] || "bg-gray-100 text-gray-700",
+  }));
+
+  const handleKanbanStatusChange = async (customerId: string, newStatus: string) => {
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, status: newStatus } : c))
+    );
+    try {
+      await customersApi.update(customerId, { status: newStatus });
+    } catch {
+      await fetchData();
+      toast.error("Failed to update status");
+    }
+  };
+
+  const renderCustomerCard = (c: Customer) => (
+    <div className="space-y-1.5">
+      <p className="text-sm font-semibold text-foreground leading-tight">{c.company_name}</p>
+      <p className="text-xs text-muted">{c.contact_name}</p>
+      <div className="flex flex-wrap items-center gap-1">
+        {c.plan_tier && (
+          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", PLAN_COLORS[c.plan_tier] || "bg-gray-100 text-gray-700")}>
+            {c.plan_tier}
+          </span>
+        )}
+      </div>
+      {c.mrr != null && (
+        <p className="text-[11px] font-mono text-muted">
+          {fmt(c.mrr, c.mrr_currency)}
+        </p>
+      )}
+    </div>
+  );
+
   if (loading) {
     return <div className="flex items-center justify-center h-[calc(100vh-8rem)]"><div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" /></div>;
   }
@@ -183,51 +233,84 @@ export default function CustomersPage() {
             <SelectItem value="trial">Trial</SelectItem>
           </SelectContent>
         </Select>
+        {/* View toggle */}
+        <div className="flex h-9 items-center rounded-lg border border-border bg-gray-50 p-0.5">
+          <button
+            onClick={() => setViewMode("board")}
+            className={cn(
+              "flex h-7 w-8 items-center justify-center rounded-md transition-colors",
+              viewMode === "board" ? "bg-white shadow-sm text-foreground" : "text-muted hover:text-foreground"
+            )}
+            title="Board view"
+          >
+            <Columns3 className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setViewMode("table")}
+            className={cn(
+              "flex h-7 w-8 items-center justify-center rounded-md transition-colors",
+              viewMode === "table" ? "bg-white shadow-sm text-foreground" : "text-muted hover:text-foreground"
+            )}
+            title="Table view"
+          >
+            <LayoutList className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Customer Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-gray-50/80">
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Company</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Contact</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">MRR</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Fiscal</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Signup</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {customers.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted py-12">No customers yet.</TableCell></TableRow>
-            ) : customers.map((c) => (
-              <TableRow key={c.id} className="cursor-pointer hover:bg-gray-50/80" onClick={() => openDetail(c)}>
-                <TableCell className="font-medium">{c.company_name}</TableCell>
-                <TableCell>{c.contact_name}</TableCell>
-                <TableCell>{c.plan_tier ? <Badge className={`rounded-full text-xs ${PLAN_COLORS[c.plan_tier] || ""}`}>{c.plan_tier}</Badge> : "\u2014"}</TableCell>
-                <TableCell className="font-medium">{fmt(c.mrr, c.mrr_currency)}</TableCell>
-                <TableCell>
-                  {c.rfc && c.legal_name ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs">
-                      <span className="h-2 w-2 rounded-full bg-green-500" />
-                      Complete
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <span className="h-2 w-2 rounded-full bg-gray-300" />
-                      Pending
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell><Badge className={`rounded-full text-xs ${STATUS_COLORS[c.status] || ""}`}>{c.status}</Badge></TableCell>
-                <TableCell className="text-sm">{c.signup_date ? new Date(c.signup_date).toLocaleDateString() : "\u2014"}</TableCell>
+      {/* Customer Table / Board */}
+      {viewMode === "board" ? (
+        <KanbanBoard
+          columns={kanbanColumns}
+          items={customers}
+          renderCard={renderCustomerCard}
+          onStatusChange={handleKanbanStatusChange}
+          onCardClick={(c) => openDetail(c)}
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50/80">
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Company</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Contact</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">MRR</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Fiscal</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Signup</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {customers.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center text-muted py-12">No customers yet.</TableCell></TableRow>
+              ) : customers.map((c) => (
+                <TableRow key={c.id} className="cursor-pointer hover:bg-gray-50/80" onClick={() => openDetail(c)}>
+                  <TableCell className="font-medium">{c.company_name}</TableCell>
+                  <TableCell>{c.contact_name}</TableCell>
+                  <TableCell>{c.plan_tier ? <Badge className={`rounded-full text-xs ${PLAN_COLORS[c.plan_tier] || ""}`}>{c.plan_tier}</Badge> : "\u2014"}</TableCell>
+                  <TableCell className="font-medium">{fmt(c.mrr, c.mrr_currency)}</TableCell>
+                  <TableCell>
+                    {c.rfc && c.legal_name ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs">
+                        <span className="h-2 w-2 rounded-full bg-green-500" />
+                        Complete
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="h-2 w-2 rounded-full bg-gray-300" />
+                        Pending
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell><Badge className={`rounded-full text-xs ${STATUS_COLORS[c.status] || ""}`}>{c.status}</Badge></TableCell>
+                  <TableCell className="text-sm">{c.signup_date ? new Date(c.signup_date).toLocaleDateString() : "\u2014"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* Detail Sheet */}
       <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
