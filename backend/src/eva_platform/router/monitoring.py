@@ -26,6 +26,7 @@ SERVICES = [
     {"name": "Backend API", "url": "https://api.goeva.ai/api/v1/health"},
     {"name": "Frontend", "url": "https://app.goeva.ai"},
     {"name": "ERP API", "url": "https://eva-erp-goevaai-30a99658.koyeb.app/health"},
+    {"name": "WhatsApp", "url": "https://api.goeva.ai/api/v1/whatsapp/oauth/callback"},
     {"name": "Supabase Auth", "url": "https://emrkjhfxytpgxzejkhre.supabase.co/auth/v1/health"},
 ]
 

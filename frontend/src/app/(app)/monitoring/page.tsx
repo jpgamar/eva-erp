@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AlertTriangle, AlertCircle, CheckCircle2, Activity,
   RefreshCw, Eye, CheckCheck, Clock, Wifi, WifiOff,
+  Server, Globe, Shield, Database, MessageCircle,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
 import type { MonitoringOverview, MonitoringIssue, ServiceStatus, ServiceStatusResponse } from "@/types";
@@ -40,11 +42,23 @@ function timeAgo(dateStr: string): string {
   return `${diffDay}d ago`;
 }
 
+/* ── Service icon map ─────────────────────────────────── */
+
+const SERVICE_ICONS: Record<string, LucideIcon> = {
+  "Backend API": Server,
+  "Frontend": Globe,
+  "ERP API": Server,
+  "WhatsApp": MessageCircle,
+  "Supabase Auth": Shield,
+  "Database": Database,
+};
+
 /* ── Service Card ─────────────────────────────────────── */
 
 function ServiceCard({ svc }: { svc: ServiceStatus }) {
   const isUp = svc.status === "up";
   const isDegraded = svc.status === "degraded";
+  const Icon = SERVICE_ICONS[svc.name] || Wifi;
   return (
     <div className={cn(
       "rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-sm",
@@ -58,11 +72,10 @@ function ServiceCard({ svc }: { svc: ServiceStatus }) {
             "flex h-11 w-11 items-center justify-center rounded-xl",
             isUp ? "bg-green-50" : isDegraded ? "bg-yellow-50" : "bg-red-50",
           )}>
-            {isUp ? (
-              <Wifi className="h-5 w-5 text-green-600" />
-            ) : (
-              <WifiOff className={cn("h-5 w-5", isDegraded ? "text-yellow-600" : "text-red-600")} />
-            )}
+            <Icon className={cn(
+              "h-5 w-5",
+              isUp ? "text-green-600" : isDegraded ? "text-yellow-600" : "text-red-600",
+            )} />
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">{svc.name}</p>
