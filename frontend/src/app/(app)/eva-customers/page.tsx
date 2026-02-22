@@ -175,7 +175,9 @@ export default function EvaCustomersPage() {
       toast.success(`Impersonating ${result.account_name}`);
       window.open(result.magic_link_url, "_blank");
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Failed to impersonate account");
+      const detail = e?.response?.data?.detail;
+      toast.error(detail || "Failed to impersonate account");
+      console.error("Impersonate error:", e?.response?.status, detail);
     } finally {
       setImpersonating(null);
     }
@@ -316,7 +318,7 @@ export default function EvaCustomersPage() {
       )}
 
       {/* Tab bar */}
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+      <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-card p-1">
         {TABS.map((t) => (
           <button
             key={t.key}
