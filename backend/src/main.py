@@ -128,7 +128,10 @@ async def health_liveness():
 async def health_readiness():
     erp_ok, erp_error, eva_ok, eva_error = await _db_health()
     check_results = await run_live_checks(exclude_check_keys={"erp-api"})
-    critical_results = [result for result in check_results if result.critical]
+    readiness_check_keys = {"erp-db", "eva-db", "eva-api", "supabase-auth", "supabase-admin"}
+    critical_results = [
+        result for result in check_results if result.critical and result.check_key in readiness_check_keys
+    ]
     failing_critical = [
         {
             "check_key": result.check_key,
@@ -141,7 +144,8 @@ async def health_readiness():
         if result.status in FAILURE_STATES
     ]
 
-    ready = erp_ok and len(failing_critical) == 0
+    db_ready = erp_ok and (eva_engine is None or eva_ok)
+    ready = db_ready and len(failing_critical) == 0
 
     return {
         "status": "ok" if ready else "error",
