@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AlertCircle, Activity,
   RefreshCw, Eye, CheckCheck, Clock,
-  Server, Globe, Database,
+  Server, Globe, Database, Shield, MessageCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -46,6 +46,7 @@ type MonitoringGroupCheck = {
   checkKey: string;
   label: string;
   icon: LucideIcon;
+  optional?: boolean;
 };
 
 type MonitoringGroup = {
@@ -99,21 +100,52 @@ const FACTURAPI_GROUPS: MonitoringGroup[] = [
   },
 ];
 
+const EVA_APP_GROUPS: MonitoringGroup[] = [
+  {
+    key: "eva-app",
+    title: "EVA App",
+    description: "Frontend, API, DB, auth, messaging, AI and billing",
+    checks: [
+      { checkKey: "eva-app-frontend", label: "Frontend", icon: Globe },
+      { checkKey: "eva-api", label: "Backend API", icon: Server },
+      { checkKey: "eva-db", label: "Database", icon: Database },
+      { checkKey: "supabase-auth", label: "Supabase Auth", icon: Shield },
+      { checkKey: "supabase-admin", label: "Supabase Admin", icon: Shield },
+      { checkKey: "openai-api", label: "OpenAI API", icon: Activity },
+      { checkKey: "eva-whatsapp", label: "WhatsApp", icon: MessageCircle, optional: true },
+      { checkKey: "facturapi-eva-app", label: "FacturAPI", icon: Server },
+    ],
+  },
+];
+
 /* ── Unified Group Card ─────────────────────────────── */
 
 function UnifiedGroupCard({ group, services }: { group: MonitoringGroup; services: ServiceStatus[] }) {
   const rows = group.checks.map((check) => {
     const service = services.find((svc) => svc.check_key === check.checkKey);
+    if (!service && check.optional) {
+      return {
+        ...check,
+        service,
+        state: "na" as const,
+        detail: "Optional check not configured.",
+      };
+    }
     const isUp = Boolean(service && service.status === "up" && !service.stale);
     const detail = !service
       ? "Check not returned by API."
       : service.stale
         ? "Status is stale."
         : service.error;
-    return { ...check, service, isUp, detail };
+    return {
+      ...check,
+      service,
+      state: isUp ? ("up" as const) : ("down" as const),
+      detail,
+    };
   });
 
-  const isHealthy = rows.every((row) => row.isUp);
+  const isHealthy = rows.every((row) => row.state !== "down");
 
   return (
     <div className={cn(
@@ -144,24 +176,51 @@ function UnifiedGroupCard({ group, services }: { group: MonitoringGroup; service
               key={row.checkKey}
               className={cn(
                 "rounded-lg border px-3 py-2",
-                row.isUp ? "border-green-200/80 bg-green-100/40" : "border-red-200/80 bg-red-100/40",
+                row.state === "up"
+                  ? "border-green-200/80 bg-green-100/40"
+                  : row.state === "na"
+                    ? "border-gray-200/80 bg-gray-100/40"
+                    : "border-red-200/80 bg-red-100/40",
               )}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Icon className={cn("h-4 w-4", row.isUp ? "text-green-700" : "text-red-700")} />
+                  <Icon className={cn(
+                    "h-4 w-4",
+                    row.state === "up"
+                      ? "text-green-700"
+                      : row.state === "na"
+                        ? "text-gray-500"
+                        : "text-red-700",
+                  )} />
                   <span className="text-xs font-medium text-foreground">{row.label}</span>
                 </div>
                 <span className={cn(
                   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                  row.isUp ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
+                  row.state === "up"
+                    ? "bg-green-100 text-green-700"
+                    : row.state === "na"
+                      ? "bg-gray-100 text-gray-600"
+                      : "bg-red-100 text-red-700",
                 )}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", row.isUp ? "bg-green-500" : "bg-red-500")} />
-                  {row.isUp ? "Up" : "Down"}
+                  <span className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    row.state === "up"
+                      ? "bg-green-500"
+                      : row.state === "na"
+                        ? "bg-gray-400"
+                        : "bg-red-500",
+                  )} />
+                  {row.state === "up" ? "Up" : row.state === "na" ? "N/A" : "Down"}
                 </span>
               </div>
-              {!row.isUp && row.detail && (
-                <p className="mt-1 text-[11px] text-red-700 truncate">{row.detail}</p>
+              {row.detail && row.state !== "up" && (
+                <p className={cn(
+                  "mt-1 text-[11px] truncate",
+                  row.state === "na" ? "text-gray-600" : "text-red-700",
+                )}>
+                  {row.detail}
+                </p>
               )}
             </div>
           );
@@ -346,6 +405,29 @@ export default function MonitoringPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {MONITORING_GROUPS.map((group) => (
+              <UnifiedGroupCard
+                key={group.key}
+                group={group}
+                services={services}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── FacturAPI Integration Cards ── */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-sm font-bold text-foreground">EVA App Monitoring</h2>
+          <p className="text-xs text-muted">All EVA app checks in one unified card</p>
+        </div>
+        {servicesLoading ? (
+          <div className="grid grid-cols-1 gap-4">
+            <GroupCardSkeleton />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {EVA_APP_GROUPS.map((group) => (
               <UnifiedGroupCard
                 key={group.key}
                 group={group}

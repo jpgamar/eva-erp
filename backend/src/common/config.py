@@ -47,7 +47,9 @@ class Settings(BaseSettings):
     monitoring_slack_webhook_url: str = ""
 
     # Monitoring target URLs
-    monitoring_frontend_url: str = "https://app.goeva.ai"
+    monitoring_frontend_url: str = "https://app.goeva.ai"  # legacy fallback
+    monitoring_erp_frontend_url: str = "https://erp.goeva.ai"
+    monitoring_eva_app_frontend_url: str = "https://app.goeva.ai"
     monitoring_erp_api_health_url: str = "https://eva-erp-goevaai-30a99658.koyeb.app/health/readiness"
     monitoring_eva_api_health_url: str = "https://api.goeva.ai/api/v1/health"
     monitoring_whatsapp_health_url: str = ""

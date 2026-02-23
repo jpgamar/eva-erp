@@ -80,6 +80,10 @@ def classify_issue_severity(status: str, critical: bool) -> str:
 
 def _build_check_specs() -> list[CheckSpec]:
     supabase_base = (settings.supabase_url or settings.monitoring_supabase_url).rstrip("/")
+    erp_frontend_target = settings.monitoring_erp_frontend_url or settings.monitoring_frontend_url
+    eva_app_frontend_target = (
+        settings.monitoring_eva_app_frontend_url or settings.monitoring_frontend_url
+    )
     facturapi_fmac_key = settings.monitoring_facturapi_fmac_api_key or settings.facturapi_api_key
     facturapi_eva_erp_key = (
         settings.monitoring_facturapi_eva_erp_api_key or settings.facturapi_api_key
@@ -115,7 +119,14 @@ def _build_check_specs() -> list[CheckSpec]:
         CheckSpec(
             check_key="erp-frontend",
             service="ERP Frontend",
-            target=settings.monitoring_frontend_url,
+            target=erp_frontend_target,
+            critical=True,
+            category="frontend",
+        ),
+        CheckSpec(
+            check_key="eva-app-frontend",
+            service="EVA App Frontend",
+            target=eva_app_frontend_target,
             critical=True,
             category="frontend",
         ),

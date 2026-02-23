@@ -8,6 +8,7 @@ The monitoring runner executes periodic checks for:
 - EVA database (`eva-db`)
 - ERP API (`erp-api`)
 - ERP frontend (`erp-frontend`)
+- EVA app frontend (`eva-app-frontend`)
 - FMAccesorios ERP frontend (`fmac-erp-frontend`)
 - FMAccesorios ERP backend (`fmac-erp-backend`)
 - FMAccesorios ERP database (`fmac-erp-db`, requires `MONITORING_FMAC_ERP_DB_URL`)
