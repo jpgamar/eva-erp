@@ -43,6 +43,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${KOYEB_TOKEN:-}" ]; then
+            echo "KOYEB_API_TOKEN is not configured for this repository."
+            exit 1
+          fi
+
           APP_NAME="eva-erp"
           SERVICE_NAME="api"
           MAX_ATTEMPTS=60
@@ -56,14 +61,33 @@ jobs:
             echo ""
             echo "Attempt $attempt/$MAX_ATTEMPTS - Checking for new deployment..."
 
+            set +e
             DEPLOYMENTS_JSON=$(koyeb deployments list \
               --service "${APP_NAME}/${SERVICE_NAME}" \
-              -o json 2>/dev/null || echo '{"deployments":[]}')
+              -o json 2>&1)
+            RC=$?
+            set -e
+            if [ $RC -ne 0 ]; then
+              echo "Failed to query Koyeb deployments: $DEPLOYMENTS_JSON"
+              exit $RC
+            fi
 
             DEPLOYMENTS_ARRAY=$(echo "$DEPLOYMENTS_JSON" | jq '.deployments // []')
             DEPLOYMENT_COUNT=$(echo "$DEPLOYMENTS_ARRAY" | jq 'length')
 
             if [ "$DEPLOYMENT_COUNT" -eq 0 ]; then
+              if [ "$REDEPLOY_TRIGGERED" = false ] && [ "$attempt" -ge 6 ]; then
+                echo "   No deployments found. Triggering redeploy..."
+                set +e
+                REDEPLOY_OUTPUT=$(koyeb services redeploy "$SERVICE_NAME" --app "$APP_NAME" --wait --wait-timeout 15m --use-cache 2>&1)
+                RC=$?
+                set -e
+                if [ $RC -ne 0 ]; then
+                  echo "Failed to trigger redeploy: $REDEPLOY_OUTPUT"
+                  exit $RC
+                fi
+                REDEPLOY_TRIGGERED=true
+              fi
               echo "   No deployments found yet, waiting..."
               sleep 10
               continue
@@ -89,9 +113,23 @@ jobs:
             if [ "$CANDIDATE_COUNT" -eq 0 ]; then
               if [ "$REDEPLOY_TRIGGERED" = false ] && [ "$attempt" -eq 6 ]; then
                 echo "   No new deployment detected. Triggering redeploy..."
-                koyeb services redeploy "$SERVICE_NAME" --app "$APP_NAME" --wait --wait-timeout 15m --use-cache
+                set +e
+                REDEPLOY_OUTPUT=$(koyeb services redeploy "$SERVICE_NAME" --app "$APP_NAME" --wait --wait-timeout 15m --use-cache 2>&1)
+                RC=$?
+                set -e
+                if [ $RC -ne 0 ]; then
+                  echo "Failed to trigger redeploy: $REDEPLOY_OUTPUT"
+                  exit $RC
+                fi
                 REDEPLOY_TRIGGERED=true
-                DEPLOYMENTS_JSON=$(koyeb deployments list --service "${APP_NAME}/${SERVICE_NAME}" -o json 2>/dev/null || echo '{"deployments":[]}')
+                set +e
+                DEPLOYMENTS_JSON=$(koyeb deployments list --service "${APP_NAME}/${SERVICE_NAME}" -o json 2>&1)
+                RC=$?
+                set -e
+                if [ $RC -ne 0 ]; then
+                  echo "Failed to query deployments after redeploy: $DEPLOYMENTS_JSON"
+                  exit $RC
+                fi
                 DEPLOYMENTS_ARRAY=$(echo "$DEPLOYMENTS_JSON" | jq '.deployments // []')
                 SORTED_DEPLOYMENTS=$(echo "$DEPLOYMENTS_ARRAY" | jq 'sort_by(.created_at // "") | reverse')
                 HEALTHY=$(echo "$SORTED_DEPLOYMENTS" | jq -r '[.[] | select((.status // "") == "HEALTHY")] | .[0] // empty')
@@ -140,15 +178,27 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${KOYEB_TOKEN:-}" ]; then
+            echo "KOYEB_API_TOKEN is not configured for this repository."
+            exit 1
+          fi
+
           APP_NAME="eva-erp"
           SERVICE_NAME="api"
           MAX_ATTEMPTS=30
           INSTANCE_FOUND=false
 
           for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            set +e
             INSTANCES_JSON=$(koyeb instances list \
               --service "${APP_NAME}/${SERVICE_NAME}" \
-              -o json 2>/dev/null || echo '{"instances":[]}')
+              -o json 2>&1)
+            RC=$?
+            set -e
+            if [ $RC -ne 0 ]; then
+              echo "Failed to query Koyeb instances: $INSTANCES_JSON"
+              exit $RC
+            fi
 
             INSTANCES_ARRAY=$(echo "$INSTANCES_JSON" | jq '.instances // []')
             INSTANCE_COUNT=$(echo "$INSTANCES_ARRAY" | jq 'length')
@@ -183,6 +233,11 @@ jobs:
           KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [ -z "${KOYEB_TOKEN:-}" ]; then
+            echo "KOYEB_API_TOKEN is not configured for this repository."
+            exit 1
+          fi
 
           INSTANCE_ID="${{ steps.get_instance.outputs.instance_id }}"
           SHORT_ID="${INSTANCE_ID:0:8}"
