@@ -252,6 +252,13 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _format_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return f"{exc.__class__.__name__}: {message}"[:300]
+    return exc.__class__.__name__[:300]
+
+
 async def _run_http_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckResult:
     if not spec.target:
         return CheckResult(
@@ -265,32 +272,59 @@ async def _run_http_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckRe
             error_message="Monitoring target is not configured",
         )
 
-    try:
-        start = asyncio.get_running_loop().time()
-        response = await client.get(spec.target, headers=spec.headers)
-        latency_ms = (asyncio.get_running_loop().time() - start) * 1000
-        return CheckResult(
-            check_key=spec.check_key,
-            service=spec.service,
-            target=spec.target,
-            status=classify_http_status(response.status_code, spec.success_statuses),
-            critical=spec.critical,
-            category=spec.category,
-            checked_at=_now_utc(),
-            http_status=response.status_code,
-            latency_ms=latency_ms,
-        )
-    except Exception as exc:
-        return CheckResult(
-            check_key=spec.check_key,
-            service=spec.service,
-            target=spec.target,
-            status="down",
-            critical=spec.critical,
-            category=spec.category,
-            checked_at=_now_utc(),
-            error_message=str(exc)[:300],
-        )
+    max_attempts = 2
+    for attempt in range(max_attempts):
+        try:
+            start = asyncio.get_running_loop().time()
+            response = await client.get(spec.target, headers=spec.headers)
+            latency_ms = (asyncio.get_running_loop().time() - start) * 1000
+            return CheckResult(
+                check_key=spec.check_key,
+                service=spec.service,
+                target=spec.target,
+                status=classify_http_status(response.status_code, spec.success_statuses),
+                critical=spec.critical,
+                category=spec.category,
+                checked_at=_now_utc(),
+                http_status=response.status_code,
+                latency_ms=latency_ms,
+            )
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as exc:
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(0.25)
+                continue
+            return CheckResult(
+                check_key=spec.check_key,
+                service=spec.service,
+                target=spec.target,
+                status="down",
+                critical=spec.critical,
+                category=spec.category,
+                checked_at=_now_utc(),
+                error_message=_format_exception(exc),
+            )
+        except Exception as exc:
+            return CheckResult(
+                check_key=spec.check_key,
+                service=spec.service,
+                target=spec.target,
+                status="down",
+                critical=spec.critical,
+                category=spec.category,
+                checked_at=_now_utc(),
+                error_message=_format_exception(exc),
+            )
+
+    return CheckResult(
+        check_key=spec.check_key,
+        service=spec.service,
+        target=spec.target,
+        status="down",
+        critical=spec.critical,
+        category=spec.category,
+        checked_at=_now_utc(),
+        error_message="Unknown monitoring error",
+    )
 
 
 async def _run_openai_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckResult:
@@ -460,7 +494,7 @@ async def _run_erp_db_check(spec: CheckSpec) -> CheckResult:
             critical=spec.critical,
             category=spec.category,
             checked_at=_now_utc(),
-            error_message=str(exc)[:300],
+            error_message=_format_exception(exc),
         )
 
 
@@ -500,7 +534,7 @@ async def _run_eva_db_check(spec: CheckSpec) -> CheckResult:
             critical=spec.critical,
             category=spec.category,
             checked_at=_now_utc(),
-            error_message=str(exc)[:300],
+            error_message=_format_exception(exc),
         )
 
 
@@ -553,7 +587,7 @@ async def _run_external_db_check(spec: CheckSpec) -> CheckResult:
             critical=spec.critical,
             category=spec.category,
             checked_at=_now_utc(),
-            error_message=str(exc)[:300],
+            error_message=_format_exception(exc),
         )
 
 

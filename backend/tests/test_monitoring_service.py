@@ -1,5 +1,7 @@
 import asyncio
 
+import httpx
+
 from src.eva_platform.monitoring_service import (
     CheckSpec,
     _run_single_check,
@@ -19,8 +21,10 @@ class _DummyClient:
     def __init__(self, status_code: int = 200) -> None:
         self.status_code = status_code
         self.last_headers: dict[str, str] | None = None
+        self.calls = 0
 
     async def get(self, _target: str, headers: dict[str, str] | None = None) -> _DummyResponse:
+        self.calls += 1
         self.last_headers = headers or {}
         return _DummyResponse(self.status_code)
 
@@ -169,3 +173,46 @@ def test_sendgrid_check_falls_back_to_global_key():
     finally:
         settings.monitoring_sendgrid_fmac_api_key = original_sendgrid_key
         settings.sendgrid_api_key = original_global_sendgrid_key
+
+
+def test_http_check_retries_transient_timeout():
+    class _FlakyClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def get(self, _target: str, headers: dict[str, str] | None = None) -> _DummyResponse:
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.ReadTimeout("timed out")
+            return _DummyResponse(200)
+
+    spec = CheckSpec(
+        check_key="retry-check",
+        service="Retry Check",
+        target="https://example.com/health",
+        critical=True,
+        category="api",
+    )
+    client = _FlakyClient()
+    result = asyncio.run(_run_single_check(client, spec))
+    assert result.status == "up"
+    assert result.http_status == 200
+    assert client.calls == 2
+
+
+def test_http_check_timeout_error_is_never_blank():
+    class _TimeoutClient:
+        async def get(self, _target: str, headers: dict[str, str] | None = None) -> _DummyResponse:
+            raise httpx.ReadTimeout("")
+
+    spec = CheckSpec(
+        check_key="timeout-check",
+        service="Timeout Check",
+        target="https://example.com/health",
+        critical=True,
+        category="api",
+    )
+    result = asyncio.run(_run_single_check(_TimeoutClient(), spec))
+    assert result.status == "down"
+    assert result.error_message is not None
+    assert "ReadTimeout" in result.error_message
