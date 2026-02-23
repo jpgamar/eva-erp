@@ -94,7 +94,7 @@ def _build_check_specs() -> list[CheckSpec]:
     facturapi_eva_app_key = (
         settings.monitoring_facturapi_eva_app_api_key or settings.facturapi_api_key
     )
-    sendgrid_fmac_key = settings.monitoring_sendgrid_fmac_api_key
+    sendgrid_fmac_key = settings.monitoring_sendgrid_fmac_api_key or settings.sendgrid_api_key
 
     specs: list[CheckSpec] = [
         CheckSpec(
@@ -346,7 +346,9 @@ async def _run_facturapi_check(client: httpx.AsyncClient, spec: CheckSpec) -> Ch
 
 
 async def _run_sendgrid_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckResult:
-    sendgrid_api_key = spec.api_key or settings.monitoring_sendgrid_fmac_api_key
+    sendgrid_api_key = (
+        spec.api_key or settings.monitoring_sendgrid_fmac_api_key or settings.sendgrid_api_key
+    )
     if not sendgrid_api_key:
         return CheckResult(
             check_key=spec.check_key,

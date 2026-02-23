@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    sendgrid_api_key: str = ""
 
     # Facturapi (CFDI electronic invoicing)
     facturapi_api_key: str = ""
