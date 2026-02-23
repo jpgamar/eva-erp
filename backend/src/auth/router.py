@@ -1,7 +1,7 @@
 import hmac
 
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from jose import jwt as jose_jwt, JWTError, ExpiredSignatureError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -225,7 +225,7 @@ async def sso_login(
     refresh_token = create_refresh_token(user.id)
 
     is_prod = settings.environment == "production"
-    response = JSONResponse({"name": user.name or ""})
+    response = RedirectResponse(url="/dashboard?welcome=1", status_code=302)
     response.set_cookie(
         key="erp_access_token",
         value=access_token,
