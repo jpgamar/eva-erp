@@ -468,7 +468,7 @@ export default function FinancesPage() {
                 <Input className="mt-1.5 rounded-lg" type="date" value={incomeForm.date} onChange={(e) => setIncomeForm(f => ({ ...f, date: e.target.value }))} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${incomeForm.recurrence_type === "custom" ? "grid-cols-2" : "grid-cols-1"}`}>
               <div>
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Recurrence</Label>
                 <Select value={incomeForm.recurrence_type} onValueChange={(v: "one_time" | "monthly" | "custom") => setIncomeForm(f => ({ ...f, recurrence_type: v }))}>
@@ -480,19 +480,20 @@ export default function FinancesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Custom interval (months)</Label>
-                <Input
-                  className="mt-1.5 rounded-lg"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={incomeForm.custom_interval_months}
-                  disabled={incomeForm.recurrence_type !== "custom"}
-                  onChange={(e) => setIncomeForm(f => ({ ...f, custom_interval_months: e.target.value }))}
-                  required={incomeForm.recurrence_type === "custom"}
-                />
-              </div>
+              {incomeForm.recurrence_type === "custom" && (
+                <div>
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Custom interval (months)</Label>
+                  <Input
+                    className="mt-1.5 rounded-lg"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={incomeForm.custom_interval_months}
+                    onChange={(e) => setIncomeForm(f => ({ ...f, custom_interval_months: e.target.value }))}
+                    required
+                  />
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" className="rounded-lg" onClick={() => setAddIncomeOpen(false)}>Cancel</Button>
