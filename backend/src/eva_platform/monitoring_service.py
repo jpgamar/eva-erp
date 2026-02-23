@@ -33,6 +33,8 @@ class CheckSpec:
     headers: dict[str, str] = field(default_factory=dict)
     success_statuses: tuple[int, ...] = ()
     api_key: str = ""
+    timeout_seconds: float | None = None
+    retry_attempts: int = 2
 
 
 @dataclass(slots=True)
@@ -219,6 +221,8 @@ def _build_check_specs() -> list[CheckSpec]:
                 critical=False,
                 category="messaging",
                 success_statuses=(200, 401, 403, 422),
+                timeout_seconds=max(float(settings.monitoring_check_timeout_seconds), 15.0),
+                retry_attempts=3,
             )
         )
 
@@ -272,11 +276,16 @@ async def _run_http_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckRe
             error_message="Monitoring target is not configured",
         )
 
-    max_attempts = 2
+    max_attempts = max(spec.retry_attempts, 1)
+    request_timeout = (
+        spec.timeout_seconds
+        if spec.timeout_seconds and spec.timeout_seconds > 0
+        else max(float(settings.monitoring_check_timeout_seconds), 1.0)
+    )
     for attempt in range(max_attempts):
         try:
             start = asyncio.get_running_loop().time()
-            response = await client.get(spec.target, headers=spec.headers)
+            response = await client.get(spec.target, headers=spec.headers, timeout=request_timeout)
             latency_ms = (asyncio.get_running_loop().time() - start) * 1000
             return CheckResult(
                 check_key=spec.check_key,

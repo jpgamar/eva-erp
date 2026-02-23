@@ -28,6 +28,7 @@ SendGrid check for FMAccesorios uses `MONITORING_SENDGRID_FMAC_API_KEY` and fall
 
 - A check status is `up`, `degraded`, or `down`.
 - `degraded` and `down` count as failures.
+- HTTP checks retry transient transport/timeout failures before marking `down`.
 - Auth-protected checks can define allowed statuses (for FM backend, `401/403` are treated as reachable = `up`).
 - Issue opens automatically after:
 - `MONITORING_FAILURE_THRESHOLD_CRITICAL` consecutive failures for critical checks.

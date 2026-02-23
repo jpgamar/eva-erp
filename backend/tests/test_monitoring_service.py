@@ -23,7 +23,12 @@ class _DummyClient:
         self.last_headers: dict[str, str] | None = None
         self.calls = 0
 
-    async def get(self, _target: str, headers: dict[str, str] | None = None) -> _DummyResponse:
+    async def get(
+        self,
+        _target: str,
+        headers: dict[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> _DummyResponse:
         self.calls += 1
         self.last_headers = headers or {}
         return _DummyResponse(self.status_code)
@@ -180,7 +185,12 @@ def test_http_check_retries_transient_timeout():
         def __init__(self) -> None:
             self.calls = 0
 
-        async def get(self, _target: str, headers: dict[str, str] | None = None) -> _DummyResponse:
+        async def get(
+            self,
+            _target: str,
+            headers: dict[str, str] | None = None,
+            timeout: float | None = None,
+        ) -> _DummyResponse:
             self.calls += 1
             if self.calls == 1:
                 raise httpx.ReadTimeout("timed out")
@@ -202,7 +212,12 @@ def test_http_check_retries_transient_timeout():
 
 def test_http_check_timeout_error_is_never_blank():
     class _TimeoutClient:
-        async def get(self, _target: str, headers: dict[str, str] | None = None) -> _DummyResponse:
+        async def get(
+            self,
+            _target: str,
+            headers: dict[str, str] | None = None,
+            timeout: float | None = None,
+        ) -> _DummyResponse:
             raise httpx.ReadTimeout("")
 
     spec = CheckSpec(
@@ -216,3 +231,33 @@ def test_http_check_timeout_error_is_never_blank():
     assert result.status == "down"
     assert result.error_message is not None
     assert "ReadTimeout" in result.error_message
+
+
+def test_http_check_honors_custom_retry_attempts():
+    class _FlakyClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def get(
+            self,
+            _target: str,
+            headers: dict[str, str] | None = None,
+            timeout: float | None = None,
+        ) -> _DummyResponse:
+            self.calls += 1
+            if self.calls < 3:
+                raise httpx.ReadTimeout("timed out")
+            return _DummyResponse(200)
+
+    spec = CheckSpec(
+        check_key="retry-check-custom",
+        service="Retry Check Custom",
+        target="https://example.com/health",
+        critical=True,
+        category="api",
+        retry_attempts=3,
+    )
+    client = _FlakyClient()
+    result = asyncio.run(_run_single_check(client, spec))
+    assert result.status == "up"
+    assert client.calls == 3
