@@ -94,6 +94,7 @@ def _build_check_specs() -> list[CheckSpec]:
     facturapi_eva_app_key = (
         settings.monitoring_facturapi_eva_app_api_key or settings.facturapi_api_key
     )
+    sendgrid_fmac_key = settings.monitoring_sendgrid_fmac_api_key
 
     specs: list[CheckSpec] = [
         CheckSpec(
@@ -179,6 +180,15 @@ def _build_check_specs() -> list[CheckSpec]:
             category="billing",
             kind="facturapi",
             api_key=facturapi_fmac_key,
+        ),
+        CheckSpec(
+            check_key="sendgrid-fmac-erp",
+            service="SendGrid (FMAccesorios ERP)",
+            target=settings.monitoring_sendgrid_fmac_url,
+            critical=False,
+            category="messaging",
+            kind="sendgrid",
+            api_key=sendgrid_fmac_key,
         ),
         CheckSpec(
             check_key="facturapi-eva-erp",
@@ -331,6 +341,34 @@ async def _run_facturapi_check(client: httpx.AsyncClient, spec: CheckSpec) -> Ch
         kind=spec.kind,
         headers=headers,
         api_key=facturapi_api_key,
+    )
+    return await _run_http_check(client, custom)
+
+
+async def _run_sendgrid_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckResult:
+    sendgrid_api_key = spec.api_key or settings.monitoring_sendgrid_fmac_api_key
+    if not sendgrid_api_key:
+        return CheckResult(
+            check_key=spec.check_key,
+            service=spec.service,
+            target=spec.target,
+            status="degraded",
+            critical=spec.critical,
+            category=spec.category,
+            checked_at=_now_utc(),
+            error_message="SendGrid API key not configured",
+        )
+    headers = {"Authorization": f"Bearer {sendgrid_api_key}"}
+    custom = CheckSpec(
+        check_key=spec.check_key,
+        service=spec.service,
+        target=spec.target,
+        critical=spec.critical,
+        category=spec.category,
+        kind=spec.kind,
+        headers=headers,
+        success_statuses=(200,),
+        api_key=sendgrid_api_key,
     )
     return await _run_http_check(client, custom)
 
@@ -528,6 +566,8 @@ async def _run_single_check(client: httpx.AsyncClient, spec: CheckSpec) -> Check
         return await _run_openai_check(client, spec)
     if spec.kind == "facturapi":
         return await _run_facturapi_check(client, spec)
+    if spec.kind == "sendgrid":
+        return await _run_sendgrid_check(client, spec)
     if spec.kind == "supabase_auth":
         return await _run_supabase_auth_check(client, spec)
     if spec.kind == "supabase_admin":

@@ -17,6 +17,7 @@ The monitoring runner executes periodic checks for:
 - Supabase Admin (`supabase-admin`, when Supabase URL is configured)
 - OpenAI API (`openai-api`)
 - FacturAPI for FMAccesorios ERP (`facturapi-fmac-erp`)
+- SendGrid for FMAccesorios ERP (`sendgrid-fmac-erp`)
 - FacturAPI for EVA ERP (`facturapi-eva-erp`)
 - FacturAPI for EVA app (`facturapi-eva-app`)
 - EVA WhatsApp endpoint (`eva-whatsapp`, only if configured)

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AlertCircle, Activity,
   RefreshCw, Eye, CheckCheck, Clock,
-  Server, Globe, Database, Shield, MessageCircle, Receipt,
+  Server, Globe, Database, Shield, MessageCircle, Receipt, Mail,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -77,7 +77,7 @@ const PLATFORM_GROUPS: MonitoringGroup[] = [
   {
     key: "fmac-erp",
     title: "FM Accessories ERP",
-    description: "Frontend, backend, database and invoicing",
+    description: "Frontend, backend, database, invoicing and email delivery",
     gradient: "from-teal-400 to-teal-500",
     iconBg: "bg-teal-50",
     iconColor: "text-teal-600",
@@ -86,6 +86,7 @@ const PLATFORM_GROUPS: MonitoringGroup[] = [
       { checkKey: "fmac-erp-backend", label: "Backend API", icon: Server },
       { checkKey: "fmac-erp-db", label: "Database", icon: Database },
       { checkKey: "facturapi-fmac-erp", label: "FacturAPI", icon: Receipt },
+      { checkKey: "sendgrid-fmac-erp", label: "SendGrid", icon: Mail },
     ],
   },
   {
