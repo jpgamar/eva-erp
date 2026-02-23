@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AlertCircle, Activity,
   RefreshCw, Eye, CheckCheck, Clock,
-  Server, Globe, Database, Shield, MessageCircle,
+  Server, Globe, Database, Shield, MessageCircle, Receipt,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -53,58 +53,48 @@ type MonitoringGroup = {
   key: string;
   title: string;
   description: string;
+  gradient: string;
+  iconBg: string;
+  iconColor: string;
   checks: MonitoringGroupCheck[];
 };
 
-const MONITORING_GROUPS: MonitoringGroup[] = [
+const PLATFORM_GROUPS: MonitoringGroup[] = [
   {
     key: "erp",
-    title: "ERP",
-    description: "Frontend, backend and database status",
+    title: "EVA ERP",
+    description: "Frontend, backend, database and invoicing",
+    gradient: "from-indigo-400 to-indigo-500",
+    iconBg: "bg-indigo-50",
+    iconColor: "text-indigo-600",
     checks: [
       { checkKey: "erp-frontend", label: "Frontend", icon: Globe },
       { checkKey: "erp-api", label: "Backend", icon: Server },
       { checkKey: "erp-db", label: "Database", icon: Database },
+      { checkKey: "facturapi-eva-erp", label: "FacturAPI", icon: Receipt },
     ],
   },
   {
     key: "fmac-erp",
-    title: "FMAccesorios ERP",
-    description: "Frontend, backend and database status",
+    title: "FM Accessories ERP",
+    description: "Frontend, backend, database and invoicing",
+    gradient: "from-teal-400 to-teal-500",
+    iconBg: "bg-teal-50",
+    iconColor: "text-teal-600",
     checks: [
       { checkKey: "fmac-erp-frontend", label: "Frontend", icon: Globe },
       { checkKey: "fmac-erp-backend", label: "Backend API", icon: Server },
       { checkKey: "fmac-erp-db", label: "Database", icon: Database },
+      { checkKey: "facturapi-fmac-erp", label: "FacturAPI", icon: Receipt },
     ],
   },
-];
-
-const FACTURAPI_GROUPS: MonitoringGroup[] = [
-  {
-    key: "facturapi-fmac-erp",
-    title: "FacturAPI - FMAccesorios ERP",
-    description: "FM ERP invoicing integration",
-    checks: [{ checkKey: "facturapi-fmac-erp", label: "FacturAPI", icon: Server }],
-  },
-  {
-    key: "facturapi-eva-erp",
-    title: "FacturAPI - EVA ERP",
-    description: "EVA ERP invoicing integration",
-    checks: [{ checkKey: "facturapi-eva-erp", label: "FacturAPI", icon: Server }],
-  },
-  {
-    key: "facturapi-eva-app",
-    title: "FacturAPI - EVA app",
-    description: "EVA app invoicing integration",
-    checks: [{ checkKey: "facturapi-eva-app", label: "FacturAPI", icon: Server }],
-  },
-];
-
-const EVA_APP_GROUPS: MonitoringGroup[] = [
   {
     key: "eva-app",
     title: "EVA App",
     description: "Frontend, API, DB, auth, messaging, AI and billing",
+    gradient: "from-violet-400 to-violet-500",
+    iconBg: "bg-violet-50",
+    iconColor: "text-violet-600",
     checks: [
       { checkKey: "eva-app-frontend", label: "Frontend", icon: Globe },
       { checkKey: "eva-api", label: "Backend API", icon: Server },
@@ -113,95 +103,81 @@ const EVA_APP_GROUPS: MonitoringGroup[] = [
       { checkKey: "supabase-admin", label: "Supabase Admin", icon: Shield },
       { checkKey: "openai-api", label: "OpenAI API", icon: Activity },
       { checkKey: "eva-whatsapp", label: "WhatsApp", icon: MessageCircle, optional: true },
-      { checkKey: "facturapi-eva-app", label: "FacturAPI", icon: Server },
+      { checkKey: "facturapi-eva-app", label: "FacturAPI", icon: Receipt },
     ],
   },
 ];
 
-/* ── Unified Group Card ─────────────────────────────── */
+/* ── Platform Card ──────────────────────────────────── */
 
-function UnifiedGroupCard({ group, services }: { group: MonitoringGroup; services: ServiceStatus[] }) {
+function PlatformCard({ group, services }: { group: MonitoringGroup; services: ServiceStatus[] }) {
   const rows = group.checks.map((check) => {
     const service = services.find((svc) => svc.check_key === check.checkKey);
     if (!service && check.optional) {
-      return {
-        ...check,
-        service,
-        state: "na" as const,
-        detail: "Optional check not configured.",
-      };
+      return { ...check, service, state: "na" as const, detail: "Not configured" };
     }
     const isUp = Boolean(service && service.status === "up" && !service.stale);
     const detail = !service
-      ? "Check not returned by API."
+      ? "No response"
       : service.stale
-        ? "Status is stale."
+        ? "Stale"
         : service.error;
-    return {
-      ...check,
-      service,
-      state: isUp ? ("up" as const) : ("down" as const),
-      detail,
-    };
+    return { ...check, service, state: isUp ? ("up" as const) : ("down" as const), detail };
   });
 
   const isHealthy = rows.every((row) => row.state !== "down");
+  const downCount = rows.filter((r) => r.state === "down").length;
 
   return (
-    <div className={cn(
-      "rounded-xl border p-4 transition-shadow hover:shadow-sm",
-      isHealthy
-        ? "border-green-200 bg-green-50/70"
-        : "border-red-200 bg-red-50/70",
-    )}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">{group.title}</p>
-          <p className="text-xs text-muted">{group.description}</p>
+    <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+      <div className={cn("h-1 bg-gradient-to-r", isHealthy ? "from-green-400 to-emerald-500" : "from-red-400 to-red-500")} />
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", group.iconBg)}>
+              <Server className={cn("h-4 w-4", group.iconColor)} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">{group.title}</p>
+              <p className="text-[11px] text-muted">{group.description}</p>
+            </div>
+          </div>
+          <span className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+            isHealthy ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700",
+          )}>
+            <span className={cn(
+              "h-2 w-2 rounded-full",
+              isHealthy ? "bg-green-500 animate-pulse" : "bg-red-500",
+            )} />
+            {isHealthy ? "Healthy" : `${downCount} down`}
+          </span>
         </div>
-        <span className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
-          isHealthy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
-        )}>
-          <span className={cn("h-2 w-2 rounded-full", isHealthy ? "bg-green-500" : "bg-red-500")} />
-          {isHealthy ? "Healthy" : "Issues"}
-        </span>
-      </div>
 
-      <div className="mt-3 space-y-2">
-        {rows.map((row) => {
-          const Icon = row.icon;
-          return (
-            <div
-              key={row.checkKey}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                row.state === "up"
-                  ? "border-green-200/80 bg-green-100/40"
-                  : row.state === "na"
-                    ? "border-gray-200/80 bg-gray-100/40"
-                    : "border-red-200/80 bg-red-100/40",
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Icon className={cn(
-                    "h-4 w-4",
-                    row.state === "up"
-                      ? "text-green-700"
-                      : row.state === "na"
-                        ? "text-gray-500"
-                        : "text-red-700",
-                  )} />
-                  <span className="text-xs font-medium text-foreground">{row.label}</span>
+        <div className="divide-y divide-border/50">
+          {rows.map((row) => {
+            const Icon = row.icon;
+            return (
+              <div key={row.checkKey} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-2.5">
+                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-foreground">{row.label}</span>
+                  {row.detail && row.state !== "up" && (
+                    <span className={cn(
+                      "text-[11px] truncate max-w-[140px]",
+                      row.state === "na" ? "text-muted" : "text-red-600",
+                    )}>
+                      {row.detail}
+                    </span>
+                  )}
                 </div>
                 <span className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                  "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
                   row.state === "up"
-                    ? "bg-green-100 text-green-700"
+                    ? "bg-green-50 text-green-700"
                     : row.state === "na"
-                      ? "bg-gray-100 text-gray-600"
-                      : "bg-red-100 text-red-700",
+                      ? "bg-gray-100 text-gray-500"
+                      : "bg-red-50 text-red-700",
                 )}>
                   <span className={cn(
                     "h-1.5 w-1.5 rounded-full",
@@ -214,44 +190,40 @@ function UnifiedGroupCard({ group, services }: { group: MonitoringGroup; service
                   {row.state === "up" ? "Up" : row.state === "na" ? "N/A" : "Down"}
                 </span>
               </div>
-              {row.detail && row.state !== "up" && (
-                <p className={cn(
-                  "mt-1 text-[11px] truncate",
-                  row.state === "na" ? "text-gray-600" : "text-red-700",
-                )}>
-                  {row.detail}
-                </p>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
-function GroupCardSkeleton() {
+function CardSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1.5">
-          <Skeleton className="h-3.5 w-28" />
-          <Skeleton className="h-3 w-44" />
-        </div>
-        <Skeleton className="h-5 w-16 rounded-full" />
-      </div>
-      <div className="mt-3 space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-border/80 p-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-4 w-4 rounded" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-              <Skeleton className="h-4 w-10 rounded-full" />
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="h-1 bg-gray-200" />
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-3 w-44" />
             </div>
           </div>
-        ))}
+          <Skeleton className="h-6 w-16 rounded-full" />
+        </div>
+        <div className="divide-y divide-border/50">
+          {Array.from({ length: rows }).map((_, i) => (
+            <div key={i} className="flex items-center justify-between py-2.5">
+              <div className="flex items-center gap-2.5">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-3.5 w-20" />
+              </div>
+              <Skeleton className="h-5 w-10 rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -355,8 +327,16 @@ export default function MonitoringPage() {
     }
   };
 
+  const totalChecks = PLATFORM_GROUPS.reduce((sum, g) => sum + g.checks.length, 0);
+  const upChecks = PLATFORM_GROUPS.reduce((sum, g) => {
+    return sum + g.checks.filter((c) => {
+      const svc = services.find((s) => s.check_key === c.checkKey);
+      return svc && svc.status === "up" && !svc.stale;
+    }).length;
+  }, 0);
+
   return (
-    <div className="space-y-6 animate-erp-entrance">
+    <div className="flex flex-col gap-6 animate-erp-entrance">
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -366,7 +346,11 @@ export default function MonitoringPage() {
           <div>
             <p className="text-sm font-semibold text-foreground">Monitoring</p>
             <p className="text-xs text-muted">
-              {checkedAt ? `Last checked ${timeAgo(checkedAt)}` : "Checking services..."}
+              {servicesLoading
+                ? "Checking services..."
+                : checkedAt
+                  ? `${upChecks}/${totalChecks} services up \u00b7 ${timeAgo(checkedAt)}`
+                  : "Waiting for data..."}
             </p>
           </div>
         </div>
@@ -381,98 +365,41 @@ export default function MonitoringPage() {
       </div>
 
       {servicesError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {servicesError}
         </div>
       )}
       {issuesError && (
-        <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700">
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700">
           {issuesError}
         </div>
       )}
 
-      {/* ── Unified ERP and FMAccesorios Cards ── */}
-      <div>
-        <div className="mb-3">
-          <h2 className="text-sm font-bold text-foreground">Core Platforms</h2>
-          <p className="text-xs text-muted">Unified service health by platform</p>
+      {/* ── Platform Cards ── */}
+      {servicesLoading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <CardSkeleton rows={4} />
+          <CardSkeleton rows={4} />
+          <CardSkeleton rows={8} />
         </div>
-        {servicesLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <GroupCardSkeleton />
-            <GroupCardSkeleton />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {MONITORING_GROUPS.map((group) => (
-              <UnifiedGroupCard
-                key={group.key}
-                group={group}
-                services={services}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── FacturAPI Integration Cards ── */}
-      <div>
-        <div className="mb-3">
-          <h2 className="text-sm font-bold text-foreground">EVA App Monitoring</h2>
-          <p className="text-xs text-muted">All EVA app checks in one unified card</p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {PLATFORM_GROUPS.map((group) => (
+            <PlatformCard key={group.key} group={group} services={services} />
+          ))}
         </div>
-        {servicesLoading ? (
-          <div className="grid grid-cols-1 gap-4">
-            <GroupCardSkeleton />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {EVA_APP_GROUPS.map((group) => (
-              <UnifiedGroupCard
-                key={group.key}
-                group={group}
-                services={services}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
-      {/* ── FacturAPI Integration Cards ── */}
-      <div>
-        <div className="mb-3">
-          <h2 className="text-sm font-bold text-foreground">FacturAPI Integrations</h2>
-          <p className="text-xs text-muted">Separated by product usage</p>
-        </div>
-        {servicesLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <GroupCardSkeleton />
-            <GroupCardSkeleton />
-            <GroupCardSkeleton />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {FACTURAPI_GROUPS.map((group) => (
-              <UnifiedGroupCard
-                key={group.key}
-                group={group}
-                services={services}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Issues Table ── */}
-      <div>
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-light">
-              <AlertCircle className="h-4 w-4 text-accent" />
+      {/* ── Issues ── */}
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between gap-3 p-5 pb-0">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
+              <AlertCircle className="h-4 w-4 text-amber-600" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-foreground">Issues</h2>
-              <p className="text-xs text-muted">Track and resolve platform issues</p>
+              <p className="text-sm font-semibold text-foreground">Issues</p>
+              <p className="text-[11px] text-muted">Track and resolve platform issues</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -482,34 +409,34 @@ export default function MonitoringPage() {
                   key={s}
                   onClick={() => setStatusFilter(s)}
                   className={cn(
-                    "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                     statusFilter === s
                       ? s === "all"
-                        ? "bg-gray-200 text-foreground"
-                        : STATUS_CONFIG[s]?.color || "bg-gray-200 text-foreground"
-                      : "text-gray-400 hover:text-gray-600"
+                        ? "bg-gray-900 text-white"
+                        : STATUS_CONFIG[s]?.color || "bg-gray-900 text-white"
+                      : "text-muted hover:text-foreground"
                   )}
                 >
-                  {s === "all" ? "All Status" : STATUS_CONFIG[s]?.label || s}
+                  {s === "all" ? "All" : STATUS_CONFIG[s]?.label || s}
                 </button>
               ))}
             </div>
-            <div className="h-5 w-px bg-gray-200" />
+            <div className="h-4 w-px bg-border" />
             <div className="flex gap-1">
               {["all", "critical", "high", "medium", "low"].map((s) => (
                 <button
                   key={s}
                   onClick={() => setSeverityFilter(s)}
                   className={cn(
-                    "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                     severityFilter === s
                       ? s === "all"
-                        ? "bg-gray-200 text-foreground"
-                        : SEVERITY_CONFIG[s]?.color || "bg-gray-200 text-foreground"
-                      : "text-gray-400 hover:text-gray-600"
+                        ? "bg-gray-900 text-white"
+                        : SEVERITY_CONFIG[s]?.color || "bg-gray-900 text-white"
+                      : "text-muted hover:text-foreground"
                   )}
                 >
-                  {s === "all" ? "All Severity" : SEVERITY_CONFIG[s]?.label || s}
+                  {s === "all" ? "All" : SEVERITY_CONFIG[s]?.label || s}
                 </button>
               ))}
             </div>
@@ -517,33 +444,32 @@ export default function MonitoringPage() {
         </div>
 
         {issuesLoading ? (
-          <div className="rounded-xl border border-border bg-card p-6">
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
+          <div className="p-5 space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="mt-4">
             <Table>
               <TableHeader>
                 <TableRow className="bg-gray-50/80">
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[100px]">Severity</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Title</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[110px]">Category</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[100px]">Source</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[90px] text-right">Occurrences</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[100px]">Last Seen</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[110px]">Status</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[160px]">Actions</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted w-[100px]">Severity</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted">Title</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted w-[110px]">Category</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted w-[90px] text-right">Count</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted w-[100px]">Last Seen</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted w-[110px]">Status</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted w-[140px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {issues.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted py-12">
-                      No issues found.
+                    <TableCell colSpan={7} className="text-center py-16">
+                      <CheckCheck className="h-8 w-8 mx-auto mb-2 text-green-400" />
+                      <p className="text-sm font-medium text-foreground">All clear</p>
+                      <p className="text-xs text-muted mt-0.5">No issues match your filters</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -562,15 +488,12 @@ export default function MonitoringPage() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <div>
-                            <p className="font-medium text-foreground text-sm">{issue.title}</p>
-                            {issue.summary && (
-                              <p className="mt-0.5 text-xs text-muted truncate max-w-xs">{issue.summary}</p>
-                            )}
-                          </div>
+                          <p className="font-medium text-foreground text-sm">{issue.title}</p>
+                          {issue.summary && (
+                            <p className="mt-0.5 text-xs text-muted truncate max-w-sm">{issue.summary}</p>
+                          )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{issue.category}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{issue.source}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground capitalize">{issue.category}</TableCell>
                         <TableCell className="text-right font-mono text-sm text-foreground">{issue.occurrences}</TableCell>
                         <TableCell>
                           <span className="flex items-center gap-1 text-xs text-muted-foreground" title={new Date(issue.last_seen_at).toLocaleDateString()}>
@@ -619,7 +542,6 @@ export default function MonitoringPage() {
           </div>
         )}
       </div>
-
     </div>
   );
 }
