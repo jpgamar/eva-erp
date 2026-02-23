@@ -13,13 +13,15 @@ import {
 import { useAuth } from "@/lib/auth/context";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 interface HeaderProps {
   title?: string;
   subtitle?: string;
+  subtitleNode?: ReactNode;
 }
 
-export function Header({ title, subtitle }: HeaderProps) {
+export function Header({ title, subtitle, subtitleNode }: HeaderProps) {
   const { user, logout } = useAuth();
 
   const initials = user?.name
@@ -33,7 +35,7 @@ export function Header({ title, subtitle }: HeaderProps) {
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-white px-6">
       <div>
         {title && <h1 className="text-lg font-bold text-foreground">{title}</h1>}
-        {subtitle && <p className="text-xs text-muted">{subtitle}</p>}
+        {subtitleNode ? subtitleNode : subtitle && <p className="text-xs text-muted">{subtitle}</p>}
       </div>
 
       <div className="flex items-center gap-4">

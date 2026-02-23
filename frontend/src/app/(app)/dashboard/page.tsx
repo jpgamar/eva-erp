@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import {
   TrendingUp, TrendingDown, Users, DollarSign,
   ArrowUpRight, Wallet, Target, CheckSquare,
-  Building2, Activity, Handshake, AlertTriangle, FileText, ChevronLeft, ChevronRight,
+  Building2, Activity, Handshake, AlertTriangle, FileText,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
@@ -43,12 +43,6 @@ function toPeriodKey(date: Date): string {
   return `${year}-${month}`;
 }
 
-function shiftPeriod(period: string, deltaMonths: number): string {
-  const [year, month] = period.split("-").map(Number);
-  const shifted = new Date(Date.UTC(year, month - 1 + deltaMonths, 1));
-  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
 const EXPENSE_LABELS: Record<string, string> = {
   infrastructure: "Infrastructure",
   ai_apis: "AI APIs",
@@ -81,8 +75,6 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [platform, setPlatform] = useState<PlatformDashboard | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const requestedPeriod = searchParams.get("period");
   const period = isValidPeriod(requestedPeriod) ? requestedPeriod : undefined;
@@ -119,53 +111,9 @@ export default function DashboardPage() {
   const hasNegativeNet = netProfitByCurrency.some(([, amount]) => amount < 0);
 
   const topVaultCats = Object.entries(data.vault_by_category).sort(([, a], [, b]) => b - a).slice(0, 3);
-  const previousPeriod = shiftPeriod(data.period, -1);
-  const nextPeriod = shiftPeriod(data.period, 1);
-  const canGoNext = nextPeriod <= currentPeriod;
-
-  const setPeriod = (nextValue: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (nextValue === currentPeriod) {
-      params.delete("period");
-    } else {
-      params.set("period", nextValue);
-    }
-    const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-  };
 
   return (
     <div className="flex flex-col gap-4 animate-erp-entrance">
-      <div className="flex justify-end">
-        <div className="inline-flex items-center gap-1 rounded-xl border border-border bg-card px-1 py-1 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setPeriod(previousPeriod)}
-            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            aria-label="Previous month"
-            title="Previous month"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div className="min-w-[140px] px-2 text-center">
-            <p className="text-sm font-semibold text-foreground">{data.period_label}</p>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {data.is_current_period ? "Current month" : "Snapshot"}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPeriod(nextPeriod)}
-            disabled={!canGoNext}
-            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="Next month"
-            title="Next month"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
       {/* ── KPI Hero Row ────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
 
