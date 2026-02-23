@@ -15,7 +15,9 @@ The monitoring runner executes periodic checks for:
 - Supabase Auth (`supabase-auth`, when Supabase URL is configured)
 - Supabase Admin (`supabase-admin`, when Supabase URL is configured)
 - OpenAI API (`openai-api`)
-- FacturAPI (`facturapi-api`)
+- FacturAPI for FMAccesorios ERP (`facturapi-fmac-erp`)
+- FacturAPI for EVA ERP (`facturapi-eva-erp`)
+- FacturAPI for EVA app (`facturapi-eva-app`)
 - EVA WhatsApp endpoint (`eva-whatsapp`, only if configured)
 
 ## Trigger Rules

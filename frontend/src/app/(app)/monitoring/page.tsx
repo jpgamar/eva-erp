@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AlertCircle, Activity,
-  RefreshCw, Eye, CheckCheck, Clock, Wifi,
-  Server, Globe, Shield, Database, MessageCircle,
+  RefreshCw, Eye, CheckCheck, Clock,
+  Server, Globe, Database,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -42,31 +42,79 @@ function timeAgo(dateStr: string): string {
   return `${diffDay}d ago`;
 }
 
-/* ── Service icon map ─────────────────────────────────── */
-
-const SERVICE_ICONS: Record<string, LucideIcon> = {
-  "ERP API": Server,
-  "EVA API": Server,
-  "ERP Frontend": Globe,
-  "FMAccesorios ERP Frontend": Globe,
-  "FMAccesorios ERP Backend": Server,
-  "FMAccesorios ERP Database": Database,
-  "EVA WhatsApp": MessageCircle,
-  "Supabase Auth": Shield,
-  "Supabase Admin": Shield,
-  "ERP Database": Database,
-  "EVA Database": Database,
-  "OpenAI API": Activity,
-  "FacturAPI": Activity,
+type MonitoringGroupCheck = {
+  checkKey: string;
+  label: string;
+  icon: LucideIcon;
 };
 
-const FMAC_CHECK_ORDER = ["fmac-erp-frontend", "fmac-erp-backend", "fmac-erp-db"] as const;
+type MonitoringGroup = {
+  key: string;
+  title: string;
+  description: string;
+  checks: MonitoringGroupCheck[];
+};
 
-/* ── Service Card ─────────────────────────────────────── */
+const MONITORING_GROUPS: MonitoringGroup[] = [
+  {
+    key: "erp",
+    title: "ERP",
+    description: "Frontend, backend and database status",
+    checks: [
+      { checkKey: "erp-frontend", label: "Frontend", icon: Globe },
+      { checkKey: "erp-api", label: "Backend", icon: Server },
+      { checkKey: "erp-db", label: "Database", icon: Database },
+    ],
+  },
+  {
+    key: "fmac-erp",
+    title: "FMAccesorios ERP",
+    description: "Frontend, backend and database status",
+    checks: [
+      { checkKey: "fmac-erp-frontend", label: "Frontend", icon: Globe },
+      { checkKey: "fmac-erp-backend", label: "Backend API", icon: Server },
+      { checkKey: "fmac-erp-db", label: "Database", icon: Database },
+    ],
+  },
+];
 
-function ServiceCard({ svc }: { svc: ServiceStatus }) {
-  const isHealthy = svc.status === "up" && !svc.stale;
-  const Icon = SERVICE_ICONS[svc.name] || Wifi;
+const FACTURAPI_GROUPS: MonitoringGroup[] = [
+  {
+    key: "facturapi-fmac-erp",
+    title: "FacturAPI - FMAccesorios ERP",
+    description: "FM ERP invoicing integration",
+    checks: [{ checkKey: "facturapi-fmac-erp", label: "FacturAPI", icon: Server }],
+  },
+  {
+    key: "facturapi-eva-erp",
+    title: "FacturAPI - EVA ERP",
+    description: "EVA ERP invoicing integration",
+    checks: [{ checkKey: "facturapi-eva-erp", label: "FacturAPI", icon: Server }],
+  },
+  {
+    key: "facturapi-eva-app",
+    title: "FacturAPI - EVA app",
+    description: "EVA app invoicing integration",
+    checks: [{ checkKey: "facturapi-eva-app", label: "FacturAPI", icon: Server }],
+  },
+];
+
+/* ── Unified Group Card ─────────────────────────────── */
+
+function UnifiedGroupCard({ group, services }: { group: MonitoringGroup; services: ServiceStatus[] }) {
+  const rows = group.checks.map((check) => {
+    const service = services.find((svc) => svc.check_key === check.checkKey);
+    const isUp = Boolean(service && service.status === "up" && !service.stale);
+    const detail = !service
+      ? "Check not returned by API."
+      : service.stale
+        ? "Status is stale."
+        : service.error;
+    return { ...check, service, isUp, detail };
+  });
+
+  const isHealthy = rows.every((row) => row.isUp);
+
   return (
     <div className={cn(
       "rounded-xl border p-4 transition-shadow hover:shadow-sm",
@@ -74,37 +122,78 @@ function ServiceCard({ svc }: { svc: ServiceStatus }) {
         ? "border-green-200 bg-green-50/70"
         : "border-red-200 bg-red-50/70",
     )}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-xl",
-            isHealthy ? "bg-green-100" : "bg-red-100",
-          )}>
-            <Icon className={cn(
-              "h-5 w-5",
-              isHealthy ? "text-green-700" : "text-red-700",
-            )} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">{svc.name}</p>
-          </div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{group.title}</p>
+          <p className="text-xs text-muted">{group.description}</p>
         </div>
         <span className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
           isHealthy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
         )}>
-          <span className={cn(
-            "h-2 w-2 rounded-full",
-            isHealthy ? "bg-green-500" : "bg-red-500",
-          )} />
-          {isHealthy ? "Up" : "Down"}
+          <span className={cn("h-2 w-2 rounded-full", isHealthy ? "bg-green-500" : "bg-red-500")} />
+          {isHealthy ? "Healthy" : "Issues"}
         </span>
       </div>
-      {!isHealthy && svc.error && (
-        <p className="mt-2 rounded-md bg-red-100 px-2.5 py-1.5 text-xs text-red-700 truncate">
-          {svc.error}
-        </p>
-      )}
+
+      <div className="mt-3 space-y-2">
+        {rows.map((row) => {
+          const Icon = row.icon;
+          return (
+            <div
+              key={row.checkKey}
+              className={cn(
+                "rounded-lg border px-3 py-2",
+                row.isUp ? "border-green-200/80 bg-green-100/40" : "border-red-200/80 bg-red-100/40",
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Icon className={cn("h-4 w-4", row.isUp ? "text-green-700" : "text-red-700")} />
+                  <span className="text-xs font-medium text-foreground">{row.label}</span>
+                </div>
+                <span className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                  row.isUp ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
+                )}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", row.isUp ? "bg-green-500" : "bg-red-500")} />
+                  {row.isUp ? "Up" : "Down"}
+                </span>
+              </div>
+              {!row.isUp && row.detail && (
+                <p className="mt-1 text-[11px] text-red-700 truncate">{row.detail}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GroupCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1.5">
+          <Skeleton className="h-3.5 w-28" />
+          <Skeleton className="h-3 w-44" />
+        </div>
+        <Skeleton className="h-5 w-16 rounded-full" />
+      </div>
+      <div className="mt-3 space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-border/80 p-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-4 w-10 rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -207,10 +296,6 @@ export default function MonitoringPage() {
     }
   };
 
-  const fmacServices = FMAC_CHECK_ORDER
-    .map((checkKey) => services.find((svc) => svc.check_key === checkKey))
-    .filter((svc): svc is ServiceStatus => Boolean(svc));
-
   return (
     <div className="space-y-6 animate-erp-entrance">
       {/* ── Header ── */}
@@ -247,35 +332,51 @@ export default function MonitoringPage() {
         </div>
       )}
 
-      {/* ── FMAccesorios ERP Cards ── */}
+      {/* ── Unified ERP and FMAccesorios Cards ── */}
       <div>
         <div className="mb-3">
-          <h2 className="text-sm font-bold text-foreground">FMAccesorios ERP</h2>
-          <p className="text-xs text-muted">Frontend, backend and database status</p>
+          <h2 className="text-sm font-bold text-foreground">Core Platforms</h2>
+          <p className="text-xs text-muted">Unified service health by platform</p>
         </div>
         {servicesLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center gap-3">
-                  <Skeleton className="h-11 w-11 rounded-xl" />
-                  <div className="space-y-1.5">
-                    <Skeleton className="h-3.5 w-28" />
-                    <Skeleton className="h-3 w-16" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : fmacServices.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {fmacServices.map((svc) => (
-              <ServiceCard key={svc.check_key || svc.name} svc={svc} />
-            ))}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <GroupCardSkeleton />
+            <GroupCardSkeleton />
           </div>
         ) : (
-          <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
-            FMAccesorios monitoring checks are not available yet.
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {MONITORING_GROUPS.map((group) => (
+              <UnifiedGroupCard
+                key={group.key}
+                group={group}
+                services={services}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── FacturAPI Integration Cards ── */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-sm font-bold text-foreground">FacturAPI Integrations</h2>
+          <p className="text-xs text-muted">Separated by product usage</p>
+        </div>
+        {servicesLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <GroupCardSkeleton />
+            <GroupCardSkeleton />
+            <GroupCardSkeleton />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {FACTURAPI_GROUPS.map((group) => (
+              <UnifiedGroupCard
+                key={group.key}
+                group={group}
+                services={services}
+              />
+            ))}
           </div>
         )}
       </div>

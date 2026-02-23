@@ -32,6 +32,7 @@ class CheckSpec:
     kind: str = "http"
     headers: dict[str, str] = field(default_factory=dict)
     success_statuses: tuple[int, ...] = ()
+    api_key: str = ""
 
 
 @dataclass(slots=True)
@@ -79,6 +80,14 @@ def classify_issue_severity(status: str, critical: bool) -> str:
 
 def _build_check_specs() -> list[CheckSpec]:
     supabase_base = (settings.supabase_url or settings.monitoring_supabase_url).rstrip("/")
+    facturapi_fmac_key = settings.monitoring_facturapi_fmac_api_key or settings.facturapi_api_key
+    facturapi_eva_erp_key = (
+        settings.monitoring_facturapi_eva_erp_api_key or settings.facturapi_api_key
+    )
+    facturapi_eva_app_key = (
+        settings.monitoring_facturapi_eva_app_api_key or settings.facturapi_api_key
+    )
+
     specs: list[CheckSpec] = [
         CheckSpec(
             check_key="erp-db",
@@ -149,12 +158,31 @@ def _build_check_specs() -> list[CheckSpec]:
             kind="openai",
         ),
         CheckSpec(
-            check_key="facturapi-api",
-            service="FacturAPI",
-            target="https://www.facturapi.io/v2/invoices?limit=1",
+            check_key="facturapi-fmac-erp",
+            service="FacturAPI (FMAccesorios ERP)",
+            target=settings.monitoring_facturapi_fmac_url,
             critical=False,
             category="billing",
             kind="facturapi",
+            api_key=facturapi_fmac_key,
+        ),
+        CheckSpec(
+            check_key="facturapi-eva-erp",
+            service="FacturAPI (EVA ERP)",
+            target=settings.monitoring_facturapi_eva_erp_url,
+            critical=False,
+            category="billing",
+            kind="facturapi",
+            api_key=facturapi_eva_erp_key,
+        ),
+        CheckSpec(
+            check_key="facturapi-eva-app",
+            service="FacturAPI (EVA app)",
+            target=settings.monitoring_facturapi_eva_app_url,
+            critical=False,
+            category="billing",
+            kind="facturapi",
+            api_key=facturapi_eva_app_key,
         ),
     ]
 
@@ -264,7 +292,8 @@ async def _run_openai_check(client: httpx.AsyncClient, spec: CheckSpec) -> Check
 
 
 async def _run_facturapi_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckResult:
-    if not settings.facturapi_api_key:
+    facturapi_api_key = spec.api_key or settings.facturapi_api_key
+    if not facturapi_api_key:
         return CheckResult(
             check_key=spec.check_key,
             service=spec.service,
@@ -273,9 +302,9 @@ async def _run_facturapi_check(client: httpx.AsyncClient, spec: CheckSpec) -> Ch
             critical=spec.critical,
             category=spec.category,
             checked_at=_now_utc(),
-            error_message="FACTURAPI_API_KEY not configured",
+            error_message="FacturAPI API key not configured",
         )
-    headers = {"Authorization": f"Bearer {settings.facturapi_api_key}"}
+    headers = {"Authorization": f"Bearer {facturapi_api_key}"}
     custom = CheckSpec(
         check_key=spec.check_key,
         service=spec.service,
@@ -284,6 +313,7 @@ async def _run_facturapi_check(client: httpx.AsyncClient, spec: CheckSpec) -> Ch
         category=spec.category,
         kind=spec.kind,
         headers=headers,
+        api_key=facturapi_api_key,
     )
     return await _run_http_check(client, custom)
 
