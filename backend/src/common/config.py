@@ -36,6 +36,26 @@ class Settings(BaseSettings):
     # Environment
     environment: str = "development"
 
+    # Monitoring
+    monitoring_enabled: bool = True
+    monitoring_interval_seconds: int = 30
+    monitoring_check_timeout_seconds: float = 8.0
+    monitoring_failure_threshold_critical: int = 2
+    monitoring_failure_threshold_default: int = 3
+    monitoring_recovery_threshold: int = 2
+    monitoring_stale_after_seconds: int = 120
+    monitoring_slack_webhook_url: str = ""
+
+    # Monitoring target URLs
+    monitoring_frontend_url: str = "https://app.goeva.ai"
+    monitoring_erp_api_health_url: str = "https://eva-erp-goevaai-30a99658.koyeb.app/health/readiness"
+    monitoring_eva_api_health_url: str = "https://api.goeva.ai/api/v1/health"
+    monitoring_whatsapp_health_url: str = ""
+    monitoring_supabase_url: str = ""
+    monitoring_fmac_erp_frontend_url: str = "https://erp.fmaccesorios.com"
+    monitoring_fmac_erp_backend_url: str = "https://erp.fmaccesorios.com/api/v1/products"
+    monitoring_fmac_erp_db_url: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @property

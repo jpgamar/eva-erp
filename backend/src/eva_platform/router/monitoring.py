@@ -1,19 +1,23 @@
-"""Monitoring dashboard: live service checks + Eva monitoring tables."""
+"""Monitoring dashboard endpoints."""
 
-import asyncio
 import uuid
 from datetime import date, datetime, timezone
+from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.common.database import get_eva_db, eva_engine
+from src.common.database import get_optional_eva_db
 from src.eva_platform.models import EvaMonitoringCheck, EvaMonitoringIssue
-from src.common.config import settings
+from src.eva_platform.monitoring_service import (
+    check_result_to_service_item,
+    latest_service_items_from_db,
+    run_monitoring_cycle,
+    should_refresh_service_snapshot,
+)
 from src.eva_platform.schemas import (
     MonitoringCheckResponse,
     MonitoringIssueResponse,
@@ -22,75 +26,82 @@ from src.eva_platform.schemas import (
     ServiceStatusResponse,
 )
 
-
-def _build_services() -> list[dict]:
-    """Build service list with headers that may depend on runtime config."""
-    return [
-        {"name": "Backend API", "url": "https://api.goeva.ai/api/v1/health"},
-        {"name": "Frontend", "url": "https://app.goeva.ai"},
-        {"name": "ERP API", "url": "https://eva-erp-goevaai-30a99658.koyeb.app/health"},
-        {"name": "WhatsApp", "url": "https://api.goeva.ai/api/v1/whatsapp/oauth/callback"},
-        {
-            "name": "Supabase Auth",
-            "url": "https://emrkjhfxytpgxzejkhre.supabase.co/auth/v1/health",
-            "headers": {"apikey": settings.supabase_service_role_key},
-        },
-    ]
-
 router = APIRouter()
 
 
-async def _check_service(client: httpx.AsyncClient, svc: dict) -> ServiceStatusItem:
-    """Ping a service URL and return its status."""
-    try:
-        start = asyncio.get_event_loop().time()
-        resp = await client.get(svc["url"], headers=svc.get("headers"), follow_redirects=True)
-        latency = int((asyncio.get_event_loop().time() - start) * 1000)
-        status = "up" if resp.status_code < 400 else "degraded" if resp.status_code < 500 else "down"
-        return ServiceStatusItem(
-            name=svc["name"], url=svc["url"], status=status,
-            latency_ms=latency, http_status=resp.status_code,
-        )
-    except Exception as exc:
-        return ServiceStatusItem(
-            name=svc["name"], url=svc["url"], status="down",
-            error=str(exc)[:200],
-        )
+def _parse_dt(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
 
 
-async def _check_database() -> ServiceStatusItem:
-    """Check Eva DB connectivity."""
-    if not eva_engine:
-        return ServiceStatusItem(name="Database", url="supabase", status="down", error="Not configured")
-    try:
-        start = asyncio.get_event_loop().time()
-        async with eva_engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        latency = int((asyncio.get_event_loop().time() - start) * 1000)
-        return ServiceStatusItem(name="Database", url="supabase", status="up", latency_ms=latency)
-    except Exception as exc:
-        return ServiceStatusItem(name="Database", url="supabase", status="down", error=str(exc)[:200])
+def _check_to_response(check: EvaMonitoringCheck) -> MonitoringCheckResponse:
+    details = check.details or {}
+    return MonitoringCheckResponse(
+        id=check.id,
+        check_key=check.check_key,
+        service=check.service,
+        target=check.target,
+        status=check.status,
+        http_status=check.http_status,
+        latency_ms=check.latency_ms,
+        error_message=check.error_message,
+        details=details,
+        consecutive_failures=int(details.get("consecutive_failures", 0) or 0),
+        consecutive_successes=int(details.get("consecutive_successes", 0) or 0),
+        last_success_at=_parse_dt(details.get("last_success_at")),
+        critical=bool(details.get("critical", False)),
+        checked_at=check.checked_at,
+    )
 
 
 @router.get("/monitoring/services", response_model=ServiceStatusResponse)
-async def service_status(user: User = Depends(get_current_user)):
-    """Live health check of all Eva services."""
-    services = _build_services()
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        tasks = [_check_service(client, s) for s in services]
-        tasks.append(_check_database())
-        results = await asyncio.gather(*tasks)
+async def service_status(
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
+    user: User = Depends(get_current_user),
+):
+    """Service snapshot with auto-refresh when stale."""
+    service_items: list[dict[str, Any]]
+
+    if eva_db is None:
+        results = await run_monitoring_cycle(None)
+        service_items = [check_result_to_service_item(item) for item in results]
+    else:
+        service_items = await latest_service_items_from_db(eva_db)
+        if should_refresh_service_snapshot(service_items):
+            results = await run_monitoring_cycle(eva_db)
+            service_items = [check_result_to_service_item(item) for item in results]
+
+    checked_values = [
+        item.get("checked_at")
+        for item in service_items
+        if isinstance(item.get("checked_at"), datetime)
+    ]
+    checked_at = max(checked_values) if checked_values else datetime.now(timezone.utc)
     return ServiceStatusResponse(
-        services=list(results),
-        checked_at=datetime.now(timezone.utc),
+        services=[ServiceStatusItem(**item) for item in service_items],
+        checked_at=checked_at,
     )
 
 
 @router.get("/monitoring/overview", response_model=MonitoringOverviewResponse)
 async def monitoring_overview(
-    eva_db: AsyncSession = Depends(get_eva_db),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
     user: User = Depends(get_current_user),
 ):
+    if eva_db is None:
+        return MonitoringOverviewResponse(
+            open_critical=0,
+            open_high=0,
+            total_open=0,
+            resolved_today=0,
+        )
+
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
 
     # Run counts
@@ -130,9 +141,12 @@ async def monitoring_overview(
 async def list_issues(
     status: str | None = Query(None),
     severity: str | None = Query(None),
-    eva_db: AsyncSession = Depends(get_eva_db),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
     user: User = Depends(get_current_user),
 ):
+    if eva_db is None:
+        return []
+
     q = select(EvaMonitoringIssue).order_by(EvaMonitoringIssue.last_seen_at.desc())
     if status:
         q = q.where(EvaMonitoringIssue.status == status)
@@ -145,22 +159,30 @@ async def list_issues(
 @router.get("/monitoring/checks", response_model=list[MonitoringCheckResponse])
 async def list_checks(
     service: str | None = Query(None),
-    eva_db: AsyncSession = Depends(get_eva_db),
+    limit: int = Query(100, ge=1, le=500),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
     user: User = Depends(get_current_user),
 ):
-    q = select(EvaMonitoringCheck).order_by(EvaMonitoringCheck.checked_at.desc())
+    if eva_db is None:
+        return []
+
+    q = select(EvaMonitoringCheck)
     if service:
         q = q.where(EvaMonitoringCheck.service == service)
+    q = q.order_by(EvaMonitoringCheck.checked_at.desc()).limit(limit)
     result = await eva_db.execute(q)
-    return result.scalars().all()
+    return [_check_to_response(check) for check in result.scalars().all()]
 
 
 @router.post("/monitoring/issues/{issue_id}/acknowledge", response_model=MonitoringIssueResponse)
 async def acknowledge_issue(
     issue_id: uuid.UUID,
-    eva_db: AsyncSession = Depends(get_eva_db),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
     user: User = Depends(get_current_user),
 ):
+    if eva_db is None:
+        raise HTTPException(status_code=503, detail="Eva monitoring database is not configured")
+
     result = await eva_db.execute(
         select(EvaMonitoringIssue).where(EvaMonitoringIssue.id == issue_id)
     )
@@ -178,9 +200,12 @@ async def acknowledge_issue(
 @router.post("/monitoring/issues/{issue_id}/resolve", response_model=MonitoringIssueResponse)
 async def resolve_issue(
     issue_id: uuid.UUID,
-    eva_db: AsyncSession = Depends(get_eva_db),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
     user: User = Depends(get_current_user),
 ):
+    if eva_db is None:
+        raise HTTPException(status_code=503, detail="Eva monitoring database is not configured")
+
     result = await eva_db.execute(
         select(EvaMonitoringIssue).where(EvaMonitoringIssue.id == issue_id)
     )

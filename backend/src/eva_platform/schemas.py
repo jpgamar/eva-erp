@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import datetime as _dt
+from typing import Any
 from pydantic import BaseModel
 
 
@@ -130,6 +131,11 @@ class MonitoringCheckResponse(BaseModel):
     http_status: int | None
     latency_ms: float | None
     error_message: str | None
+    details: dict[str, Any] | None = None
+    consecutive_failures: int | None = None
+    consecutive_successes: int | None = None
+    last_success_at: _dt.datetime | None = None
+    critical: bool | None = None
     checked_at: _dt.datetime
     model_config = {"from_attributes": True}
 
@@ -137,12 +143,19 @@ class MonitoringCheckResponse(BaseModel):
 # ── Service Status ───────────────────────────────────────
 
 class ServiceStatusItem(BaseModel):
+    check_key: str | None = None
     name: str
     url: str
     status: str  # "up" | "down" | "degraded"
     latency_ms: int | None = None
     http_status: int | None = None
     error: str | None = None
+    checked_at: _dt.datetime | None = None
+    critical: bool | None = None
+    consecutive_failures: int | None = None
+    consecutive_successes: int | None = None
+    last_success_at: _dt.datetime | None = None
+    stale: bool | None = None
 
 
 class ServiceStatusResponse(BaseModel):

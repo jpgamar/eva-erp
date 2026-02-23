@@ -2,14 +2,14 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
-  AlertTriangle, AlertCircle, CheckCircle2, Activity,
-  RefreshCw, Eye, CheckCheck, Clock, Wifi, WifiOff,
+  AlertCircle, Activity,
+  RefreshCw, Eye, CheckCheck, Clock, Wifi,
   Server, Globe, Shield, Database, MessageCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
-import type { MonitoringOverview, MonitoringIssue, ServiceStatus, ServiceStatusResponse } from "@/types";
+import type { MonitoringIssue, ServiceStatus } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -45,58 +45,63 @@ function timeAgo(dateStr: string): string {
 /* ── Service icon map ─────────────────────────────────── */
 
 const SERVICE_ICONS: Record<string, LucideIcon> = {
-  "Backend API": Server,
-  "Frontend": Globe,
   "ERP API": Server,
-  "WhatsApp": MessageCircle,
+  "EVA API": Server,
+  "ERP Frontend": Globe,
+  "FMAccesorios ERP Frontend": Globe,
+  "FMAccesorios ERP Backend": Server,
+  "FMAccesorios ERP Database": Database,
+  "EVA WhatsApp": MessageCircle,
   "Supabase Auth": Shield,
-  "Database": Database,
+  "Supabase Admin": Shield,
+  "ERP Database": Database,
+  "EVA Database": Database,
+  "OpenAI API": Activity,
+  "FacturAPI": Activity,
 };
+
+const FMAC_CHECK_ORDER = ["fmac-erp-frontend", "fmac-erp-backend", "fmac-erp-db"] as const;
 
 /* ── Service Card ─────────────────────────────────────── */
 
 function ServiceCard({ svc }: { svc: ServiceStatus }) {
-  const isUp = svc.status === "up";
-  const isDegraded = svc.status === "degraded";
+  const isHealthy = svc.status === "up" && !svc.stale;
   const Icon = SERVICE_ICONS[svc.name] || Wifi;
   return (
     <div className={cn(
-      "rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-sm",
-      isUp && "border-l-[3px] border-l-green-500",
-      isDegraded && "border-l-[3px] border-l-yellow-500",
-      !isUp && !isDegraded && "border-l-[3px] border-l-red-500",
+      "rounded-xl border p-4 transition-shadow hover:shadow-sm",
+      isHealthy
+        ? "border-green-200 bg-green-50/70"
+        : "border-red-200 bg-red-50/70",
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={cn(
             "flex h-11 w-11 items-center justify-center rounded-xl",
-            isUp ? "bg-green-50" : isDegraded ? "bg-yellow-50" : "bg-red-50",
+            isHealthy ? "bg-green-100" : "bg-red-100",
           )}>
             <Icon className={cn(
               "h-5 w-5",
-              isUp ? "text-green-600" : isDegraded ? "text-yellow-600" : "text-red-600",
+              isHealthy ? "text-green-700" : "text-red-700",
             )} />
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">{svc.name}</p>
-            {svc.latency_ms !== null && (
-              <p className="text-xs text-muted">{svc.latency_ms}ms</p>
-            )}
           </div>
         </div>
         <span className={cn(
-          "inline-flex items-center gap-1.5 text-xs font-medium",
-          isUp ? "text-green-600" : isDegraded ? "text-yellow-600" : "text-red-600",
+          "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+          isHealthy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
         )}>
           <span className={cn(
             "h-2 w-2 rounded-full",
-            isUp ? "bg-green-500" : isDegraded ? "bg-yellow-500" : "bg-red-500",
+            isHealthy ? "bg-green-500" : "bg-red-500",
           )} />
-          {isUp ? "Operational" : isDegraded ? "Degraded" : "Down"}
+          {isHealthy ? "Up" : "Down"}
         </span>
       </div>
-      {svc.error && (
-        <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 truncate">
+      {!isHealthy && svc.error && (
+        <p className="mt-2 rounded-md bg-red-100 px-2.5 py-1.5 text-xs text-red-700 truncate">
           {svc.error}
         </p>
       )}
@@ -109,11 +114,12 @@ function ServiceCard({ svc }: { svc: ServiceStatus }) {
 export default function MonitoringPage() {
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
 
-  const [overview, setOverview] = useState<MonitoringOverview | null>(null);
   const [issues, setIssues] = useState<MonitoringIssue[]>([]);
   const [issuesLoading, setIssuesLoading] = useState(true);
+  const [issuesError, setIssuesError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
@@ -127,8 +133,9 @@ export default function MonitoringPage() {
       const data = await evaPlatformApi.serviceStatus();
       setServices(data.services);
       setCheckedAt(data.checked_at);
+      setServicesError(null);
     } catch {
-      // silent — cards just stay empty
+      setServicesError("Could not fetch service status");
     } finally {
       setServicesLoading(false);
     }
@@ -141,20 +148,17 @@ export default function MonitoringPage() {
       if (statusFilter !== "all") issueParams.status = statusFilter;
       if (severityFilter !== "all") issueParams.severity = severityFilter;
 
-      const [ov, iss] = await Promise.all([
-        evaPlatformApi.monitoringOverview(),
-        evaPlatformApi.listIssues(issueParams),
-      ]);
-      setOverview(ov);
+      const iss = await evaPlatformApi.listIssues(issueParams);
       setIssues(iss);
+      setIssuesError(null);
     } catch {
-      // silent
+      setIssuesError("Could not fetch monitoring issues");
     } finally {
       setIssuesLoading(false);
     }
   }, [statusFilter, severityFilter]);
 
-  /* ── Initial load: services first (fast), issues in background ── */
+  /* ── Initial load ── */
   useEffect(() => {
     fetchServices();
     fetchIssues();
@@ -164,11 +168,12 @@ export default function MonitoringPage() {
   useEffect(() => {
     intervalRef.current = setInterval(() => {
       fetchServices();
+      fetchIssues();
     }, 30_000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [fetchServices]);
+  }, [fetchServices, fetchIssues]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -202,6 +207,10 @@ export default function MonitoringPage() {
     }
   };
 
+  const fmacServices = FMAC_CHECK_ORDER
+    .map((checkKey) => services.find((svc) => svc.check_key === checkKey))
+    .filter((svc): svc is ServiceStatus => Boolean(svc));
+
   return (
     <div className="space-y-6 animate-erp-entrance">
       {/* ── Header ── */}
@@ -227,107 +236,49 @@ export default function MonitoringPage() {
         </button>
       </div>
 
-      {/* ── Service Status Cards ── */}
-      {servicesLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center gap-3">
-                <Skeleton className="h-11 w-11 rounded-xl" />
-                <div className="space-y-1.5">
-                  <Skeleton className="h-3.5 w-24" />
-                  <Skeleton className="h-3 w-14" />
+      {servicesError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {servicesError}
+        </div>
+      )}
+      {issuesError && (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700">
+          {issuesError}
+        </div>
+      )}
+
+      {/* ── FMAccesorios ERP Cards ── */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-sm font-bold text-foreground">FMAccesorios ERP</h2>
+          <p className="text-xs text-muted">Frontend, backend and database status</p>
+        </div>
+        {servicesLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-11 w-11 rounded-xl" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-28" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {services.map((svc) => (
-            <ServiceCard key={svc.name} svc={svc} />
-          ))}
-        </div>
-      )}
-
-      {/* ── KPI Summary ── */}
-      {overview && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className={cn(
-            "rounded-xl border border-border border-l-[3px] border-l-red-500 bg-card p-5",
-            overview.open_critical > 0 && "bg-red-50/40"
-          )}>
-            <div className="flex items-center gap-4">
-              <div className={cn(
-                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                overview.open_critical > 0 ? "bg-red-100" : "bg-red-50"
-              )}>
-                <AlertCircle className={cn("h-5 w-5", overview.open_critical > 0 ? "text-red-600" : "text-red-400")} />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-muted">Critical</p>
-                <p className={cn(
-                  "mt-0.5 font-mono text-xl font-bold",
-                  overview.open_critical > 0 ? "text-red-600" : "text-foreground"
-                )}>
-                  {overview.open_critical}
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
-
-          <div className={cn(
-            "rounded-xl border border-border border-l-[3px] border-l-orange-500 bg-card p-5",
-            overview.open_high > 0 && "bg-orange-50/40"
-          )}>
-            <div className="flex items-center gap-4">
-              <div className={cn(
-                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                overview.open_high > 0 ? "bg-orange-100" : "bg-orange-50"
-              )}>
-                <AlertTriangle className={cn("h-5 w-5", overview.open_high > 0 ? "text-orange-600" : "text-orange-400")} />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-muted">High</p>
-                <p className={cn(
-                  "mt-0.5 font-mono text-xl font-bold",
-                  overview.open_high > 0 ? "text-orange-600" : "text-foreground"
-                )}>
-                  {overview.open_high}
-                </p>
-              </div>
-            </div>
+        ) : fmacServices.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {fmacServices.map((svc) => (
+              <ServiceCard key={svc.check_key || svc.name} svc={svc} />
+            ))}
           </div>
-
-          <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-5">
-            <div className="flex items-center gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50">
-                <Activity className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-muted">Total Open</p>
-                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
-                  {overview.total_open}
-                </p>
-              </div>
-            </div>
+        ) : (
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
+            FMAccesorios monitoring checks are not available yet.
           </div>
-
-          <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
-            <div className="flex items-center gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-muted">Resolved Today</p>
-                <p className="mt-0.5 font-mono text-xl font-bold text-green-600">
-                  {overview.resolved_today}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ── Issues Table ── */}
       <div>
@@ -485,6 +436,7 @@ export default function MonitoringPage() {
           </div>
         )}
       </div>
+
     </div>
   );
 }

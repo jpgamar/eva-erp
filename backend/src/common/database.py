@@ -64,3 +64,17 @@ async def get_eva_db() -> AsyncSession:
         except Exception:
             await session.rollback()
             raise
+
+
+async def get_optional_eva_db() -> AsyncSession | None:
+    """Dependency that returns None when Eva DB is not configured."""
+    if eva_async_session is None:
+        yield None
+        return
+    async with eva_async_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

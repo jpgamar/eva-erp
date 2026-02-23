@@ -1,16 +1,33 @@
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from src.common.config import settings
+from src.common.database import engine, eva_engine
+from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    monitor_stop = asyncio.Event()
+    monitor_task: asyncio.Task | None = None
+
+    if settings.monitoring_enabled:
+        monitor_task = asyncio.create_task(monitoring_runner_loop(monitor_stop))
+
     yield
-    # Shutdown
+
+    monitor_stop.set()
+    if monitor_task is not None:
+        monitor_task.cancel()
+        try:
+            await monitor_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -72,23 +89,88 @@ api_router.include_router(eva_platform_router)
 app.include_router(api_router)
 
 
-@app.get("/health")
-async def health():
-    from src.common.database import eva_engine
+async def _db_health() -> tuple[bool, str | None, bool, str | None]:
+    erp_ok = False
+    erp_error = None
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            erp_ok = True
+    except Exception as exc:
+        erp_error = str(exc)[:200]
+
     eva_ok = False
     eva_error = None
-    if eva_engine:
+    if eva_engine is not None:
         try:
-            from sqlalchemy import text
             async with eva_engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
                 eva_ok = True
         except Exception as exc:
             eva_error = str(exc)[:200]
+    return erp_ok, erp_error, eva_ok, eva_error
+
+
+@app.get("/health/liveness")
+async def health_liveness():
     return {
         "status": "ok",
         "service": "eva-erp",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/health/readiness")
+async def health_readiness():
+    erp_ok, erp_error, eva_ok, eva_error = await _db_health()
+    check_results = await run_live_checks(exclude_check_keys={"erp-api"})
+    critical_results = [result for result in check_results if result.critical]
+    failing_critical = [
+        {
+            "check_key": result.check_key,
+            "service": result.service,
+            "status": result.status,
+            "error": result.error_message,
+            "http_status": result.http_status,
+        }
+        for result in critical_results
+        if result.status in FAILURE_STATES
+    ]
+
+    ready = erp_ok and len(failing_critical) == 0
+
+    return {
+        "status": "ok" if ready else "error",
+        "service": "eva-erp",
+        "erp_db_connected": erp_ok,
+        "erp_db_error": erp_error,
         "eva_db_configured": eva_engine is not None,
-        "eva_db_connected": eva_ok,
-        "eva_db_error": eva_error,
+        "eva_db_connected": eva_ok if eva_engine is not None else None,
+        "eva_db_error": eva_error if eva_engine is not None else None,
+        "critical_checks": [
+            {
+                "check_key": result.check_key,
+                "service": result.service,
+                "status": result.status,
+                "http_status": result.http_status,
+                "error": result.error_message,
+            }
+            for result in critical_results
+        ],
+        "critical_failures": failing_critical,
+    }
+
+
+@app.get("/health")
+async def health():
+    erp_ok, erp_error, eva_ok, eva_error = await _db_health()
+    status = "ok" if erp_ok and (eva_engine is None or eva_ok) else "error"
+    return {
+        "status": status,
+        "service": "eva-erp",
+        "erp_db_connected": erp_ok,
+        "erp_db_error": erp_error,
+        "eva_db_configured": eva_engine is not None,
+        "eva_db_connected": eva_ok if eva_engine is not None else None,
+        "eva_db_error": eva_error if eva_engine is not None else None,
     }

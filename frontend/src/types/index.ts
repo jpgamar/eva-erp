@@ -177,7 +177,7 @@ export interface InvoiceEntry {
   customer_name: string;
   customer_email: string | null;
   description: string | null;
-  line_items_json: any[] | null;
+  line_items_json: unknown[] | null;
   subtotal: number;
   tax: number | null;
   total: number;
@@ -341,12 +341,19 @@ export interface MonitoringIssue {
 }
 
 export interface ServiceStatus {
+  check_key: string | null;
   name: string;
   url: string;
   status: "up" | "down" | "degraded";
   latency_ms: number | null;
   http_status: number | null;
   error: string | null;
+  checked_at: string | null;
+  critical: boolean | null;
+  consecutive_failures: number | null;
+  consecutive_successes: number | null;
+  last_success_at: string | null;
+  stale: boolean | null;
 }
 
 export interface ServiceStatusResponse {
@@ -363,6 +370,11 @@ export interface MonitoringCheck {
   http_status: number | null;
   latency_ms: number | null;
   error_message: string | null;
+  details: Record<string, unknown> | null;
+  consecutive_failures: number | null;
+  consecutive_successes: number | null;
+  last_success_at: string | null;
+  critical: boolean | null;
   checked_at: string;
 }
 
