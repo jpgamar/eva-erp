@@ -22,9 +22,8 @@ function SSOHandler() {
         if (!res.ok) throw new Error("SSO failed");
         return res.json();
       })
-      .then((data) => {
-        if (data.name) sessionStorage.setItem("welcomeName", data.name);
-        router.push("/dashboard");
+      .then(() => {
+        router.push("/dashboard?welcome=1");
       })
       .catch(() => {
         setError("SSO authentication failed");

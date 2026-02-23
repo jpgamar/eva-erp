@@ -3,16 +3,17 @@
 import { useState, useEffect } from "react";
 import { EvaMark } from "@/components/eva-mark";
 
-export function WelcomeOverlay() {
-  const [userName, setUserName] = useState<string | null>(null);
+export function WelcomeOverlay({ userName: authUserName }: { userName: string }) {
   const [show, setShow] = useState(false);
   const [phase, setPhase] = useState<"hidden" | "logo" | "greeting" | "footer" | "exit" | "done">("hidden");
 
   useEffect(() => {
-    const name = sessionStorage.getItem("welcomeName");
-    if (!name) return;
-    sessionStorage.removeItem("welcomeName");
-    setUserName(name);
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("welcome") || !authUserName) return;
+
+    // Clean the ?welcome=1 from the URL without triggering navigation
+    window.history.replaceState({}, "", window.location.pathname);
+
     setShow(true);
 
     const timers = [
@@ -24,9 +25,9 @@ export function WelcomeOverlay() {
     ];
 
     return () => timers.forEach(clearTimeout);
-  }, []);
+  }, [authUserName]);
 
-  if (!show || !userName) return null;
+  if (!show || !authUserName) return null;
 
   const stages = ["logo", "greeting", "footer", "exit"] as const;
   const stageIndex = stages.indexOf(phase as typeof stages[number]);
@@ -118,7 +119,7 @@ export function WelcomeOverlay() {
             transform: visible(1) ? "translateY(0)" : "translateY(16px)",
           }}
         >
-          Welcome, {userName}
+          Welcome, {authUserName}
         </h1>
 
         {/* Powered by Eva */}

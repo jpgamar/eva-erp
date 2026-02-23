@@ -18,9 +18,8 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await login(email, password);
-      if (res?.name) sessionStorage.setItem("welcomeName", res.name);
-      router.push("/dashboard");
+      await login(email, password);
+      router.push("/dashboard?welcome=1");
     } catch {
       setError("Invalid email or password");
       setPassword("");

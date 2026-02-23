@@ -59,7 +59,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <WelcomeOverlay />
+      <WelcomeOverlay userName={user.name} />
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       <div className={cn("transition-all duration-200", sidebarCollapsed ? "ml-16" : "ml-60")}>
         <Header title={title} subtitle={subtitle} />
