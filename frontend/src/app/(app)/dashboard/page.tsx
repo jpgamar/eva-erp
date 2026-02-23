@@ -85,6 +85,7 @@ export default function DashboardPage() {
 
   const allExpenses = Object.entries(data.expense_by_category).sort(([, a], [, b]) => b - a);
   const topExpenses = allExpenses.slice(0, 3);
+  const incomeMrrByCurrency = sortedCurrencyEntries(data.income_mrr_by_currency);
   const incomeMonthByCurrency = sortedCurrencyEntries(data.income_total_period_by_currency);
   const expenseMonthByCurrency = sortedCurrencyEntries(data.expense_total_period_by_currency);
   const netProfitByCurrency = sortedCurrencyEntries(data.net_profit_by_currency);
@@ -107,7 +108,15 @@ export default function DashboardPage() {
               <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
               <p className="text-xs font-medium text-emerald-600/70">MRR</p>
             </div>
-            <p className="font-mono text-2xl font-bold tracking-tight text-emerald-900">{fmt(data.mrr)}</p>
+            {incomeMrrByCurrency.length === 0 ? (
+              <p className="font-mono text-2xl font-bold tracking-tight text-emerald-900">-</p>
+            ) : (
+              <div className="space-y-0.5">
+                {incomeMrrByCurrency.map(([currency, amount]) => (
+                  <p key={currency} className="font-mono text-xl font-bold tracking-tight text-emerald-900">{fmt(amount, currency)}</p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
