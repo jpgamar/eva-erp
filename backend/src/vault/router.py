@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.common.config import settings
 from src.common.database import get_db
 from src.common.encryption import decrypt_field, derive_key, encrypt_field
 from src.vault.models import Credential, VaultAuditLog, VaultConfig
@@ -29,18 +30,26 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # In-memory vault sessions: {user_id: {"key": bytes, "expires": datetime}}
 _vault_sessions: dict[str, dict] = {}
-VAULT_TTL_MINUTES = 30
+VAULT_TTL_MINUTES = max(int(settings.vault_session_ttl_minutes), 0)
+
+
+def _session_expiry() -> datetime | None:
+    if VAULT_TTL_MINUTES <= 0:
+        return None
+    return datetime.now(timezone.utc) + timedelta(minutes=VAULT_TTL_MINUTES)
 
 
 def _get_vault_key(user_id: uuid.UUID) -> bytes | None:
     session = _vault_sessions.get(str(user_id))
     if not session:
         return None
-    if datetime.now(timezone.utc) > session["expires"]:
+    expires = session.get("expires")
+    if expires is not None and datetime.now(timezone.utc) > expires:
         del _vault_sessions[str(user_id)]
         return None
-    # Refresh TTL on access
-    session["expires"] = datetime.now(timezone.utc) + timedelta(minutes=VAULT_TTL_MINUTES)
+    # Refresh TTL on access only when TTL is enabled.
+    if expires is not None and VAULT_TTL_MINUTES > 0:
+        session["expires"] = datetime.now(timezone.utc) + timedelta(minutes=VAULT_TTL_MINUTES)
     return session["key"]
 
 
@@ -66,7 +75,7 @@ async def setup_vault(
     key = derive_key(data.master_password, salt)
     _vault_sessions[str(current_user.id)] = {
         "key": key,
-        "expires": datetime.now(timezone.utc) + timedelta(minutes=VAULT_TTL_MINUTES),
+        "expires": _session_expiry(),
     }
     return {"message": "Vault created and unlocked"}
 
@@ -88,7 +97,7 @@ async def unlock_vault(
     key = derive_key(data.master_password, config.salt)
     _vault_sessions[str(current_user.id)] = {
         "key": key,
-        "expires": datetime.now(timezone.utc) + timedelta(minutes=VAULT_TTL_MINUTES),
+        "expires": _session_expiry(),
     }
     return {"message": "Vault unlocked"}
 

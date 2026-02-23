@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Plus, Wallet, DollarSign, TrendingDown, TrendingUp,
-  ArrowDownRight, ArrowUpRight,
+  ArrowDownRight, ArrowUpRight, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { incomeApi, expenseApi, invoiceApi, cashBalanceApi } from "@/lib/api/finances";
@@ -83,6 +83,7 @@ export default function FinancesPage() {
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [cashOpen, setCashOpen] = useState(false);
+  const [deletingIncomeId, setDeletingIncomeId] = useState<string | null>(null);
 
   const [incomeForm, setIncomeForm] = useState({
     description: "",
@@ -151,6 +152,26 @@ export default function FinancesPage() {
       setExpenseForm({ name: "", amount: "", currency: "USD", category: "infrastructure", vendor: "", date: new Date().toISOString().split("T")[0], is_recurring: false, recurrence: "monthly" });
       await fetchAll();
     } catch (e: any) { toast.error(e?.response?.data?.detail || "Failed"); }
+  };
+
+  const handleDeleteIncome = async (income: IncomeEntry) => {
+    if (income.source !== "manual") {
+      toast.error("Only manual income entries can be deleted");
+      return;
+    }
+    const confirmed = window.confirm(`Delete income "${income.description}"?`);
+    if (!confirmed) return;
+
+    setDeletingIncomeId(income.id);
+    try {
+      await incomeApi.delete(income.id);
+      toast.success("Income entry deleted");
+      await fetchAll();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to delete");
+    } finally {
+      setDeletingIncomeId(null);
+    }
   };
 
   const handleAddInvoice = async () => {
@@ -408,11 +429,12 @@ export default function FinancesPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Source</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Category</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Recurrence</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {incomeList.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center text-muted py-12">No income entries yet.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center text-muted py-12">No income entries yet.</TableCell></TableRow>
                 ) : incomeList.map((e) => (
                   <TableRow key={e.id} className="hover:bg-gray-50/80">
                     <TableCell className="text-sm text-muted">{new Date(e.date).toLocaleDateString()}</TableCell>
@@ -429,6 +451,21 @@ export default function FinancesPage() {
                       </Badge>
                       {e.recurrence_type === "custom" && e.custom_interval_months && (
                         <span className="ml-2 text-xs text-muted">every {e.custom_interval_months} months</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {e.source === "manual" ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-red-600 hover:text-red-700"
+                          onClick={() => handleDeleteIncome(e)}
+                          disabled={deletingIncomeId === e.id}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <span className="text-sm text-muted">-</span>
                       )}
                     </TableCell>
                   </TableRow>

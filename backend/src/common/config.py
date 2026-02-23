@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     # Environment
     environment: str = "development"
+    vault_session_ttl_minutes: int = 0
 
     # Monitoring
     monitoring_enabled: bool = True

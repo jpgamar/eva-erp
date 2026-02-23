@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Lock, Unlock, Plus, Search, DollarSign, Server, Eye, EyeOff, Copy, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Lock, Unlock, Plus, Search, Server, Eye, EyeOff, Copy, ExternalLink, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { vaultApi } from "@/lib/api/vault";
 import type { VaultStatus, Credential, CredentialDetail, CostSummary } from "@/types";
@@ -112,14 +112,6 @@ export default function VaultPage() {
     } finally {
       setUnlocking(false);
     }
-  };
-
-  const handleLock = async () => {
-    await vaultApi.lock();
-    setStatus((s) => s ? { ...s, is_unlocked: false } : s);
-    setCredentials([]);
-    setCostSummary(null);
-    toast.success("Vault locked");
   };
 
   const openDetail = async (id: string) => {
@@ -239,9 +231,6 @@ export default function VaultPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="rounded-lg" onClick={handleLock}>
-            <Lock className="h-4 w-4 mr-2" /> Lock Vault
-          </Button>
           <Button size="sm" className="rounded-lg bg-accent hover:bg-accent/90 text-white" onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4 mr-2" /> Add Credential
           </Button>
