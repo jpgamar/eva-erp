@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     monitoring_eva_api_health_url: str = "https://api.goeva.ai/api/v1/health"
     monitoring_whatsapp_health_url: str = "https://api.goeva.ai/api/v1/whatsapp/admin/webhook-health"
     monitoring_supabase_url: str = ""
+    monitoring_supabase_auth_api_key: str = ""
     monitoring_fmac_erp_frontend_url: str = "https://erp.fmaccesorios.com"
     monitoring_fmac_erp_backend_url: str = "https://erp.fmaccesorios.com/api/v1/products"
     monitoring_fmac_erp_db_url: str = ""

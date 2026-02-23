@@ -80,6 +80,9 @@ def classify_issue_severity(status: str, critical: bool) -> str:
 
 def _build_check_specs() -> list[CheckSpec]:
     supabase_base = (settings.supabase_url or settings.monitoring_supabase_url).rstrip("/")
+    supabase_auth_api_key = (
+        settings.monitoring_supabase_auth_api_key or settings.supabase_service_role_key
+    )
     erp_frontend_target = settings.monitoring_erp_frontend_url or settings.monitoring_frontend_url
     eva_app_frontend_target = (
         settings.monitoring_eva_app_frontend_url or settings.monitoring_frontend_url
@@ -217,6 +220,8 @@ def _build_check_specs() -> list[CheckSpec]:
                 target=f"{supabase_base}/auth/v1/health",
                 critical=True,
                 category="auth",
+                kind="supabase_auth",
+                api_key=supabase_auth_api_key,
             )
         )
         specs.append(
@@ -358,6 +363,38 @@ async def _run_supabase_admin_check(client: httpx.AsyncClient, spec: CheckSpec) 
     return await _run_http_check(client, custom)
 
 
+async def _run_supabase_auth_check(client: httpx.AsyncClient, spec: CheckSpec) -> CheckResult:
+    supabase_auth_api_key = (
+        spec.api_key or settings.monitoring_supabase_auth_api_key or settings.supabase_service_role_key
+    )
+    if not supabase_auth_api_key:
+        return CheckResult(
+            check_key=spec.check_key,
+            service=spec.service,
+            target=spec.target,
+            status="degraded",
+            critical=spec.critical,
+            category=spec.category,
+            checked_at=_now_utc(),
+            error_message="SUPABASE auth API key not configured",
+        )
+    headers = {
+        "apikey": supabase_auth_api_key,
+        "Authorization": f"Bearer {supabase_auth_api_key}",
+    }
+    custom = CheckSpec(
+        check_key=spec.check_key,
+        service=spec.service,
+        target=spec.target,
+        critical=spec.critical,
+        category=spec.category,
+        kind=spec.kind,
+        headers=headers,
+        api_key=supabase_auth_api_key,
+    )
+    return await _run_http_check(client, custom)
+
+
 async def _run_erp_db_check(spec: CheckSpec) -> CheckResult:
     try:
         start = asyncio.get_running_loop().time()
@@ -491,6 +528,8 @@ async def _run_single_check(client: httpx.AsyncClient, spec: CheckSpec) -> Check
         return await _run_openai_check(client, spec)
     if spec.kind == "facturapi":
         return await _run_facturapi_check(client, spec)
+    if spec.kind == "supabase_auth":
+        return await _run_supabase_auth_check(client, spec)
     if spec.kind == "supabase_admin":
         return await _run_supabase_admin_check(client, spec)
     return await _run_http_check(client, spec)
