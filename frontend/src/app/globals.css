@@ -153,3 +153,9 @@
 .animate-erp-entrance {
   animation: erp-entrance 0.35s ease-out both;
 }
+
+@layer components {
+  :is(div, section, article, aside)[class*="bg-card"][class*="border"][class*="border-border"] {
+    border-color: transparent;
+  }
+}
