@@ -109,75 +109,19 @@ def test_supabase_auth_check_uses_api_key_header():
         settings.supabase_service_role_key = original_service_key
 
 
-def test_sendgrid_check_requires_key():
-    original_sendgrid_key = settings.monitoring_sendgrid_fmac_api_key
-    original_global_sendgrid_key = settings.sendgrid_api_key
-    settings.monitoring_sendgrid_fmac_api_key = ""
-    settings.sendgrid_api_key = ""
+def test_sendgrid_check_uses_fmac_health_endpoint():
     spec = CheckSpec(
         check_key="sendgrid-fmac-erp",
         service="SendGrid (FMAccesorios ERP)",
-        target="https://api.sendgrid.com/v3/scopes",
+        target="https://erp.fmaccesorios.com/api/v1/health/sendgrid",
         critical=False,
         category="messaging",
-        kind="sendgrid",
+        kind="http",
+        success_statuses=(200,),
     )
-    try:
-        result = asyncio.run(_run_single_check(_DummyClient(), spec))
-        assert result.status == "degraded"
-        assert result.error_message is not None
-        assert "not configured" in result.error_message
-    finally:
-        settings.monitoring_sendgrid_fmac_api_key = original_sendgrid_key
-        settings.sendgrid_api_key = original_global_sendgrid_key
-
-
-def test_sendgrid_check_uses_bearer_header():
-    original_sendgrid_key = settings.monitoring_sendgrid_fmac_api_key
-    original_global_sendgrid_key = settings.sendgrid_api_key
-    settings.monitoring_sendgrid_fmac_api_key = "SG.monitoring-key"
-    settings.sendgrid_api_key = ""
-    spec = CheckSpec(
-        check_key="sendgrid-fmac-erp",
-        service="SendGrid (FMAccesorios ERP)",
-        target="https://api.sendgrid.com/v3/scopes",
-        critical=False,
-        category="messaging",
-        kind="sendgrid",
-    )
-    try:
-        client = _DummyClient(status_code=200)
-        result = asyncio.run(_run_single_check(client, spec))
-        assert result.status == "up"
-        assert client.last_headers is not None
-        assert client.last_headers.get("Authorization") == "Bearer SG.monitoring-key"
-    finally:
-        settings.monitoring_sendgrid_fmac_api_key = original_sendgrid_key
-        settings.sendgrid_api_key = original_global_sendgrid_key
-
-
-def test_sendgrid_check_falls_back_to_global_key():
-    original_sendgrid_key = settings.monitoring_sendgrid_fmac_api_key
-    original_global_sendgrid_key = settings.sendgrid_api_key
-    settings.monitoring_sendgrid_fmac_api_key = ""
-    settings.sendgrid_api_key = "SG.global-key"
-    spec = CheckSpec(
-        check_key="sendgrid-fmac-erp",
-        service="SendGrid (FMAccesorios ERP)",
-        target="https://api.sendgrid.com/v3/scopes",
-        critical=False,
-        category="messaging",
-        kind="sendgrid",
-    )
-    try:
-        client = _DummyClient(status_code=200)
-        result = asyncio.run(_run_single_check(client, spec))
-        assert result.status == "up"
-        assert client.last_headers is not None
-        assert client.last_headers.get("Authorization") == "Bearer SG.global-key"
-    finally:
-        settings.monitoring_sendgrid_fmac_api_key = original_sendgrid_key
-        settings.sendgrid_api_key = original_global_sendgrid_key
+    client = _DummyClient(status_code=200)
+    result = asyncio.run(_run_single_check(client, spec))
+    assert result.status == "up"
 
 
 def test_http_check_retries_transient_timeout():

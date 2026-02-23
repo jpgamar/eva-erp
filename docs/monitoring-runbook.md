@@ -22,7 +22,8 @@ The monitoring runner executes periodic checks for:
 - FacturAPI for EVA app (`facturapi-eva-app`)
 - EVA WhatsApp endpoint (`eva-whatsapp`, only if configured)
 
-SendGrid check for FMAccesorios uses `MONITORING_SENDGRID_FMAC_API_KEY` and falls back to `SENDGRID_API_KEY`.
+SendGrid check for FMAccesorios hits the FM ERP health endpoint
+`/api/v1/health/sendgrid` (no SendGrid key needed in Eva ERP).
 
 ## Trigger Rules
 

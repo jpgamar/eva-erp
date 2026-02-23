@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     monitoring_fmac_erp_frontend_url: str = "https://erp.fmaccesorios.com"
     monitoring_fmac_erp_backend_url: str = "https://erp.fmaccesorios.com/api/v1/products"
     monitoring_fmac_erp_db_url: str = ""
-    monitoring_sendgrid_fmac_url: str = "https://api.sendgrid.com/v3/scopes"
+    monitoring_sendgrid_fmac_url: str = "https://erp.fmaccesorios.com/api/v1/health/sendgrid"
     monitoring_sendgrid_fmac_api_key: str = ""
     monitoring_facturapi_fmac_url: str = "https://www.facturapi.io/v2/invoices?limit=1"
     monitoring_facturapi_eva_erp_url: str = "https://www.facturapi.io/v2/invoices?limit=1"

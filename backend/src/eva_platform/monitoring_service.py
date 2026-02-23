@@ -96,8 +96,6 @@ def _build_check_specs() -> list[CheckSpec]:
     facturapi_eva_app_key = (
         settings.monitoring_facturapi_eva_app_api_key or settings.facturapi_api_key
     )
-    sendgrid_fmac_key = settings.monitoring_sendgrid_fmac_api_key or settings.sendgrid_api_key
-
     specs: list[CheckSpec] = [
         CheckSpec(
             check_key="erp-db",
@@ -189,8 +187,8 @@ def _build_check_specs() -> list[CheckSpec]:
             target=settings.monitoring_sendgrid_fmac_url,
             critical=False,
             category="messaging",
-            kind="sendgrid",
-            api_key=sendgrid_fmac_key,
+            kind="http",
+            success_statuses=(200,),
         ),
         CheckSpec(
             check_key="facturapi-eva-erp",
