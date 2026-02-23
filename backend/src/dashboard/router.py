@@ -1,13 +1,12 @@
 """Consolidated dashboard endpoint — one request, all queries in parallel."""
 
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, func, or_, select
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
@@ -27,6 +26,9 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 class DashboardResponse(BaseModel):
+    period: str
+    period_label: str
+    is_current_period: bool
     # KPIs
     mrr: Decimal
     arr: Decimal
@@ -72,33 +74,94 @@ async def _run_query(query):
         return result
 
 
+def _next_month(value: date) -> date:
+    return (value.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+
+def _resolve_period(period: str | None, today: date) -> tuple[str, date, date, bool]:
+    if period is None:
+        month_start = today.replace(day=1)
+    else:
+        try:
+            month_start = date.fromisoformat(f"{period}-01")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid period format. Expected YYYY-MM.") from exc
+    next_month_start = _next_month(month_start)
+    period_key = month_start.strftime("%Y-%m")
+    return period_key, month_start, next_month_start, period_key == today.strftime("%Y-%m")
+
+
 @router.get("/summary", response_model=DashboardResponse)
 async def dashboard_summary(
+    period: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     user: User = Depends(get_current_user),
 ):
     today = date.today()
-    month_start = today.replace(day=1)
+    period_key, month_start, next_month_start, is_current_period = _resolve_period(period, today)
+    period_end = next_month_start - timedelta(days=1)
+    period_label = month_start.strftime("%B %Y")
+
+    active_customer_condition = and_(
+        Customer.signup_date.isnot(None),
+        Customer.signup_date <= period_end,
+        or_(
+            Customer.status == "active",
+            and_(
+                Customer.status == "churned",
+                or_(Customer.churn_date.is_(None), Customer.churn_date > period_end),
+            ),
+        ),
+    )
 
     # Define all queries upfront
     queries = {
-        "mrr": select(func.coalesce(func.sum(Customer.mrr_usd), 0)).where(Customer.status == "active"),
+        "mrr": select(func.coalesce(func.sum(Customer.mrr_usd), 0)).where(active_customer_condition),
         "revenue": select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0)).where(
-            func.extract("year", IncomeEntry.date) == today.year,
-            func.extract("month", IncomeEntry.date) == today.month,
+            IncomeEntry.date >= month_start,
+            IncomeEntry.date < next_month_start,
         ),
-        "total_expenses": select(func.coalesce(func.sum(Expense.amount_usd), 0)),
-        "burn_rate": select(func.coalesce(func.sum(Expense.amount_usd), 0)).where(Expense.is_recurring == True),
-        "cash": select(CashBalance).order_by(CashBalance.date.desc()).limit(1),
-        "total_cust": select(func.count(Customer.id)).where(Customer.status == "active"),
-        "new_cust": select(func.count(Customer.id)).where(Customer.signup_date >= month_start),
-        "churned": select(func.count(Customer.id)).where(Customer.status == "churned", Customer.churn_date >= month_start),
-        "open_tasks": select(func.count(Task.id)).where(Task.status != "done"),
-        "overdue_tasks": select(func.count(Task.id)).where(Task.due_date < today, Task.status != "done"),
-        "all_income": select(IncomeEntry),
-        "all_expenses": select(Expense),
-        "all_prospects": select(Prospect),
-        "tasks_active": select(Task).where(Task.status.in_(["todo", "in_progress"])).order_by(Task.created_at.desc()).limit(6),
-        "vault_creds": select(Credential).where(Credential.is_deleted == False, Credential.monthly_cost.isnot(None)),
+        "total_expenses": select(func.coalesce(func.sum(Expense.amount_usd), 0)).where(
+            Expense.date >= month_start,
+            Expense.date < next_month_start,
+        ),
+        "burn_rate": select(func.coalesce(func.sum(Expense.amount_usd), 0)).where(
+            Expense.is_recurring == True,
+            Expense.date < next_month_start,
+        ),
+        "cash": select(CashBalance).where(CashBalance.date <= period_end).order_by(CashBalance.date.desc()).limit(1),
+        "total_cust": select(func.count(Customer.id)).where(active_customer_condition),
+        "new_cust": select(func.count(Customer.id)).where(
+            Customer.signup_date >= month_start,
+            Customer.signup_date < next_month_start,
+        ),
+        "churned": select(func.count(Customer.id)).where(
+            Customer.status == "churned",
+            Customer.churn_date.isnot(None),
+            Customer.churn_date >= month_start,
+            Customer.churn_date < next_month_start,
+        ),
+        "open_tasks": select(func.count(Task.id)).where(
+            Task.status != "done",
+            func.date(Task.created_at) < next_month_start,
+        ),
+        "overdue_tasks": select(func.count(Task.id)).where(
+            Task.status != "done",
+            func.date(Task.created_at) < next_month_start,
+            Task.due_date.isnot(None),
+            Task.due_date <= period_end,
+        ),
+        "all_income": select(IncomeEntry).where(IncomeEntry.date < next_month_start),
+        "all_expenses": select(Expense).where(Expense.date < next_month_start),
+        "all_prospects": select(Prospect).where(func.date(Prospect.created_at) < next_month_start),
+        "tasks_active": select(Task).where(
+            Task.status.in_(["todo", "in_progress"]),
+            func.date(Task.created_at) < next_month_start,
+        ).order_by(Task.created_at.desc()).limit(6),
+        "vault_creds": select(Credential).where(
+            Credential.is_deleted == False,
+            Credential.monthly_cost.isnot(None),
+            func.date(Credential.created_at) < next_month_start,
+        ),
     }
 
     # Run ALL queries in parallel using separate sessions
@@ -135,7 +198,7 @@ async def dashboard_summary(
                 income_mrr_by_currency.get(income.currency, Decimal("0")) + monthly_native
             ).quantize(Decimal("0.01"))
 
-        if income.date.year == today.year and income.date.month == today.month:
+        if month_start <= income.date < next_month_start:
             income_total_period_by_currency[income.currency] = (
                 income_total_period_by_currency.get(income.currency, Decimal("0")) + income.amount
             ).quantize(Decimal("0.01"))
@@ -149,10 +212,10 @@ async def dashboard_summary(
     expense_recurring_total = Decimal("0")
     expense_total_period_by_currency: dict[str, Decimal] = {}
     for e in expenses:
-        expense_by_category[e.category] = expense_by_category.get(e.category, 0) + float(e.amount_usd)
         if e.is_recurring:
             expense_recurring_total += e.amount_usd
-        if e.date.year == today.year and e.date.month == today.month:
+        if month_start <= e.date < next_month_start:
+            expense_by_category[e.category] = expense_by_category.get(e.category, 0) + float(e.amount_usd)
             expense_total_period_by_currency[e.currency] = (
                 expense_total_period_by_currency.get(e.currency, Decimal("0")) + e.amount
             ).quantize(Decimal("0.01"))
@@ -198,6 +261,9 @@ async def dashboard_summary(
         vault_by_category[c.category] = vault_by_category.get(c.category, 0) + float(c.monthly_cost_usd or 0)
 
     return DashboardResponse(
+        period=period_key,
+        period_label=period_label,
+        is_current_period=is_current_period,
         mrr=mrr,
         arr=mrr * 12,
         total_revenue=total_revenue,
@@ -216,7 +282,7 @@ async def dashboard_summary(
         income_mrr_by_currency=income_mrr_by_currency,
         income_total_period=total_revenue,
         income_total_period_by_currency=income_total_period_by_currency,
-        expense_total_usd=Decimal(str(sum(float(e.amount_usd) for e in expenses))),
+        expense_total_usd=total_expenses_usd,
         expense_total_period_by_currency=expense_total_period_by_currency,
         expense_by_category=expense_by_category,
         expense_recurring_total=expense_recurring_total,

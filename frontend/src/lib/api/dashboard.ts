@@ -1,6 +1,9 @@
 import api from "./client";
 
 export interface DashboardData {
+  period: string;
+  period_label: string;
+  is_current_period: boolean;
   mrr: number;
   arr: number;
   total_revenue: number;
@@ -34,5 +37,8 @@ export interface DashboardData {
 }
 
 export const dashboardApi = {
-  summary: (): Promise<DashboardData> => api.get("/dashboard/summary").then(r => r.data),
+  summary: (period?: string): Promise<DashboardData> =>
+    api
+      .get("/dashboard/summary", { params: period ? { period } : undefined })
+      .then(r => r.data),
 };
