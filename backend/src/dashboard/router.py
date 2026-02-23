@@ -14,7 +14,11 @@ from src.auth.models import User
 from src.common.database import async_session
 from src.customers.models import Customer
 from src.finances.models import CashBalance, Expense, IncomeEntry
-from src.finances.recurrence import extract_income_recurrence, income_monthly_mrr_equivalent
+from src.finances.recurrence import (
+    extract_income_recurrence,
+    income_monthly_equivalent,
+    income_monthly_mrr_equivalent,
+)
 from src.prospects.models import Prospect
 from src.tasks.models import Task
 from src.vault.models import Credential
@@ -40,11 +44,15 @@ class DashboardResponse(BaseModel):
     overdue_tasks: int
     # Income
     income_mrr: Decimal
+    income_mrr_by_currency: dict[str, Decimal]
     income_total_period: Decimal
+    income_total_period_by_currency: dict[str, Decimal]
     # Expenses
     expense_total_usd: Decimal
+    expense_total_period_by_currency: dict[str, Decimal]
     expense_by_category: dict[str, float]
     expense_recurring_total: Decimal
+    net_profit_by_currency: dict[str, Decimal]
     # Prospects
     prospect_total: int
     prospect_by_status: dict[str, int]
@@ -117,8 +125,21 @@ async def dashboard_summary(
     # Income MRR supports monthly/custom/one-time recurrence from metadata.
     income_entries = r["all_income"].scalars().all()
     income_mrr = Decimal("0")
+    income_mrr_by_currency: dict[str, Decimal] = {}
+    income_total_period_by_currency: dict[str, Decimal] = {}
     for income in income_entries:
         recurrence_type, custom_interval_months = extract_income_recurrence(income.metadata_json, income.is_recurring)
+        monthly_native = income_monthly_equivalent(income.amount, recurrence_type, custom_interval_months)
+        if monthly_native > 0:
+            income_mrr_by_currency[income.currency] = (
+                income_mrr_by_currency.get(income.currency, Decimal("0")) + monthly_native
+            ).quantize(Decimal("0.01"))
+
+        if income.date.year == today.year and income.date.month == today.month:
+            income_total_period_by_currency[income.currency] = (
+                income_total_period_by_currency.get(income.currency, Decimal("0")) + income.amount
+            ).quantize(Decimal("0.01"))
+
         income_mrr += income_monthly_mrr_equivalent(income.amount_usd, recurrence_type, custom_interval_months)
     income_mrr = income_mrr.quantize(Decimal("0.01"))
 
@@ -126,10 +147,22 @@ async def dashboard_summary(
     expenses = r["all_expenses"].scalars().all()
     expense_by_category: dict[str, float] = {}
     expense_recurring_total = Decimal("0")
+    expense_total_period_by_currency: dict[str, Decimal] = {}
     for e in expenses:
         expense_by_category[e.category] = expense_by_category.get(e.category, 0) + float(e.amount_usd)
         if e.is_recurring:
             expense_recurring_total += e.amount_usd
+        if e.date.year == today.year and e.date.month == today.month:
+            expense_total_period_by_currency[e.currency] = (
+                expense_total_period_by_currency.get(e.currency, Decimal("0")) + e.amount
+            ).quantize(Decimal("0.01"))
+
+    net_profit_by_currency: dict[str, Decimal] = {}
+    for currency in set(income_total_period_by_currency.keys()) | set(expense_total_period_by_currency.keys()):
+        net_profit_by_currency[currency] = (
+            income_total_period_by_currency.get(currency, Decimal("0"))
+            - expense_total_period_by_currency.get(currency, Decimal("0"))
+        ).quantize(Decimal("0.01"))
 
     # Process prospects
     prospects = r["all_prospects"].scalars().all()
@@ -180,10 +213,14 @@ async def dashboard_summary(
         open_tasks=open_tasks,
         overdue_tasks=overdue_tasks,
         income_mrr=income_mrr,
+        income_mrr_by_currency=income_mrr_by_currency,
         income_total_period=total_revenue,
+        income_total_period_by_currency=income_total_period_by_currency,
         expense_total_usd=Decimal(str(sum(float(e.amount_usd) for e in expenses))),
+        expense_total_period_by_currency=expense_total_period_by_currency,
         expense_by_category=expense_by_category,
         expense_recurring_total=expense_recurring_total,
+        net_profit_by_currency=net_profit_by_currency,
         prospect_total=len(prospects),
         prospect_by_status=prospect_by_status,
         prospect_urgency=urgency,

@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 function fmt(amount: number | null | undefined, currency = "USD") {
-  if (amount == null) return "\u2014";
+  if (amount == null) return "-";
   return `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
@@ -249,7 +249,7 @@ export default function FinancesPage() {
                 <div>
                   <p className="text-xs font-medium text-muted">MRR (Monthly Recurring Revenue)</p>
                   {mrrByCurrency.length === 0 ? (
-                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">-</p>
                   ) : (
                     <div className="mt-0.5 space-y-0.5">
                       {mrrByCurrency.map(([currency, amount]) => (
@@ -269,7 +269,7 @@ export default function FinancesPage() {
                 <div>
                   <p className="text-xs font-medium text-muted">Revenue This Month</p>
                   {revenueByCurrency.length === 0 ? (
-                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">-</p>
                   ) : (
                     <div className="mt-0.5 space-y-0.5">
                       {revenueByCurrency.map(([currency, amount]) => (
@@ -289,7 +289,7 @@ export default function FinancesPage() {
                 <div>
                   <p className="text-xs font-medium text-muted">Expenses This Month</p>
                   {expensesByCurrency.length === 0 ? (
-                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">-</p>
                   ) : (
                     <div className="mt-0.5 space-y-0.5">
                       {expensesByCurrency.map(([currency, amount]) => (
@@ -315,7 +315,7 @@ export default function FinancesPage() {
                 <div>
                   <p className="text-xs font-medium text-muted">Net P/L (Revenue - Expenses)</p>
                   {netProfitByCurrency.length === 0 ? (
-                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">-</p>
                   ) : (
                     <div className="mt-0.5 space-y-0.5">
                       {netProfitByCurrency.map(([currency, amount]) => (
@@ -350,7 +350,7 @@ export default function FinancesPage() {
             {cashBalance && (
               <p className="mt-1 text-xs text-muted">
                 As of {new Date(cashBalance.date).toLocaleDateString()}
-                {cashBalance.notes && ` \u2014 ${cashBalance.notes}`}
+                {cashBalance.notes && ` - ${cashBalance.notes}`}
               </p>
             )}
           </div>
@@ -419,7 +419,7 @@ export default function FinancesPage() {
                     <TableCell className="font-medium">{e.description}</TableCell>
                     <TableCell className="font-mono text-sm">{fmt(e.amount, e.currency)}</TableCell>
                     <TableCell className="font-mono text-sm">
-                      {e.recurrence_type === "one_time" ? "\u2014" : fmt(incomeMonthlyAmount(e), e.currency)}
+                      {e.recurrence_type === "one_time" ? "-" : fmt(incomeMonthlyAmount(e), e.currency)}
                     </TableCell>
                     <TableCell><Badge variant="secondary" className="rounded-full text-xs">{e.source}</Badge></TableCell>
                     <TableCell className="capitalize text-sm">{e.category}</TableCell>
@@ -468,8 +468,8 @@ export default function FinancesPage() {
                     <TableCell className="font-medium">{exp.name}</TableCell>
                     <TableCell className="font-mono text-sm">{fmt(exp.amount, exp.currency)}</TableCell>
                     <TableCell className="capitalize text-sm">{exp.category.replace(/_/g, " ")}</TableCell>
-                    <TableCell className="text-sm">{exp.vendor || "\u2014"}</TableCell>
-                    <TableCell>{exp.is_recurring ? <Badge variant="secondary" className="rounded-full text-xs">Recurring</Badge> : "\u2014"}</TableCell>
+                    <TableCell className="text-sm">{exp.vendor || "-"}</TableCell>
+                    <TableCell>{exp.is_recurring ? <Badge variant="secondary" className="rounded-full text-xs">Recurring</Badge> : "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

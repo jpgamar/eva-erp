@@ -17,6 +17,17 @@ function fmt(amount: number | null | undefined, currency = "USD") {
   return `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currency}`;
 }
 
+function sortedCurrencyEntries(values: Record<string, number> | null | undefined): [string, number][] {
+  const entries = Object.entries(values || {}).filter(([, amount]) => Number.isFinite(amount));
+  return entries.sort(([a], [b]) => {
+    if (a === "MXN") return -1;
+    if (b === "MXN") return 1;
+    if (a === "USD") return -1;
+    if (b === "USD") return 1;
+    return a.localeCompare(b);
+  });
+}
+
 const EXPENSE_LABELS: Record<string, string> = {
   infrastructure: "Infrastructure",
   ai_apis: "AI APIs",
@@ -72,6 +83,10 @@ export default function DashboardPage() {
 
   const allExpenses = Object.entries(data.expense_by_category).sort(([, a], [, b]) => b - a);
   const topExpenses = allExpenses.slice(0, 3);
+  const incomeMonthByCurrency = sortedCurrencyEntries(data.income_total_period_by_currency);
+  const expenseMonthByCurrency = sortedCurrencyEntries(data.expense_total_period_by_currency);
+  const netProfitByCurrency = sortedCurrencyEntries(data.net_profit_by_currency);
+  const hasNegativeNet = netProfitByCurrency.some(([, amount]) => amount < 0);
 
   const topVaultCats = Object.entries(data.vault_by_category).sort(([, a], [, b]) => b - a).slice(0, 3);
 
@@ -117,22 +132,30 @@ export default function DashboardPage() {
 
         {/* Net P/L */}
         <div className={`relative overflow-hidden rounded-2xl border p-4 ${
-          data.net_profit >= 0
-            ? "border-green-200 bg-green-50"
-            : "border-red-200 bg-red-50"
+          hasNegativeNet ? "border-red-200 bg-red-50" : "border-green-200 bg-green-50"
         }`}>
-          <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full ${data.net_profit >= 0 ? "bg-green-100/60" : "bg-red-100/60"}`} />
-          <div className={`absolute -right-2 -top-2 h-12 w-12 rounded-full ${data.net_profit >= 0 ? "bg-green-100/60" : "bg-red-100/60"}`} />
+          <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full ${hasNegativeNet ? "bg-red-100/60" : "bg-green-100/60"}`} />
+          <div className={`absolute -right-2 -top-2 h-12 w-12 rounded-full ${hasNegativeNet ? "bg-red-100/60" : "bg-green-100/60"}`} />
           <div className="relative">
             <div className="flex items-center gap-2 mb-0.5">
-              {data.net_profit >= 0
-                ? <TrendingUp className="h-3.5 w-3.5 text-green-500" />
-                : <TrendingDown className="h-3.5 w-3.5 text-red-500" />}
-              <p className={`text-xs font-medium ${data.net_profit >= 0 ? "text-green-600/70" : "text-red-600/70"}`}>Net P/L</p>
+              {hasNegativeNet
+                ? <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+                : <TrendingUp className="h-3.5 w-3.5 text-green-500" />}
+              <p className={`text-xs font-medium ${hasNegativeNet ? "text-red-600/70" : "text-green-600/70"}`}>Net P/L</p>
             </div>
-            <p className={`font-mono text-2xl font-bold tracking-tight ${data.net_profit >= 0 ? "text-green-900" : "text-red-900"}`}>{fmt(data.net_profit)}</p>
+            {netProfitByCurrency.length === 0 ? (
+              <p className="font-mono text-2xl font-bold tracking-tight text-foreground">-</p>
+            ) : (
+              <div className="space-y-0.5">
+                {netProfitByCurrency.map(([currency, amount]) => (
+                  <p key={currency} className={`font-mono text-xl font-bold tracking-tight ${amount >= 0 ? "text-green-900" : "text-red-900"}`}>
+                    {fmt(amount, currency)}
+                  </p>
+                ))}
+              </div>
+            )}
             <div className="mt-1.5">
-              <span className={`text-xs ${data.net_profit >= 0 ? "text-green-600/60" : "text-red-600/60"}`}>Revenue − Expenses</span>
+              <span className={`text-xs ${hasNegativeNet ? "text-red-600/60" : "text-green-600/60"}`}>Revenue − Expenses</span>
             </div>
           </div>
         </div>
@@ -143,9 +166,6 @@ export default function DashboardPage() {
 
         {/* Finances */}
         {(() => {
-          const rev = Number(data.income_total_period) || 0;
-          const exp = Number(data.expense_total_usd) || 0;
-          const maxBar = Math.max(rev, exp, 1);
           const expTotal = allExpenses.reduce((s, [, v]) => s + v, 0) || 1;
           return (
             <Link href="/finances" className="group flex">
@@ -167,19 +187,31 @@ export default function DashboardPage() {
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] text-muted">Revenue</span>
-                        <span className="font-mono text-xs font-semibold text-emerald-700">{fmt(rev)}</span>
+                        <span className="font-mono text-xs font-semibold text-emerald-700">
+                          {incomeMonthByCurrency.length === 0 ? "-" : `${incomeMonthByCurrency.length} currencies`}
+                        </span>
                       </div>
-                      <div className="h-2 rounded-full bg-muted/20 overflow-hidden">
-                        <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700" style={{ width: `${(rev / maxBar) * 100}%` }} />
+                      <div className="space-y-0.5">
+                        {incomeMonthByCurrency.length === 0 ? (
+                          <p className="font-mono text-xs text-muted">-</p>
+                        ) : incomeMonthByCurrency.map(([currency, amount]) => (
+                          <p key={`rev-${currency}`} className="font-mono text-xs font-semibold text-emerald-700">{fmt(amount, currency)}</p>
+                        ))}
                       </div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] text-muted">Expenses</span>
-                        <span className="font-mono text-xs font-semibold text-red-600">{fmt(exp)}</span>
+                        <span className="font-mono text-xs font-semibold text-red-600">
+                          {expenseMonthByCurrency.length === 0 ? "-" : `${expenseMonthByCurrency.length} currencies`}
+                        </span>
                       </div>
-                      <div className="h-2 rounded-full bg-muted/20 overflow-hidden">
-                        <div className="h-full rounded-full bg-gradient-to-r from-red-400 to-red-500 transition-all duration-700" style={{ width: `${(exp / maxBar) * 100}%` }} />
+                      <div className="space-y-0.5">
+                        {expenseMonthByCurrency.length === 0 ? (
+                          <p className="font-mono text-xs text-muted">-</p>
+                        ) : expenseMonthByCurrency.map(([currency, amount]) => (
+                          <p key={`exp-${currency}`} className="font-mono text-xs font-semibold text-red-600">{fmt(amount, currency)}</p>
+                        ))}
                       </div>
                     </div>
                     {data.cash_balance_usd != null && (

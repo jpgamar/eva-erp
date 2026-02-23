@@ -16,10 +16,14 @@ export interface DashboardData {
   open_tasks: number;
   overdue_tasks: number;
   income_mrr: number;
+  income_mrr_by_currency: Record<string, number>;
   income_total_period: number;
+  income_total_period_by_currency: Record<string, number>;
   expense_total_usd: number;
+  expense_total_period_by_currency: Record<string, number>;
   expense_by_category: Record<string, number>;
   expense_recurring_total: number;
+  net_profit_by_currency: Record<string, number>;
   prospect_total: number;
   prospect_by_status: Record<string, number>;
   prospect_urgency: { urgent: number; soso: number; can_wait: number };
