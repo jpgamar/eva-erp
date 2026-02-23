@@ -76,6 +76,9 @@ class IncomeSummary(BaseModel):
     arr: Decimal
     total_period: Decimal
     total_period_usd: Decimal
+    mrr_by_currency: dict[str, Decimal]
+    arr_by_currency: dict[str, Decimal]
+    total_period_by_currency: dict[str, Decimal]
     mom_growth_pct: Decimal | None
 
 

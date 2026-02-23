@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { incomeApi, expenseApi, invoiceApi, cashBalanceApi } from "@/lib/api/finances";
 import { useAuth } from "@/lib/auth/context";
 import type {
-  IncomeEntry, IncomeSummary, Expense as ExpenseType, ExpenseSummary,
+  IncomeEntry, IncomeSummary, Expense as ExpenseType,
   InvoiceEntry, CashBalanceEntry,
 } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,23 @@ import { cn } from "@/lib/utils";
 function fmt(amount: number | null | undefined, currency = "USD") {
   if (amount == null) return "\u2014";
   return `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+}
+
+function sortedCurrencyEntries(values: Record<string, number> | null | undefined): [string, number][] {
+  const entries = Object.entries(values || {}).filter(([, amount]) => Number.isFinite(amount));
+  return entries.sort(([a], [b]) => {
+    if (a === "MXN") return -1;
+    if (b === "MXN") return 1;
+    if (a === "USD") return -1;
+    if (b === "USD") return 1;
+    return a.localeCompare(b);
+  });
+}
+
+function incomeMonthlyAmount(entry: IncomeEntry): number {
+  if (entry.recurrence_type === "one_time") return 0;
+  if (entry.recurrence_type === "custom") return entry.amount / Math.max(entry.custom_interval_months || 1, 1);
+  return entry.amount;
 }
 
 const EXPENSE_CATEGORIES = [
@@ -57,7 +74,6 @@ export default function FinancesPage() {
   const [loading, setLoading] = useState(true);
 
   const [incomeSummary, setIncomeSummary] = useState<IncomeSummary | null>(null);
-  const [expenseSummary, setExpenseSummary] = useState<ExpenseSummary | null>(null);
   const [incomeList, setIncomeList] = useState<IncomeEntry[]>([]);
   const [expenseList, setExpenseList] = useState<ExpenseType[]>([]);
   const [invoiceList, setInvoiceList] = useState<InvoiceEntry[]>([]);
@@ -83,12 +99,11 @@ export default function FinancesPage() {
 
   const fetchAll = async () => {
     try {
-      const [iSum, eSum, iList, eList, invList, cash] = await Promise.all([
-        incomeApi.summary(), expenseApi.summary(), incomeApi.list(),
+      const [iSum, iList, eList, invList, cash] = await Promise.all([
+        incomeApi.summary(), incomeApi.list(),
         expenseApi.list(), invoiceApi.list(), cashBalanceApi.current(),
       ]);
       setIncomeSummary(iSum);
-      setExpenseSummary(eSum);
       setIncomeList(iList);
       setExpenseList(eList);
       setInvoiceList(invList);
@@ -167,7 +182,35 @@ export default function FinancesPage() {
     } catch (e: any) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
-  const netProfit = (incomeSummary?.total_period_usd ?? 0) - (expenseSummary?.total_usd ?? 0);
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const mrrByCurrency = sortedCurrencyEntries(incomeSummary?.mrr_by_currency);
+  const revenueByCurrency = sortedCurrencyEntries(incomeSummary?.total_period_by_currency);
+
+  const expensePeriodByCurrency = expenseList.reduce<Record<string, number>>((acc, expense) => {
+    const d = new Date(expense.date);
+    if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) return acc;
+    acc[expense.currency] = (acc[expense.currency] || 0) + Number(expense.amount || 0);
+    return acc;
+  }, {});
+  const expensesByCurrency = sortedCurrencyEntries(expensePeriodByCurrency);
+
+  const netProfitByCurrencyMap = Array.from(new Set([
+    ...Object.keys(incomeSummary?.total_period_by_currency || {}),
+    ...Object.keys(expensePeriodByCurrency),
+  ])).reduce<Record<string, number>>((acc, currency) => {
+    const revenue = incomeSummary?.total_period_by_currency?.[currency] || 0;
+    const expense = expensePeriodByCurrency[currency] || 0;
+    acc[currency] = revenue - expense;
+    return acc;
+  }, {});
+  const netProfitByCurrency = sortedCurrencyEntries(netProfitByCurrencyMap);
+  const hasNegativeNet = netProfitByCurrency.some(([, value]) => value < 0);
+  const expenseByCurrencyCategory = expenseList.reduce<Record<string, Record<string, number>>>((acc, expense) => {
+    const currencyBucket = (acc[expense.currency] ||= {});
+    currencyBucket[expense.category] = (currencyBucket[expense.category] || 0) + Number(expense.amount || 0);
+    return acc;
+  }, {});
 
   if (loading) {
     return <div className="flex items-center justify-center h-[calc(100vh-8rem)]"><div className="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full" /></div>;
@@ -205,7 +248,15 @@ export default function FinancesPage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted">MRR (Monthly Recurring Revenue)</p>
-                  <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{fmt(incomeSummary?.mrr)}</p>
+                  {mrrByCurrency.length === 0 ? (
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                  ) : (
+                    <div className="mt-0.5 space-y-0.5">
+                      {mrrByCurrency.map(([currency, amount]) => (
+                        <p key={currency} className="font-mono text-base font-bold text-foreground">{fmt(amount, currency)}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -217,7 +268,15 @@ export default function FinancesPage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted">Revenue This Month</p>
-                  <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{fmt(incomeSummary?.total_period_usd)}</p>
+                  {revenueByCurrency.length === 0 ? (
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                  ) : (
+                    <div className="mt-0.5 space-y-0.5">
+                      {revenueByCurrency.map(([currency, amount]) => (
+                        <p key={currency} className="font-mono text-base font-bold text-foreground">{fmt(amount, currency)}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -229,25 +288,43 @@ export default function FinancesPage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted">Expenses This Month</p>
-                  <p className="mt-0.5 font-mono text-xl font-bold text-foreground">{fmt(expenseSummary?.total_usd)}</p>
+                  {expensesByCurrency.length === 0 ? (
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                  ) : (
+                    <div className="mt-0.5 space-y-0.5">
+                      {expensesByCurrency.map(([currency, amount]) => (
+                        <p key={currency} className="font-mono text-base font-bold text-foreground">{fmt(amount, currency)}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
             <div className={cn(
               "rounded-xl border border-border border-l-[3px] bg-card p-5",
-              netProfit >= 0 ? "border-l-green-500" : "border-l-red-500"
+              hasNegativeNet ? "border-l-red-500" : "border-l-green-500"
             )}>
               <div className="flex items-center gap-4">
                 <div className={cn(
                   "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                  netProfit >= 0 ? "bg-green-50" : "bg-red-50"
+                  hasNegativeNet ? "bg-red-50" : "bg-green-50"
                 )}>
-                  {netProfit >= 0 ? <TrendingUp className="h-5 w-5 text-green-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
+                  {hasNegativeNet ? <TrendingDown className="h-5 w-5 text-red-600" /> : <TrendingUp className="h-5 w-5 text-green-600" />}
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted">Net P/L (Revenue - Expenses)</p>
-                  <p className={cn("mt-0.5 font-mono text-xl font-bold", netProfit >= 0 ? "text-green-600" : "text-red-600")}>{fmt(netProfit)}</p>
+                  {netProfitByCurrency.length === 0 ? (
+                    <p className="mt-0.5 font-mono text-xl font-bold text-foreground">\u2014</p>
+                  ) : (
+                    <div className="mt-0.5 space-y-0.5">
+                      {netProfitByCurrency.map(([currency, amount]) => (
+                        <p key={currency} className={cn("font-mono text-base font-bold", amount >= 0 ? "text-green-600" : "text-red-600")}>
+                          {fmt(amount, currency)}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -269,7 +346,7 @@ export default function FinancesPage() {
                 Update
               </Button>
             </div>
-            <p className="font-mono text-3xl font-bold text-foreground">{cashBalance ? fmt(cashBalance.amount_usd) : "Not set"}</p>
+            <p className="font-mono text-3xl font-bold text-foreground">{cashBalance ? fmt(cashBalance.amount, cashBalance.currency) : "Not set"}</p>
             {cashBalance && (
               <p className="mt-1 text-xs text-muted">
                 As of {new Date(cashBalance.date).toLocaleDateString()}
@@ -279,19 +356,30 @@ export default function FinancesPage() {
           </div>
 
           {/* Expenses by Category */}
-          {expenseSummary && Object.keys(expenseSummary.by_category).length > 0 && (
+          {Object.keys(expenseByCurrencyCategory).length > 0 && (
             <div className="rounded-xl border border-border bg-card p-6">
               <p className="mb-4 text-sm font-semibold text-foreground">Expenses by Category</p>
-              <div className="space-y-3">
-                {Object.entries(expenseSummary.by_category).sort(([, a], [, b]) => b - a).map(([cat, amount]) => {
-                  const pct = Number(expenseSummary.total_usd) > 0 ? (amount / Number(expenseSummary.total_usd)) * 100 : 0;
+              <div className="space-y-6">
+                {sortedCurrencyEntries(
+                  Object.fromEntries(Object.keys(expenseByCurrencyCategory).map((currency) => [currency, 1]))
+                ).map(([currency]) => {
+                  const categories = Object.entries(expenseByCurrencyCategory[currency] || {}).sort(([, a], [, b]) => b - a);
+                  const total = categories.reduce((acc, [, amount]) => acc + amount, 0);
                   return (
-                    <div key={cat} className="flex items-center gap-3">
-                      <span className="w-32 text-sm capitalize truncate text-foreground">{cat.replace(/_/g, " ")}</span>
-                      <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
-                        <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="w-32 text-right font-mono text-sm font-medium text-foreground">{fmt(amount)}</span>
+                    <div key={currency} className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted">{currency}</p>
+                      {categories.map(([cat, amount]) => {
+                        const pct = total > 0 ? (amount / total) * 100 : 0;
+                        return (
+                          <div key={`${currency}-${cat}`} className="flex items-center gap-3">
+                            <span className="w-32 text-sm capitalize truncate text-foreground">{cat.replace(/_/g, " ")}</span>
+                            <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="w-32 text-right font-mono text-sm font-medium text-foreground">{fmt(amount, currency)}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -316,7 +404,7 @@ export default function FinancesPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Date</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Description</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Amount</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">USD eq.</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Monthly eq.</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Source</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Category</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Recurrence</TableHead>
@@ -330,7 +418,9 @@ export default function FinancesPage() {
                     <TableCell className="text-sm text-muted">{new Date(e.date).toLocaleDateString()}</TableCell>
                     <TableCell className="font-medium">{e.description}</TableCell>
                     <TableCell className="font-mono text-sm">{fmt(e.amount, e.currency)}</TableCell>
-                    <TableCell className="font-mono text-sm">{fmt(e.amount_usd)}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {e.recurrence_type === "one_time" ? "\u2014" : fmt(incomeMonthlyAmount(e), e.currency)}
+                    </TableCell>
                     <TableCell><Badge variant="secondary" className="rounded-full text-xs">{e.source}</Badge></TableCell>
                     <TableCell className="capitalize text-sm">{e.category}</TableCell>
                     <TableCell className="text-sm">
@@ -364,7 +454,6 @@ export default function FinancesPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Date</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Amount</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">USD eq.</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Category</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Vendor</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Recurring</TableHead>
@@ -372,13 +461,12 @@ export default function FinancesPage() {
               </TableHeader>
               <TableBody>
                 {expenseList.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center text-muted py-12">No expenses yet.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted py-12">No expenses yet.</TableCell></TableRow>
                 ) : expenseList.map((exp) => (
                   <TableRow key={exp.id} className="hover:bg-gray-50/80">
                     <TableCell className="text-sm text-muted">{new Date(exp.date).toLocaleDateString()}</TableCell>
                     <TableCell className="font-medium">{exp.name}</TableCell>
                     <TableCell className="font-mono text-sm">{fmt(exp.amount, exp.currency)}</TableCell>
-                    <TableCell className="font-mono text-sm">{fmt(exp.amount_usd)}</TableCell>
                     <TableCell className="capitalize text-sm">{exp.category.replace(/_/g, " ")}</TableCell>
                     <TableCell className="text-sm">{exp.vendor || "\u2014"}</TableCell>
                     <TableCell>{exp.is_recurring ? <Badge variant="secondary" className="rounded-full text-xs">Recurring</Badge> : "\u2014"}</TableCell>

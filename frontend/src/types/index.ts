@@ -145,6 +145,9 @@ export interface IncomeSummary {
   arr: number;
   total_period: number;
   total_period_usd: number;
+  mrr_by_currency: Record<string, number>;
+  arr_by_currency: Record<string, number>;
+  total_period_by_currency: Record<string, number>;
   mom_growth_pct: number | null;
 }
 

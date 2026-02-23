@@ -13,6 +13,7 @@ from src.finances.models import CashBalance, ExchangeRate, Expense, IncomeEntry,
 from src.finances.recurrence import (
     build_income_metadata,
     extract_income_recurrence,
+    income_monthly_equivalent,
     income_monthly_mrr_equivalent,
     normalize_income_recurrence_payload,
 )
@@ -250,27 +251,43 @@ async def income_summary(
     now = date.today()
     result = await db.execute(select(IncomeEntry))
     entries = result.scalars().all()
+
     mrr = Decimal("0")
+    mrr_by_currency: dict[str, Decimal] = {}
     for entry in entries:
         recurrence_type, custom_interval_months = extract_income_recurrence(entry.metadata_json, entry.is_recurring)
+        monthly_native = income_monthly_equivalent(entry.amount, recurrence_type, custom_interval_months)
+        if monthly_native > 0:
+            mrr_by_currency[entry.currency] = (
+                mrr_by_currency.get(entry.currency, Decimal("0")) + monthly_native
+            ).quantize(Decimal("0.01"))
         mrr += income_monthly_mrr_equivalent(entry.amount_usd, recurrence_type, custom_interval_months)
     mrr = mrr.quantize(Decimal("0.01"))
     arr = mrr * 12
+    arr_by_currency = {
+        currency: (value * 12).quantize(Decimal("0.01"))
+        for currency, value in mrr_by_currency.items()
+    }
 
-    # Total this month
-    result = await db.execute(
-        select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0))
-        .where(
-            func.extract("year", IncomeEntry.date) == now.year,
-            func.extract("month", IncomeEntry.date) == now.month,
-        )
-    )
-    total_period = result.scalar() or Decimal("0")
+    # Total this month (native currency map + legacy USD total)
+    total_period = Decimal("0")
+    total_period_by_currency: dict[str, Decimal] = {}
+    for entry in entries:
+        if entry.date.year != now.year or entry.date.month != now.month:
+            continue
+        total_period += entry.amount_usd
+        total_period_by_currency[entry.currency] = (
+            total_period_by_currency.get(entry.currency, Decimal("0")) + entry.amount
+        ).quantize(Decimal("0.01"))
+    total_period = total_period.quantize(Decimal("0.01"))
 
     return IncomeSummary(
         mrr=mrr, arr=arr,
         total_period=total_period,
         total_period_usd=total_period,
+        mrr_by_currency=mrr_by_currency,
+        arr_by_currency=arr_by_currency,
+        total_period_by_currency=total_period_by_currency,
         mom_growth_pct=None,
     )
 

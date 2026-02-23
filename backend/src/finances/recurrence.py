@@ -83,11 +83,19 @@ def income_monthly_mrr_equivalent(
     recurrence_type: IncomeRecurrenceType,
     custom_interval_months: int | None,
 ) -> Decimal:
+    return income_monthly_equivalent(amount_usd, recurrence_type, custom_interval_months)
+
+
+def income_monthly_equivalent(
+    amount: Decimal,
+    recurrence_type: IncomeRecurrenceType,
+    custom_interval_months: int | None,
+) -> Decimal:
     if recurrence_type == "one_time":
         return Decimal("0.00")
     if recurrence_type == "custom":
         months = int(custom_interval_months or DEFAULT_CUSTOM_INTERVAL_MONTHS)
         if months < 1:
             months = DEFAULT_CUSTOM_INTERVAL_MONTHS
-        return (amount_usd / Decimal(months)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return amount_usd.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (amount / Decimal(months)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
