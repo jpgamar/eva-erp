@@ -68,6 +68,8 @@ from src.assistant.router import router as assistant_router
 from src.facturas.router import router as facturas_router
 from src.dashboard.router import router as dashboard_router
 from src.eva_platform.router import router as eva_platform_router
+from src.customers.router import router as customers_router
+from src.agent.router import router as agent_router
 
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -85,6 +87,8 @@ api_router.include_router(assistant_router)
 api_router.include_router(facturas_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(eva_platform_router)
+api_router.include_router(customers_router)
+api_router.include_router(agent_router)
 
 app.include_router(api_router)
 

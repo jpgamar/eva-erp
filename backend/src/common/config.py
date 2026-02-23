@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+    agent_api_key: str = ""
+    agent_api_actor_email: str = ""
 
     # CORS
     cors_origins: str = "http://localhost:3000"

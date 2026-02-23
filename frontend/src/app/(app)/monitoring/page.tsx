@@ -129,7 +129,7 @@ function PlatformCard({ group, services }: { group: MonitoringGroup; services: S
   const downCount = rows.filter((r) => r.state === "down").length;
 
   return (
-    <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+    <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
       <div className={cn("h-1 bg-gradient-to-r", isHealthy ? "from-green-400 to-emerald-500" : "from-red-400 to-red-500")} />
       <div className="p-5">
         <div className="flex items-center justify-between mb-4">
@@ -200,7 +200,7 @@ function PlatformCard({ group, services }: { group: MonitoringGroup; services: S
 
 function CardSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+    <div className="rounded-2xl bg-card overflow-hidden">
       <div className="h-1 bg-gray-200" />
       <div className="p-5">
         <div className="flex items-center justify-between mb-4">
@@ -391,7 +391,7 @@ export default function MonitoringPage() {
       )}
 
       {/* ── Issues ── */}
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="rounded-2xl bg-card overflow-hidden">
         <div className="flex items-center justify-between gap-3 p-5 pb-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
