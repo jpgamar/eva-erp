@@ -205,6 +205,7 @@ def _build_check_specs() -> list[CheckSpec]:
                 target=settings.monitoring_whatsapp_health_url,
                 critical=False,
                 category="messaging",
+                success_statuses=(200, 401, 403, 422),
             )
         )
 

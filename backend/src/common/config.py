@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     monitoring_eva_app_frontend_url: str = "https://app.goeva.ai"
     monitoring_erp_api_health_url: str = "https://eva-erp-goevaai-30a99658.koyeb.app/health/readiness"
     monitoring_eva_api_health_url: str = "https://api.goeva.ai/api/v1/health"
-    monitoring_whatsapp_health_url: str = ""
+    monitoring_whatsapp_health_url: str = "https://api.goeva.ai/api/v1/whatsapp/admin/webhook-health"
     monitoring_supabase_url: str = ""
     monitoring_fmac_erp_frontend_url: str = "https://erp.fmaccesorios.com"
     monitoring_fmac_erp_backend_url: str = "https://erp.fmaccesorios.com/api/v1/products"
