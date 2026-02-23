@@ -481,24 +481,57 @@ export default function DashboardPage() {
 
           <Link href="/monitoring" className="group">
             <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
-              <div className={`h-1 bg-gradient-to-r ${platform.critical_issues > 0 ? "from-red-400 to-red-500" : "from-green-400 to-green-500"}`} />
+              <div
+                className={`h-1 bg-gradient-to-r ${
+                  platform.critical_issues > 0
+                    ? "from-red-400 to-red-500"
+                    : platform.open_issues > 0
+                      ? "from-amber-400 to-amber-500"
+                      : "from-green-400 to-green-500"
+                }`}
+              />
               <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2.5">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${platform.critical_issues > 0 ? "bg-red-50" : "bg-green-50"}`}>
-                      {platform.critical_issues > 0
-                        ? <AlertTriangle className="h-4 w-4 text-red-600" />
-                        : <Activity className="h-4 w-4 text-green-600" />}
+                    <div
+                      className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                        platform.critical_issues > 0
+                          ? "bg-red-50"
+                          : platform.open_issues > 0
+                            ? "bg-amber-50"
+                            : "bg-green-50"
+                      }`}
+                    >
+                      {platform.critical_issues > 0 ? (
+                        <AlertTriangle className="h-4 w-4 text-red-600" />
+                      ) : platform.open_issues > 0 ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      ) : (
+                        <Activity className="h-4 w-4 text-green-600" />
+                      )}
                     </div>
                     <p className="text-sm font-semibold text-foreground">Issues</p>
                   </div>
                   <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                 </div>
-                <p className={`font-mono text-2xl font-bold ${platform.critical_issues > 0 ? "text-red-600" : "text-foreground"}`}>{platform.open_issues}</p>
+                <p
+                  className={`font-mono text-2xl font-bold ${
+                    platform.critical_issues > 0
+                      ? "text-red-600"
+                      : platform.open_issues > 0
+                        ? "text-amber-600"
+                        : "text-foreground"
+                  }`}
+                >
+                  {platform.open_issues}
+                </p>
                 {platform.critical_issues > 0 && (
                   <p className="text-[10px] text-red-600 font-medium mt-0.5">{platform.critical_issues} critical</p>
                 )}
-                {platform.critical_issues === 0 && (
+                {platform.critical_issues === 0 && platform.open_issues > 0 && (
+                  <p className="text-[10px] text-amber-600 font-medium mt-0.5">{platform.open_issues} non-critical open</p>
+                )}
+                {platform.open_issues === 0 && (
                   <p className="text-[10px] text-green-600 mt-0.5">All clear</p>
                 )}
               </div>
