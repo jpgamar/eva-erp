@@ -149,7 +149,7 @@ export default function DashboardPage() {
           const expTotal = allExpenses.reduce((s, [, v]) => s + v, 0) || 1;
           return (
             <Link href="/finances" className="group flex">
-              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full">
+              <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg w-full">
                 <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-500" />
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-5">
@@ -232,7 +232,7 @@ export default function DashboardPage() {
           };
           return (
             <Link href="/prospects" className="group flex">
-              <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40 w-full">
+              <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg w-full">
                 <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500" />
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-5">
@@ -296,7 +296,7 @@ export default function DashboardPage() {
           const healthyRatio = 1 - overdueRatio;
           const circumference = 2 * Math.PI * 36;
           return (
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500" />
               <div className="p-6">
                 <Link href="/tasks" className="group">
@@ -385,7 +385,7 @@ export default function DashboardPage() {
             security: "from-orange-400 to-orange-500",
           };
           return (
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
               <div className="p-6">
                 <Link href="/vault" className="group">
@@ -442,7 +442,7 @@ export default function DashboardPage() {
       {platform && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Link href="/eva-customers" className="group">
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-violet-400 to-violet-500" />
               <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
@@ -461,7 +461,7 @@ export default function DashboardPage() {
           </Link>
 
           <Link href="/partners" className="group">
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-teal-400 to-teal-500" />
               <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
@@ -480,7 +480,7 @@ export default function DashboardPage() {
           </Link>
 
           <Link href="/monitoring" className="group">
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className={`h-1 bg-gradient-to-r ${platform.critical_issues > 0 ? "from-red-400 to-red-500" : "from-green-400 to-green-500"}`} />
               <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
@@ -506,7 +506,7 @@ export default function DashboardPage() {
           </Link>
 
           <Link href="/eva-customers" className="group">
-            <div className="rounded-2xl border border-border bg-card overflow-hidden transition-all hover:shadow-lg hover:border-accent/40">
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
               <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
