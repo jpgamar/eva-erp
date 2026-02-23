@@ -249,7 +249,7 @@ jobs:
           max_attempts=3
           while true; do
             set +e
-            OUTPUT=$(koyeb instances exec "$SHORT_ID" -- sh -lc "cd /app && alembic upgrade head" 2>&1)
+            OUTPUT=$(script -q -c "koyeb instances exec \"$SHORT_ID\" -- sh -lc 'cd /app && alembic upgrade head'" /dev/null 2>&1)
             RC=$?
             set -e
 
@@ -277,7 +277,7 @@ jobs:
           # Log current state
           echo ""
           echo "Alembic current:"
-          koyeb instances exec "$SHORT_ID" -- sh -lc "cd /app && alembic current -v" 2>&1 || true
+          script -q -c "koyeb instances exec \"$SHORT_ID\" -- sh -lc 'cd /app && alembic current -v'" /dev/null 2>&1 || true
 
           echo ""
           echo "MIGRATIONS COMPLETED SUCCESSFULLY"
