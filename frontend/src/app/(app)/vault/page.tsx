@@ -15,6 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+const VAULT_MASTER_STORAGE_KEY = "eva_vault_master_password";
+
 const CATEGORIES = [
   { value: "infrastructure", label: "Infrastructure", color: "#3b82f6" },
   { value: "ai_llm", label: "AI / LLM", color: "#8b5cf6" },
@@ -87,10 +89,47 @@ export default function VaultPage() {
     }
   }, [categoryFilter, search]);
 
+  const getSavedMasterPassword = () => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(VAULT_MASTER_STORAGE_KEY) || "";
+  };
+
+  const saveMasterPassword = (value: string) => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(VAULT_MASTER_STORAGE_KEY, value);
+  };
+
+  const clearSavedMasterPassword = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(VAULT_MASTER_STORAGE_KEY);
+  };
+
   useEffect(() => {
     (async () => {
       const s = await fetchStatus();
-      if (s?.is_unlocked) await fetchData();
+      if (s?.is_unlocked) {
+        await fetchData();
+        setLoading(false);
+        return;
+      }
+
+      // Auto-unlock using last successful master password.
+      if (s?.is_setup) {
+        const savedMaster = getSavedMasterPassword();
+        if (savedMaster) {
+          try {
+            await vaultApi.unlock(savedMaster);
+            const refreshed = await fetchStatus();
+            if (refreshed?.is_unlocked) {
+              await fetchData();
+              setLoading(false);
+              return;
+            }
+          } catch {
+            clearSavedMasterPassword();
+          }
+        }
+      }
       setLoading(false);
     })();
   }, [fetchStatus, fetchData]);
@@ -104,6 +143,7 @@ export default function VaultPage() {
       } else {
         await vaultApi.unlock(masterPassword);
       }
+      saveMasterPassword(masterPassword);
       setMasterPassword("");
       await fetchStatus();
       await fetchData();

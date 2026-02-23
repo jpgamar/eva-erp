@@ -18,7 +18,9 @@ function fmt(amount: number | null | undefined, currency = "USD") {
 }
 
 function sortedCurrencyEntries(values: Record<string, number> | null | undefined): [string, number][] {
-  const entries = Object.entries(values || {}).filter(([, amount]) => Number.isFinite(amount));
+  const entries = Object.entries(values || {})
+    .map(([currency, amount]) => [currency, Number(amount)] as [string, number])
+    .filter(([, amount]) => Number.isFinite(amount));
   return entries.sort(([a], [b]) => {
     if (a === "MXN") return -1;
     if (b === "MXN") return 1;
