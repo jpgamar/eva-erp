@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 import datetime as _dt
 from decimal import Decimal
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 # Exchange Rate
@@ -23,12 +25,18 @@ class ExchangeRateUpdate(BaseModel):
 
 
 # Income
+IncomeRecurrenceType = Literal["monthly", "one_time", "custom"]
+
+
 class IncomeCreate(BaseModel):
     description: str
     amount: Decimal
     currency: str = "MXN"
     category: str = "subscription"
     date: _dt.date
+    recurrence_type: IncomeRecurrenceType = "one_time"
+    custom_interval_months: int | None = Field(default=None, ge=1)
+    # Legacy flag kept for backwards compatibility with old clients.
     is_recurring: bool = False
     customer_id: uuid.UUID | None = None
 
@@ -39,6 +47,8 @@ class IncomeUpdate(BaseModel):
     currency: str | None = None
     category: str | None = None
     date: _dt.date | None = None
+    recurrence_type: IncomeRecurrenceType | None = None
+    custom_interval_months: int | None = Field(default=None, ge=1)
     is_recurring: bool | None = None
 
 
@@ -54,6 +64,9 @@ class IncomeResponse(BaseModel):
     category: str
     date: _dt.date
     is_recurring: bool
+    recurrence_type: IncomeRecurrenceType
+    custom_interval_months: int | None
+    monthly_amount_usd: Decimal
     created_at: _dt.datetime
     model_config = {"from_attributes": True}
 

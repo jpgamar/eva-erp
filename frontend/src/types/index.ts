@@ -134,6 +134,9 @@ export interface IncomeEntry {
   category: string;
   date: string;
   is_recurring: boolean;
+  recurrence_type: "monthly" | "one_time" | "custom";
+  custom_interval_months: number | null;
+  monthly_amount_usd: number;
   created_at: string;
 }
 

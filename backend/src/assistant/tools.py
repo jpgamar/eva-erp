@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.customers.models import Customer
 from src.finances.models import CashBalance, Expense, IncomeEntry, Invoice
+from src.finances.recurrence import extract_income_recurrence, income_monthly_mrr_equivalent
 from src.kpis.models import KPISnapshot
 from src.meetings.models import Meeting
 from src.okrs.models import KeyResult, OKRPeriod, Objective
@@ -201,11 +202,26 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
             q = q.where(IncomeEntry.category == args["category"])
         result = await db.execute(q)
         items = result.scalars().all()
-        return json.dumps([
-            {"source": i.source, "description": i.description, "amount": _dec(i.amount),
-             "currency": i.currency, "amount_usd": _dec(i.amount_usd), "date": str(i.date), "category": i.category}
-            for i in items
-        ])
+        payload = []
+        for i in items:
+            recurrence_type, custom_interval_months = extract_income_recurrence(i.metadata_json, i.is_recurring)
+            payload.append(
+                {
+                    "source": i.source,
+                    "description": i.description,
+                    "amount": _dec(i.amount),
+                    "currency": i.currency,
+                    "amount_usd": _dec(i.amount_usd),
+                    "date": str(i.date),
+                    "category": i.category,
+                    "recurrence_type": recurrence_type,
+                    "custom_interval_months": custom_interval_months,
+                    "monthly_amount_usd": _dec(
+                        income_monthly_mrr_equivalent(i.amount_usd, recurrence_type, custom_interval_months)
+                    ),
+                }
+            )
+        return json.dumps(payload)
 
     elif name == "query_expenses":
         q = select(Expense).order_by(Expense.date.desc()).limit(args.get("limit", 20))

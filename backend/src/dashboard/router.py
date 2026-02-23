@@ -14,6 +14,7 @@ from src.auth.models import User
 from src.common.database import async_session
 from src.customers.models import Customer
 from src.finances.models import CashBalance, Expense, IncomeEntry
+from src.finances.recurrence import extract_income_recurrence, income_monthly_mrr_equivalent
 from src.prospects.models import Prospect
 from src.tasks.models import Task
 from src.vault.models import Credential
@@ -85,7 +86,7 @@ async def dashboard_summary(
         "churned": select(func.count(Customer.id)).where(Customer.status == "churned", Customer.churn_date >= month_start),
         "open_tasks": select(func.count(Task.id)).where(Task.status != "done"),
         "overdue_tasks": select(func.count(Task.id)).where(Task.due_date < today, Task.status != "done"),
-        "income_mrr": select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0)).where(IncomeEntry.is_recurring == True),
+        "all_income": select(IncomeEntry),
         "all_expenses": select(Expense),
         "all_prospects": select(Prospect),
         "tasks_active": select(Task).where(Task.status.in_(["todo", "in_progress"])).order_by(Task.created_at.desc()).limit(6),
@@ -112,7 +113,14 @@ async def dashboard_summary(
     arpu = Decimal(str(mrr / total_cust)) if total_cust > 0 else Decimal("0")
     open_tasks = r["open_tasks"].scalar() or 0
     overdue_tasks = r["overdue_tasks"].scalar() or 0
-    income_mrr = r["income_mrr"].scalar() or Decimal("0")
+
+    # Income MRR supports monthly/custom/one-time recurrence from metadata.
+    income_entries = r["all_income"].scalars().all()
+    income_mrr = Decimal("0")
+    for income in income_entries:
+        recurrence_type, custom_interval_months = extract_income_recurrence(income.metadata_json, income.is_recurring)
+        income_mrr += income_monthly_mrr_equivalent(income.amount_usd, recurrence_type, custom_interval_months)
+    income_mrr = income_mrr.quantize(Decimal("0.01"))
 
     # Process expenses
     expenses = r["all_expenses"].scalars().all()

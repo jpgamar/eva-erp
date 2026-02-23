@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Plus, Wallet, DollarSign, TrendingDown, TrendingUp,
-  ReceiptText, ArrowDownRight, ArrowUpRight,
+  ArrowDownRight, ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { incomeApi, expenseApi, invoiceApi, cashBalanceApi } from "@/lib/api/finances";
@@ -14,7 +14,6 @@ import type {
 } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -35,7 +34,6 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const INCOME_CATEGORIES = ["subscription", "addon", "consulting", "custom_deal", "refund", "other"];
-
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
   sent: "bg-blue-50 text-blue-700",
@@ -70,7 +68,15 @@ export default function FinancesPage() {
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [cashOpen, setCashOpen] = useState(false);
 
-  const [incomeForm, setIncomeForm] = useState({ description: "", amount: "", currency: "MXN", category: "subscription", date: new Date().toISOString().split("T")[0], is_recurring: false });
+  const [incomeForm, setIncomeForm] = useState({
+    description: "",
+    amount: "",
+    currency: "MXN",
+    category: "subscription",
+    date: new Date().toISOString().split("T")[0],
+    recurrence_type: "one_time",
+    custom_interval_months: "2",
+  });
   const [expenseForm, setExpenseForm] = useState({ name: "", amount: "", currency: "USD", category: "infrastructure", vendor: "", date: new Date().toISOString().split("T")[0], is_recurring: false, recurrence: "monthly" });
   const [invoiceForm, setInvoiceForm] = useState({ customer_name: "", customer_email: "", description: "", currency: "MXN", issue_date: new Date().toISOString().split("T")[0], due_date: "", item_desc: "", item_qty: "1", item_price: "", tax: "" });
   const [cashForm, setCashForm] = useState({ amount: "", currency: "MXN", date: new Date().toISOString().split("T")[0], notes: "" });
@@ -94,10 +100,30 @@ export default function FinancesPage() {
 
   const handleAddIncome = async () => {
     try {
-      await incomeApi.create({ ...incomeForm, amount: parseFloat(incomeForm.amount) });
+      const recurrenceType = incomeForm.recurrence_type;
+      const customIntervalMonths = recurrenceType === "custom" ? parseInt(incomeForm.custom_interval_months, 10) : null;
+      if (recurrenceType === "custom" && (!Number.isFinite(customIntervalMonths) || (customIntervalMonths ?? 0) < 1)) {
+        toast.error("Custom interval must be at least 1 month");
+        return;
+      }
+      await incomeApi.create({
+        ...incomeForm,
+        amount: parseFloat(incomeForm.amount),
+        recurrence_type: recurrenceType,
+        custom_interval_months: customIntervalMonths,
+        is_recurring: recurrenceType !== "one_time",
+      });
       toast.success("Income added");
       setAddIncomeOpen(false);
-      setIncomeForm({ description: "", amount: "", currency: "MXN", category: "subscription", date: new Date().toISOString().split("T")[0], is_recurring: false });
+      setIncomeForm({
+        description: "",
+        amount: "",
+        currency: "MXN",
+        category: "subscription",
+        date: new Date().toISOString().split("T")[0],
+        recurrence_type: "one_time",
+        custom_interval_months: "2",
+      });
       await fetchAll();
     } catch (e: any) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
@@ -293,11 +319,12 @@ export default function FinancesPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">USD eq.</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Source</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Category</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Recurrence</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {incomeList.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted py-12">No income entries yet.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center text-muted py-12">No income entries yet.</TableCell></TableRow>
                 ) : incomeList.map((e) => (
                   <TableRow key={e.id} className="hover:bg-gray-50/80">
                     <TableCell className="text-sm text-muted">{new Date(e.date).toLocaleDateString()}</TableCell>
@@ -306,6 +333,14 @@ export default function FinancesPage() {
                     <TableCell className="font-mono text-sm">{fmt(e.amount_usd)}</TableCell>
                     <TableCell><Badge variant="secondary" className="rounded-full text-xs">{e.source}</Badge></TableCell>
                     <TableCell className="capitalize text-sm">{e.category}</TableCell>
+                    <TableCell className="text-sm">
+                      <Badge variant="secondary" className="rounded-full text-xs capitalize">
+                        {e.recurrence_type === "one_time" ? "One Time" : e.recurrence_type}
+                      </Badge>
+                      {e.recurrence_type === "custom" && e.custom_interval_months && (
+                        <span className="ml-2 text-xs text-muted">every {e.custom_interval_months} months</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -431,6 +466,32 @@ export default function FinancesPage() {
               <div>
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Date</Label>
                 <Input className="mt-1.5 rounded-lg" type="date" value={incomeForm.date} onChange={(e) => setIncomeForm(f => ({ ...f, date: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Recurrence</Label>
+                <Select value={incomeForm.recurrence_type} onValueChange={(v: "one_time" | "monthly" | "custom") => setIncomeForm(f => ({ ...f, recurrence_type: v }))}>
+                  <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="one_time">One time</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Custom interval (months)</Label>
+                <Input
+                  className="mt-1.5 rounded-lg"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={incomeForm.custom_interval_months}
+                  disabled={incomeForm.recurrence_type !== "custom"}
+                  onChange={(e) => setIncomeForm(f => ({ ...f, custom_interval_months: e.target.value }))}
+                  required={incomeForm.recurrence_type === "custom"}
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">

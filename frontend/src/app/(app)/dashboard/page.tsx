@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   TrendingUp, TrendingDown, Users, DollarSign,
-  ArrowUpRight, Wallet, Target, Lock, CheckSquare,
+  ArrowUpRight, Wallet, Target, CheckSquare,
   Building2, Activity, Handshake, AlertTriangle, FileText,
 } from "lucide-react";
 import Link from "next/link";
@@ -392,7 +392,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
-                        <Lock className="h-4 w-4 text-amber-600" />
+                        <Wallet className="h-4 w-4 text-amber-600" />
                       </div>
                       <p className="text-sm font-semibold text-foreground">Vault</p>
                     </div>
@@ -405,7 +405,7 @@ export default function DashboardPage() {
                   <p className="font-mono text-2xl font-bold text-foreground">{fmt(data.vault_combined_usd)}</p>
                   <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">Monthly Cost</p>
                   <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/60">
-                    <Lock className="h-2.5 w-2.5 text-amber-500" />
+                    <Wallet className="h-2.5 w-2.5 text-amber-500" />
                     <span className="text-[10px] font-semibold text-amber-700">{data.vault_service_count} services</span>
                   </div>
                 </div>

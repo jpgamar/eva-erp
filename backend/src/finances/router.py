@@ -1,8 +1,8 @@
 import uuid
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,12 @@ from src.auth.dependencies import get_current_user, require_admin
 from src.auth.models import User
 from src.common.database import get_db
 from src.finances.models import CashBalance, ExchangeRate, Expense, IncomeEntry, Invoice
+from src.finances.recurrence import (
+    build_income_metadata,
+    extract_income_recurrence,
+    income_monthly_mrr_equivalent,
+    normalize_income_recurrence_payload,
+)
 from src.finances.schemas import (
     CashBalanceCreate,
     CashBalanceResponse,
@@ -52,6 +58,28 @@ def _to_usd(amount: Decimal, currency: str, rate: Decimal) -> Decimal:
     if currency == "USD":
         return amount
     return round(amount * rate, 2)
+
+
+def _serialize_income(entry: IncomeEntry) -> IncomeResponse:
+    recurrence_type, custom_interval_months = extract_income_recurrence(entry.metadata_json, entry.is_recurring)
+    monthly_amount_usd = income_monthly_mrr_equivalent(entry.amount_usd, recurrence_type, custom_interval_months)
+    return IncomeResponse(
+        id=entry.id,
+        source=entry.source,
+        stripe_payment_id=entry.stripe_payment_id,
+        customer_id=entry.customer_id,
+        description=entry.description,
+        amount=entry.amount,
+        currency=entry.currency,
+        amount_usd=entry.amount_usd,
+        category=entry.category,
+        date=entry.date,
+        is_recurring=entry.is_recurring,
+        recurrence_type=recurrence_type,
+        custom_interval_months=custom_interval_months,
+        monthly_amount_usd=monthly_amount_usd,
+        created_at=entry.created_at,
+    )
 
 
 # ─── Exchange Rate ────────────────────────────────────────────────
@@ -113,7 +141,8 @@ async def list_income(
     if category:
         q = q.where(IncomeEntry.category == category)
     result = await db.execute(q)
-    return result.scalars().all()
+    entries = result.scalars().all()
+    return [_serialize_income(entry) for entry in entries]
 
 
 @router.post("/income", response_model=IncomeResponse, status_code=201)
@@ -123,6 +152,15 @@ async def create_income(
     user: User = Depends(get_current_user),
 ):
     rate = await _get_mxn_to_usd(db)
+    try:
+        recurrence_type, custom_interval_months, normalized_recurring = normalize_income_recurrence_payload(
+            recurrence_type=data.recurrence_type,
+            custom_interval_months=data.custom_interval_months,
+            is_recurring=data.is_recurring,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
     entry = IncomeEntry(
         source="manual",
         description=data.description,
@@ -131,14 +169,15 @@ async def create_income(
         amount_usd=_to_usd(data.amount, data.currency, rate),
         category=data.category,
         date=data.date,
-        is_recurring=data.is_recurring,
+        is_recurring=normalized_recurring,
+        metadata_json=build_income_metadata(None, recurrence_type, custom_interval_months),
         customer_id=data.customer_id,
         created_by=user.id,
     )
     db.add(entry)
     await db.flush()
     await db.refresh(entry)
-    return entry
+    return _serialize_income(entry)
 
 
 @router.patch("/income/{income_id}", response_model=IncomeResponse)
@@ -156,13 +195,34 @@ async def update_income(
         raise HTTPException(status_code=400, detail="Cannot edit Stripe-synced entries")
 
     rate = await _get_mxn_to_usd(db)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    recurrence_type = payload.pop("recurrence_type", None) if "recurrence_type" in payload else None
+    custom_interval_months = (
+        payload.pop("custom_interval_months", None) if "custom_interval_months" in payload else None
+    )
+    recurring_flag = payload.pop("is_recurring", None) if "is_recurring" in payload else None
+
+    for field, value in payload.items():
         setattr(entry, field, value)
+
+    if any(field in data.model_fields_set for field in {"recurrence_type", "custom_interval_months", "is_recurring"}):
+        try:
+            normalized_type, normalized_interval, normalized_recurring = normalize_income_recurrence_payload(
+                recurrence_type=recurrence_type,
+                custom_interval_months=custom_interval_months,
+                is_recurring=recurring_flag,
+                existing_metadata=entry.metadata_json,
+                existing_is_recurring=entry.is_recurring,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        entry.is_recurring = normalized_recurring
+        entry.metadata_json = build_income_metadata(entry.metadata_json, normalized_type, normalized_interval)
 
     # Recalculate USD
     entry.amount_usd = _to_usd(entry.amount, entry.currency, rate)
     db.add(entry)
-    return entry
+    return _serialize_income(entry)
 
 
 @router.delete("/income/{income_id}")
@@ -186,13 +246,15 @@ async def income_summary(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # MRR: sum of recurring income in current month
+    # MRR: monthly-equivalent income from recurring entries.
     now = date.today()
-    result = await db.execute(
-        select(func.coalesce(func.sum(IncomeEntry.amount_usd), 0))
-        .where(IncomeEntry.is_recurring == True)
-    )
-    mrr = result.scalar() or Decimal("0")
+    result = await db.execute(select(IncomeEntry))
+    entries = result.scalars().all()
+    mrr = Decimal("0")
+    for entry in entries:
+        recurrence_type, custom_interval_months = extract_income_recurrence(entry.metadata_json, entry.is_recurring)
+        mrr += income_monthly_mrr_equivalent(entry.amount_usd, recurrence_type, custom_interval_months)
+    mrr = mrr.quantize(Decimal("0.01"))
     arr = mrr * 12
 
     # Total this month
