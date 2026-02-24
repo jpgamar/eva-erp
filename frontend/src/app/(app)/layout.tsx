@@ -79,28 +79,28 @@ function DashboardPeriodNav() {
   };
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-white/90 px-1 py-1 shadow-sm">
+    <div className="inline-flex items-center gap-1">
       <button
         type="button"
         onClick={() => setPeriod(previousPeriod)}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
         aria-label="Previous month"
         title="Previous month"
       >
-        <ChevronLeft className="h-4 w-4" />
+        <ChevronLeft className="h-3.5 w-3.5" />
       </button>
-      <span className="min-w-[132px] px-1 text-center text-sm font-semibold tracking-tight text-foreground">
+      <span className="min-w-[122px] px-1 text-center text-xs font-semibold text-foreground">
         {periodLabel(period)}
       </span>
       <button
         type="button"
         onClick={() => setPeriod(nextPeriod)}
         disabled={!canGoNext}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
         aria-label="Next month"
         title="Next month"
       >
-        <ChevronRight className="h-4 w-4" />
+        <ChevronRight className="h-3.5 w-3.5" />
       </button>
     </div>
   );
