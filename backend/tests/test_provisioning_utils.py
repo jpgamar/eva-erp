@@ -51,3 +51,16 @@ def test_map_provisioning_write_error_unknown_to_500():
     exc = _FakeDatabaseError("some unknown db issue")
     mapped = map_provisioning_write_error(exc, "fallback")
     assert mapped.status_code == 500
+    assert "reason:" in mapped.detail
+
+
+def test_map_provisioning_write_error_account_type_enum_to_400():
+    exc = _FakeDatabaseError("invalid input value for enum account_type")
+    mapped = map_provisioning_write_error(exc, "fallback")
+    assert mapped.status_code == 400
+
+
+def test_map_provisioning_write_error_not_null_to_400():
+    exc = _FakeDatabaseError('null value in column "foo" violates not-null constraint')
+    mapped = map_provisioning_write_error(exc, "fallback")
+    assert mapped.status_code == 400

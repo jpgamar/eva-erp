@@ -66,7 +66,30 @@ def map_provisioning_write_error(exc: Exception, default_message: str) -> HTTPEx
             detail="Unsupported billing cycle for provisioning.",
         )
 
-    return HTTPException(status_code=500, detail=default_message)
+    if "invalid input value for enum account_type" in original:
+        return HTTPException(
+            status_code=400,
+            detail="Unsupported account type for provisioning.",
+        )
+
+    if "violates foreign key constraint" in original:
+        return HTTPException(
+            status_code=400,
+            detail="Invalid related reference while provisioning account.",
+        )
+
+    if "null value in column" in original and "violates not-null constraint" in original:
+        return HTTPException(
+            status_code=400,
+            detail="Missing required account data for provisioning.",
+        )
+
+    condensed = " ".join(original.split())
+    if condensed:
+        detail = f"{default_message} (reason: {condensed[:220]})"
+    else:
+        detail = default_message
+    return HTTPException(status_code=500, detail=detail)
 
 
 async def ensure_owner_user_is_available(eva_db: AsyncSession, sb_user_id: str, owner_email: str) -> None:
