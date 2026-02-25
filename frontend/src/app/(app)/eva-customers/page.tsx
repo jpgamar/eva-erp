@@ -66,6 +66,23 @@ const INITIAL_DRAFT_FORM = {
   notes: "",
 };
 
+const getApiErrorMessage = (error: any, fallback: string): string => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    if (typeof first?.msg === "string" && first.msg.trim()) {
+      return first.msg;
+    }
+  }
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+};
+
 export default function EvaCustomersPage() {
   const [accounts, setAccounts] = useState<EvaAccount[]>([]);
   const [drafts, setDrafts] = useState<AccountDraft[]>([]);
@@ -90,6 +107,7 @@ export default function EvaCustomersPage() {
   // Action loading
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [creatingAccount, setCreatingAccount] = useState(false);
 
 
   const fetchData = async () => {
@@ -116,9 +134,14 @@ export default function EvaCustomersPage() {
   }, [search]);
 
   const handleCreateAccount = async () => {
+    if (creatingAccount) return;
+    setCreatingAccount(true);
     try {
       await evaPlatformApi.createAccount({
         ...accountForm,
+        name: accountForm.name.trim(),
+        owner_email: accountForm.owner_email.trim().toLowerCase(),
+        owner_name: accountForm.owner_name.trim(),
         facturapi_org_api_key: accountForm.facturapi_org_api_key || null,
       });
       toast.success("Account created successfully");
@@ -126,7 +149,9 @@ export default function EvaCustomersPage() {
       setAccountForm({ ...INITIAL_ACCOUNT_FORM });
       await fetchData();
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Failed to create account");
+      toast.error(getApiErrorMessage(e, "Failed to create account"));
+    } finally {
+      setCreatingAccount(false);
     }
   };
 
@@ -172,11 +197,17 @@ export default function EvaCustomersPage() {
     }
   };
 
-  const handleImpersonate = (account: EvaAccount) => {
-    const url = new URL("https://app.goeva.ai/auth/impersonate");
-    url.searchParams.set("account_id", account.id);
-    url.searchParams.set("account_name", account.name);
-    window.open(url.toString(), "_blank");
+  const handleImpersonate = async (account: EvaAccount) => {
+    try {
+      const result = await evaPlatformApi.impersonateAccount(account.id);
+      toast.success(`Impersonating ${result.account_name}`);
+      const win = window.open(result.magic_link_url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        window.location.href = result.magic_link_url;
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to impersonate account");
+    }
   };
 
   const openDetail = (account: EvaAccount) => {
@@ -752,8 +783,12 @@ export default function EvaCustomersPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" className="rounded-lg bg-accent hover:bg-accent/90 text-white">
-                Create Account
+              <Button
+                type="submit"
+                disabled={creatingAccount}
+                className="rounded-lg bg-accent hover:bg-accent/90 text-white disabled:opacity-70"
+              >
+                {creatingAccount ? "Creating..." : "Create Account"}
               </Button>
             </div>
           </form>

@@ -21,6 +21,29 @@ class SupabaseAdminError(Exception):
     pass
 
 
+def _is_duplicate_user_error(status_code: int, message: str, code: str = "") -> bool:
+    if status_code not in {400, 409, 422}:
+        return False
+
+    normalized_message = (message or "").strip().lower()
+    normalized_code = (code or "").strip().lower()
+
+    duplicate_codes = {"email_exists", "user_already_exists", "duplicate_email"}
+    if normalized_code in duplicate_codes:
+        return True
+
+    duplicate_markers = (
+        "already been registered",
+        "already registered",
+        "already exists",
+        "email exists",
+        "usuario ya esta registrado",
+        "usuario ya está registrado",
+        "ya se encuentra registrado",
+    )
+    return any(marker in normalized_message for marker in duplicate_markers)
+
+
 class SupabaseAdminClient:
     """Stateless Supabase Admin API client using httpx."""
 
@@ -71,8 +94,8 @@ class SupabaseAdminClient:
         body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
         msg = body.get("msg") or body.get("message") or body.get("error") or resp.text
 
-        # Handle duplicate user
-        if resp.status_code == 422 and "already been registered" in str(msg).lower():
+        error_code = body.get("code") if isinstance(body, dict) else ""
+        if _is_duplicate_user_error(resp.status_code, str(msg), str(error_code)):
             logger.info("User %s already exists in Supabase, looking up...", normalized_email)
             existing = await cls._lookup_user_by_email(normalized_email)
             if existing:
