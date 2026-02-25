@@ -1,4 +1,7 @@
+import asyncio
+
 import pytest
+import httpx
 
 from src.eva_platform.supabase_client import (
     SupabaseAdminClient,
@@ -64,3 +67,19 @@ def test_map_supabase_error_config_to_500():
     status, detail = map_supabase_error_to_http(SupabaseConfigError("misconfigured"))
     assert status == 500
     assert detail == "misconfigured"
+
+
+def test_request_with_retries_raises_upstream_unavailable_on_transport_failure():
+    class _AlwaysFailClient:
+        async def request(self, method: str, url: str, **kwargs):
+            req = httpx.Request(method, url)
+            raise httpx.ConnectError("connection failed", request=req)
+
+    with pytest.raises(SupabaseUpstreamUnavailableError):
+        asyncio.run(
+            SupabaseAdminClient._request_with_retries(
+                _AlwaysFailClient(),
+                "GET",
+                "https://example.com/auth/v1/admin/users",
+            )
+        )
