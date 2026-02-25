@@ -32,6 +32,11 @@ from src.eva_platform.schemas import (
     EvaPartnerUpdateRequest,
     EvaAccountResponse,
 )
+from src.eva_platform.provisioning_utils import (
+    ensure_owner_user_is_available,
+    map_provisioning_write_error,
+    normalize_plan_tier,
+)
 from src.eva_platform.supabase_client import (
     SupabaseAdminClient,
     SupabaseAdminError,
@@ -129,6 +134,7 @@ async def create_partner(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
+    await ensure_owner_user_is_available(eva_db, str(sb_user_id), normalized_owner_email)
     try:
         partner_user = EvaPartnerUser(
             id=uuid.uuid4(),
@@ -149,9 +155,9 @@ async def create_partner(
             normalized_owner_email,
             sb_user_id,
         )
-        raise HTTPException(
-            status_code=500,
-            detail="Partner provisioning failed after auth user creation. Please contact support.",
+        raise map_provisioning_write_error(
+            exc,
+            "Partner provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
     return EvaPartnerDetailResponse(
@@ -383,6 +389,7 @@ async def create_account_from_deal(
         raise HTTPException(status_code=400, detail="Deal already has a linked account")
 
     normalized_owner_email = data.owner_email.strip().lower()
+    normalized_plan_tier = normalize_plan_tier(data.plan_tier)
     password = data.temporary_password or secrets.token_urlsafe(16)
 
     # Create Supabase user
@@ -401,6 +408,7 @@ async def create_account_from_deal(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
+    await ensure_owner_user_is_available(eva_db, str(sb_user_id), normalized_owner_email)
 
     try:
         now = datetime.now(timezone.utc)
@@ -410,7 +418,7 @@ async def create_account_from_deal(
             owner_user_id=str(sb_user_id),
             account_type="COMMERCE",
             partner_id=deal.partner_id,
-            plan_tier=data.plan_tier.upper(),
+            plan_tier=normalized_plan_tier,
             timezone="America/Mexico_City",
             is_active=True,
             created_at=now,
@@ -442,9 +450,9 @@ async def create_account_from_deal(
             normalized_owner_email,
             sb_user_id,
         )
-        raise HTTPException(
-            status_code=500,
-            detail="Account provisioning failed after auth user creation. Please contact support.",
+        raise map_provisioning_write_error(
+            exc,
+            "Account provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
     return deal

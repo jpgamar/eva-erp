@@ -22,6 +22,12 @@ from src.eva_platform.schemas import (
     EvaAccountDetailResponse,
     EvaAccountResponse,
 )
+from src.eva_platform.provisioning_utils import (
+    ensure_owner_user_is_available,
+    map_provisioning_write_error,
+    normalize_billing_cycle,
+    normalize_plan_tier,
+)
 from src.eva_platform.supabase_client import (
     SupabaseAdminClient,
     SupabaseAdminError,
@@ -70,6 +76,8 @@ async def create_account(
     user: User = Depends(get_current_user),
 ):
     normalized_owner_email = data.owner_email.strip().lower()
+    normalized_plan_tier = normalize_plan_tier(data.plan_tier)
+    normalized_billing_interval = normalize_billing_cycle(data.billing_cycle)
     password = data.temporary_password or secrets.token_urlsafe(16)
 
     # Create Supabase user
@@ -88,6 +96,7 @@ async def create_account(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
+    await ensure_owner_user_is_available(eva_db, str(sb_user_id), normalized_owner_email)
 
     try:
         # Create account in Eva DB
@@ -98,8 +107,8 @@ async def create_account(
             owner_user_id=str(sb_user_id),
             account_type=data.account_type.upper(),
             partner_id=data.partner_id,
-            plan_tier=data.plan_tier.upper(),
-            billing_interval=data.billing_cycle.upper(),
+            plan_tier=normalized_plan_tier,
+            billing_interval=normalized_billing_interval,
             facturapi_org_api_key=data.facturapi_org_api_key,
             timezone="America/Mexico_City",
             is_active=True,
@@ -128,9 +137,9 @@ async def create_account(
             normalized_owner_email,
             sb_user_id,
         )
-        raise HTTPException(
-            status_code=500,
-            detail="Account provisioning failed after auth user creation. Please contact support.",
+        raise map_provisioning_write_error(
+            exc,
+            "Account provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
     return account
@@ -211,6 +220,8 @@ async def approve_draft(
         raise HTTPException(status_code=400, detail=f"Draft is already '{draft.status}'")
 
     normalized_owner_email = draft.owner_email.strip().lower()
+    normalized_plan_tier = normalize_plan_tier(draft.plan_tier)
+    normalized_billing_interval = normalize_billing_cycle(draft.billing_cycle)
     password = secrets.token_urlsafe(16)
 
     # 1. Create Supabase user
@@ -231,6 +242,7 @@ async def approve_draft(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
+    await ensure_owner_user_is_available(eva_db, str(sb_user_id), normalized_owner_email)
 
     try:
         # 2. Create Account + AccountUser in Eva DB
@@ -241,8 +253,8 @@ async def approve_draft(
             owner_user_id=str(sb_user_id),
             account_type=draft.account_type.upper(),
             partner_id=draft.partner_id,
-            plan_tier=draft.plan_tier.upper(),
-            billing_interval=draft.billing_cycle.upper(),
+            plan_tier=normalized_plan_tier,
+            billing_interval=normalized_billing_interval,
             facturapi_org_api_key=draft.facturapi_org_api_key,
             timezone="America/Mexico_City",
             is_active=True,
@@ -280,9 +292,9 @@ async def approve_draft(
             normalized_owner_email,
             sb_user_id,
         )
-        raise HTTPException(
-            status_code=500,
-            detail="Account provisioning failed after auth user creation. Please contact support.",
+        raise map_provisioning_write_error(
+            exc,
+            "Account provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
     return draft
