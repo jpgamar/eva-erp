@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { SatProductCombobox } from "@/components/sat-product-combobox";
 
 interface Factura {
   id: string;
@@ -509,9 +510,10 @@ export default function FacturasPage() {
                   <div key={idx} className="rounded-lg border border-border p-3 space-y-2">
                     <div className="grid grid-cols-5 gap-2">
                       <div>
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">SAT Key *</Label>
-                        <Input className="mt-1 rounded-lg text-sm" placeholder="43232408" value={li.product_key}
-                          onChange={(e) => updateLineItem(idx, "product_key", e.target.value)} required />
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Clave de Producto *</Label>
+                        <div className="mt-1">
+                          <SatProductCombobox value={li.product_key} onChange={(v) => updateLineItem(idx, "product_key", v)} />
+                        </div>
                       </div>
                       <div className="col-span-2">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Description *</Label>
