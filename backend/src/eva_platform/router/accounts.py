@@ -1,5 +1,6 @@
 """Eva Customers: real accounts (Eva DB) + draft accounts (ERP DB)."""
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -21,9 +22,14 @@ from src.eva_platform.schemas import (
     EvaAccountDetailResponse,
     EvaAccountResponse,
 )
-from src.eva_platform.supabase_client import SupabaseAdminClient, SupabaseAdminError
+from src.eva_platform.supabase_client import (
+    SupabaseAdminClient,
+    SupabaseAdminError,
+    map_supabase_error_to_http,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ── Real Accounts (Eva DB) ───────────────────────────────
@@ -63,12 +69,13 @@ async def create_account(
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
 ):
+    normalized_owner_email = data.owner_email.strip().lower()
     password = data.temporary_password or secrets.token_urlsafe(16)
 
     # Create Supabase user
     try:
         sb_user = await SupabaseAdminClient.admin_create_user(
-            email=data.owner_email,
+            email=normalized_owner_email,
             password=password,
             user_metadata={
                 "role": "account",
@@ -77,44 +84,54 @@ async def create_account(
             },
         )
     except SupabaseAdminError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    sb_user_id = sb_user.get("id") or sb_user.get("user", {}).get("id")
-    if not sb_user_id:
-        raise HTTPException(status_code=500, detail="Failed to get Supabase user ID")
+    sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
 
-    # Create account in Eva DB
-    now = datetime.now(timezone.utc)
-    account = EvaAccount(
-        id=uuid.uuid4(),
-        name=data.name,
-        owner_user_id=str(sb_user_id),
-        account_type=data.account_type.upper(),
-        partner_id=data.partner_id,
-        plan_tier=data.plan_tier.upper(),
-        billing_interval=data.billing_cycle.upper(),
-        facturapi_org_api_key=data.facturapi_org_api_key,
-        timezone="America/Mexico_City",
-        is_active=True,
-        created_at=now,
-        updated_at=now,
-    )
-    eva_db.add(account)
-    await eva_db.flush()
+    try:
+        # Create account in Eva DB
+        now = datetime.now(timezone.utc)
+        account = EvaAccount(
+            id=uuid.uuid4(),
+            name=data.name,
+            owner_user_id=str(sb_user_id),
+            account_type=data.account_type.upper(),
+            partner_id=data.partner_id,
+            plan_tier=data.plan_tier.upper(),
+            billing_interval=data.billing_cycle.upper(),
+            facturapi_org_api_key=data.facturapi_org_api_key,
+            timezone="America/Mexico_City",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        eva_db.add(account)
+        await eva_db.flush()
 
-    # Create account user (owner)
-    account_user = EvaAccountUser(
-        id=uuid.uuid4(),
-        account_id=account.id,
-        user_id=str(sb_user_id),
-        email=data.owner_email.strip(),
-        display_name=data.owner_name,
-        role="OWNER",
-        status="ACTIVE",
-        created_at=now,
-        updated_at=now,
-    )
-    eva_db.add(account_user)
+        # Create account user (owner)
+        account_user = EvaAccountUser(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            user_id=str(sb_user_id),
+            email=normalized_owner_email,
+            display_name=data.owner_name,
+            role="OWNER",
+            status="ACTIVE",
+            created_at=now,
+            updated_at=now,
+        )
+        eva_db.add(account_user)
+    except Exception as exc:
+        logger.exception(
+            "Provisioning failed after Supabase auth user creation for email=%s sb_user_id=%s",
+            normalized_owner_email,
+            sb_user_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Account provisioning failed after auth user creation. Please contact support.",
+        ) from exc
 
     return account
 
@@ -193,12 +210,13 @@ async def approve_draft(
     if draft.status != "draft":
         raise HTTPException(status_code=400, detail=f"Draft is already '{draft.status}'")
 
+    normalized_owner_email = draft.owner_email.strip().lower()
     password = secrets.token_urlsafe(16)
 
     # 1. Create Supabase user
     try:
         sb_user = await SupabaseAdminClient.admin_create_user(
-            email=draft.owner_email,
+            email=normalized_owner_email,
             password=password,
             user_metadata={
                 "role": "account",
@@ -209,52 +227,63 @@ async def approve_draft(
     except SupabaseAdminError as exc:
         draft.status = "failed"
         db.add(draft)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    sb_user_id = sb_user.get("id") or sb_user.get("user", {}).get("id")
-    if not sb_user_id:
+    sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
+
+    try:
+        # 2. Create Account + AccountUser in Eva DB
+        now = datetime.now(timezone.utc)
+        account = EvaAccount(
+            id=uuid.uuid4(),
+            name=draft.name,
+            owner_user_id=str(sb_user_id),
+            account_type=draft.account_type.upper(),
+            partner_id=draft.partner_id,
+            plan_tier=draft.plan_tier.upper(),
+            billing_interval=draft.billing_cycle.upper(),
+            facturapi_org_api_key=draft.facturapi_org_api_key,
+            timezone="America/Mexico_City",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        eva_db.add(account)
+        await eva_db.flush()
+
+        account_user = EvaAccountUser(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            user_id=str(sb_user_id),
+            email=normalized_owner_email,
+            display_name=draft.owner_name,
+            role="OWNER",
+            status="ACTIVE",
+            created_at=now,
+            updated_at=now,
+        )
+        eva_db.add(account_user)
+
+        # 3. Update draft in ERP DB
+        draft.status = "approved"
+        draft.provisioned_account_id = account.id
+        draft.approved_by = user.id
+        draft.approved_at = now
+        db.add(draft)
+    except Exception as exc:
         draft.status = "failed"
         db.add(draft)
-        raise HTTPException(status_code=500, detail="Failed to get Supabase user ID")
-
-    # 2. Create Account + AccountUser in Eva DB
-    now = datetime.now(timezone.utc)
-    account = EvaAccount(
-        id=uuid.uuid4(),
-        name=draft.name,
-        owner_user_id=str(sb_user_id),
-        account_type=draft.account_type.upper(),
-        partner_id=draft.partner_id,
-        plan_tier=draft.plan_tier.upper(),
-        billing_interval=draft.billing_cycle.upper(),
-        facturapi_org_api_key=draft.facturapi_org_api_key,
-        timezone="America/Mexico_City",
-        is_active=True,
-        created_at=now,
-        updated_at=now,
-    )
-    eva_db.add(account)
-    await eva_db.flush()
-
-    account_user = EvaAccountUser(
-        id=uuid.uuid4(),
-        account_id=account.id,
-        user_id=str(sb_user_id),
-        email=draft.owner_email.strip(),
-        display_name=draft.owner_name,
-        role="OWNER",
-        status="ACTIVE",
-        created_at=now,
-        updated_at=now,
-    )
-    eva_db.add(account_user)
-
-    # 3. Update draft in ERP DB
-    draft.status = "approved"
-    draft.provisioned_account_id = account.id
-    draft.approved_by = user.id
-    draft.approved_at = now
-    db.add(draft)
+        logger.exception(
+            "Draft approval provisioning failed after Supabase auth user creation for draft_id=%s email=%s sb_user_id=%s",
+            draft_id,
+            normalized_owner_email,
+            sb_user_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Account provisioning failed after auth user creation. Please contact support.",
+        ) from exc
 
     return draft
 

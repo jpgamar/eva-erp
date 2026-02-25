@@ -1,5 +1,6 @@
 """Partners + Deals: CRUD against Eva production DB."""
 
+import logging
 import re
 import secrets
 import uuid
@@ -31,9 +32,14 @@ from src.eva_platform.schemas import (
     EvaPartnerUpdateRequest,
     EvaAccountResponse,
 )
-from src.eva_platform.supabase_client import SupabaseAdminClient, SupabaseAdminError
+from src.eva_platform.supabase_client import (
+    SupabaseAdminClient,
+    SupabaseAdminError,
+    map_supabase_error_to_http,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _slugify(value: str) -> str:
@@ -82,6 +88,7 @@ async def create_partner(
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
 ):
+    normalized_owner_email = data.owner_email.strip().lower()
     slug = _slugify(data.name)
 
     # Ensure unique slug
@@ -108,7 +115,7 @@ async def create_partner(
     password = secrets.token_urlsafe(16)
     try:
         sb_user = await SupabaseAdminClient.admin_create_user(
-            email=data.owner_email,
+            email=normalized_owner_email,
             password=password,
             user_metadata={
                 "partner_id": str(partner.id),
@@ -118,15 +125,16 @@ async def create_partner(
             },
         )
     except SupabaseAdminError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    sb_user_id = sb_user.get("id") or sb_user.get("user", {}).get("id")
-    if sb_user_id:
+    sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
+    try:
         partner_user = EvaPartnerUser(
             id=uuid.uuid4(),
             partner_id=partner.id,
             user_id=str(sb_user_id),
-            email=data.owner_email.strip(),
+            email=normalized_owner_email,
             display_name=data.owner_name,
             role="OWNER",
             is_active=True,
@@ -134,6 +142,17 @@ async def create_partner(
             updated_at=now,
         )
         eva_db.add(partner_user)
+    except Exception as exc:
+        logger.exception(
+            "Partner provisioning failed after Supabase auth user creation for partner_id=%s email=%s sb_user_id=%s",
+            partner.id,
+            normalized_owner_email,
+            sb_user_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Partner provisioning failed after auth user creation. Please contact support.",
+        ) from exc
 
     return EvaPartnerDetailResponse(
         id=partner.id,
@@ -363,12 +382,13 @@ async def create_account_from_deal(
     if deal.linked_account_id:
         raise HTTPException(status_code=400, detail="Deal already has a linked account")
 
+    normalized_owner_email = data.owner_email.strip().lower()
     password = data.temporary_password or secrets.token_urlsafe(16)
 
     # Create Supabase user
     try:
         sb_user = await SupabaseAdminClient.admin_create_user(
-            email=data.owner_email,
+            email=normalized_owner_email,
             password=password,
             user_metadata={
                 "role": "account",
@@ -377,43 +397,54 @@ async def create_account_from_deal(
             },
         )
     except SupabaseAdminError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    sb_user_id = sb_user.get("id") or sb_user.get("user", {}).get("id")
-    if not sb_user_id:
-        raise HTTPException(status_code=500, detail="Failed to get Supabase user ID")
+    sb_user_id = SupabaseAdminClient.extract_user_id(sb_user)
 
-    now = datetime.now(timezone.utc)
-    account = EvaAccount(
-        id=uuid.uuid4(),
-        name=data.name,
-        owner_user_id=str(sb_user_id),
-        account_type="COMMERCE",
-        partner_id=deal.partner_id,
-        plan_tier=data.plan_tier.upper(),
-        timezone="America/Mexico_City",
-        is_active=True,
-        created_at=now,
-        updated_at=now,
-    )
-    eva_db.add(account)
-    await eva_db.flush()
+    try:
+        now = datetime.now(timezone.utc)
+        account = EvaAccount(
+            id=uuid.uuid4(),
+            name=data.name,
+            owner_user_id=str(sb_user_id),
+            account_type="COMMERCE",
+            partner_id=deal.partner_id,
+            plan_tier=data.plan_tier.upper(),
+            timezone="America/Mexico_City",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        eva_db.add(account)
+        await eva_db.flush()
 
-    account_user = EvaAccountUser(
-        id=uuid.uuid4(),
-        account_id=account.id,
-        user_id=str(sb_user_id),
-        email=data.owner_email.strip(),
-        display_name=data.name,
-        role="OWNER",
-        status="ACTIVE",
-        created_at=now,
-        updated_at=now,
-    )
-    eva_db.add(account_user)
+        account_user = EvaAccountUser(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            user_id=str(sb_user_id),
+            email=normalized_owner_email,
+            display_name=data.name,
+            role="OWNER",
+            status="ACTIVE",
+            created_at=now,
+            updated_at=now,
+        )
+        eva_db.add(account_user)
 
-    deal.linked_account_id = account.id
-    deal.updated_at = now
-    eva_db.add(deal)
+        deal.linked_account_id = account.id
+        deal.updated_at = now
+        eva_db.add(deal)
+    except Exception as exc:
+        logger.exception(
+            "Deal account provisioning failed after Supabase auth user creation for deal_id=%s email=%s sb_user_id=%s",
+            deal_id,
+            normalized_owner_email,
+            sb_user_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Account provisioning failed after auth user creation. Please contact support.",
+        ) from exc
 
     return deal

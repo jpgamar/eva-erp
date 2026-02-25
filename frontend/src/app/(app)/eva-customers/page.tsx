@@ -68,7 +68,28 @@ const INITIAL_DRAFT_FORM = {
 
 const getApiErrorMessage = (error: any, fallback: string): string => {
   const detail = error?.response?.data?.detail;
+  const errorCode = error?.response?.data?.error_code || detail?.code;
+  if (typeof errorCode === "string") {
+    if (errorCode === "owner_duplicate_unresolved") {
+      return "Owner email exists but could not be linked. Please retry in a few seconds.";
+    }
+    if (errorCode === "supabase_upstream_unavailable") {
+      return "Provisioning service is temporarily unavailable. Please try again.";
+    }
+  }
+  if (detail && typeof detail === "object") {
+    const detailMessage = detail.message || detail.msg;
+    if (typeof detailMessage === "string" && detailMessage.trim()) {
+      return detailMessage;
+    }
+  }
   if (typeof detail === "string" && detail.trim()) {
+    if (detail.includes("already registered but could not be linked")) {
+      return "Owner email exists but could not be linked. Please retry in a few seconds.";
+    }
+    if (detail.includes("temporarily unavailable")) {
+      return "Provisioning service is temporarily unavailable. Please try again.";
+    }
     return detail;
   }
   if (Array.isArray(detail) && detail.length > 0) {
