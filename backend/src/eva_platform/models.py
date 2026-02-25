@@ -30,7 +30,21 @@ class EvaAccount(EvaBase):
     # Billing
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_subscription_id = Column(String(255), nullable=True)
-    subscription_status = Column(String(50), nullable=True)
+    subscription_status = Column(
+        SQLEnum(
+            "ACTIVE",
+            "PAST_DUE",
+            "CANCELED",
+            "INCOMPLETE",
+            "INCOMPLETE_EXPIRED",
+            "TRIALING",
+            "PAUSED",
+            "UNPAID",
+            name="subscription_status",
+            create_type=False,
+        ),
+        nullable=True,
+    )
     plan_tier = Column(
         SQLEnum("STARTER", "STANDARD", "PRO", name="plan_tier", create_type=False),
         nullable=True,
@@ -48,6 +62,15 @@ class EvaAccount(EvaBase):
     billing_tax_id = Column(String(20), nullable=True)
     billing_tax_regime = Column(String(10), nullable=True)
     billing_postal_code = Column(String(10), nullable=True)
+    billing_person_type = Column(
+        SQLEnum(
+            "PERSONA_FISICA",
+            "PERSONA_MORAL",
+            name="billing_person_type",
+            create_type=False,
+        ),
+        nullable=True,
+    )
 
     # Facturapi
     facturapi_org_api_key = Column(String(255), nullable=True)
@@ -133,7 +156,17 @@ class EvaPartnerDomain(EvaBase):
     partner_id = Column(UUID(as_uuid=True), nullable=False)
     host = Column(String(255), nullable=False, unique=True)
     normalized_host = Column(String(255), nullable=False, unique=True)
-    status = Column(String(20), nullable=False, default="PENDING")
+    status = Column(
+        SQLEnum(
+            "PENDING",
+            "ACTIVE",
+            "INACTIVE",
+            name="partner_domain_status",
+            create_type=False,
+        ),
+        nullable=False,
+        default="PENDING",
+    )
     is_primary = Column(Boolean, nullable=False, default=False)
     is_verified = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
@@ -149,7 +182,19 @@ class EvaPartnerDeal(EvaBase):
     contact_name = Column(String(255), nullable=True)
     contact_email = Column(String(255), nullable=True)
     contact_phone = Column(String(50), nullable=True)
-    stage = Column(String(30), nullable=False, default="TO_CONTACT")
+    stage = Column(
+        SQLEnum(
+            "to_contact",
+            "contacted",
+            "implementation",
+            "won",
+            "lost",
+            name="partner_deal_stage",
+            create_type=False,
+        ),
+        nullable=False,
+        default="to_contact",
+    )
     plan_tier = Column(String(50), nullable=False, default="Standard")
     billing_cycle = Column(String(20), nullable=False, default="monthly")
     won_at = Column(DateTime(timezone=True), nullable=True)

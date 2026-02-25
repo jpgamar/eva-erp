@@ -35,6 +35,7 @@ from src.eva_platform.schemas import (
 from src.eva_platform.provisioning_utils import (
     ensure_owner_user_is_available,
     map_provisioning_write_error,
+    normalize_deal_stage,
     normalize_plan_tier,
 )
 from src.eva_platform.supabase_client import (
@@ -269,7 +270,7 @@ async def list_deals(
     if partner_id:
         q = q.where(EvaPartnerDeal.partner_id == partner_id)
     if stage:
-        q = q.where(EvaPartnerDeal.stage == stage.upper())
+        q = q.where(EvaPartnerDeal.stage == normalize_deal_stage(stage))
     result = await eva_db.execute(q)
     return result.scalars().all()
 
@@ -288,7 +289,7 @@ async def create_deal(
         contact_name=data.contact_name,
         contact_email=data.contact_email,
         contact_phone=data.contact_phone,
-        stage="TO_CONTACT",
+        stage=normalize_deal_stage("to_contact"),
         plan_tier=data.plan_tier,
         billing_cycle=data.billing_cycle,
         notes=data.notes,
@@ -314,7 +315,7 @@ async def update_deal(
         raise HTTPException(status_code=404, detail="Deal not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         if field == "stage" and value:
-            value = value.upper()
+            value = normalize_deal_stage(value)
         setattr(deal, field, value)
     deal.updated_at = datetime.now(timezone.utc)
     eva_db.add(deal)
@@ -345,7 +346,7 @@ async def mark_deal_won(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
-    deal.stage = "WON"
+    deal.stage = normalize_deal_stage("won")
     deal.won_at = datetime.now(timezone.utc)
     deal.updated_at = datetime.now(timezone.utc)
     eva_db.add(deal)
@@ -363,7 +364,7 @@ async def mark_deal_lost(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
-    deal.stage = "LOST"
+    deal.stage = normalize_deal_stage("lost")
     deal.lost_at = datetime.now(timezone.utc)
     deal.lost_reason = data.reason
     deal.updated_at = datetime.now(timezone.utc)
@@ -383,7 +384,7 @@ async def create_account_from_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
-    if deal.stage != "WON":
+    if normalize_deal_stage(str(deal.stage)) != "won":
         raise HTTPException(status_code=400, detail="Deal must be WON to create account")
     if deal.linked_account_id:
         raise HTTPException(status_code=400, detail="Deal already has a linked account")

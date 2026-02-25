@@ -49,6 +49,26 @@ def normalize_account_type(raw_value: str) -> str:
     return normalized
 
 
+def normalize_deal_stage(raw_value: str) -> str:
+    normalized = (raw_value or "").strip().lower()
+    aliases = {
+        "to_contact": "to_contact",
+        "to-contact": "to_contact",
+        "tocontact": "to_contact",
+        "contacted": "contacted",
+        "implementation": "implementation",
+        "won": "won",
+        "lost": "lost",
+    }
+    mapped = aliases.get(normalized, normalized)
+    if mapped not in {"to_contact", "contacted", "implementation", "won", "lost"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported deal stage. Allowed values: to_contact, contacted, implementation, won, lost.",
+        )
+    return mapped
+
+
 def map_provisioning_write_error(exc: Exception, default_message: str) -> HTTPException:
     original = str(getattr(exc, "orig", exc) or exc).lower()
 
@@ -81,6 +101,24 @@ def map_provisioning_write_error(exc: Exception, default_message: str) -> HTTPEx
             status_code=400,
             detail="Unsupported account type for provisioning.",
         )
+
+    enum_type_mismatch_messages = {
+        "account_type": "Unsupported account type for provisioning.",
+        "subscription_status": "Unsupported subscription status for provisioning.",
+        "plan_tier": "Unsupported plan tier for provisioning.",
+        "billing_interval": "Unsupported billing cycle for provisioning.",
+        "billing_person_type": "Unsupported billing person type for provisioning.",
+        "account_role": "Unsupported account role for provisioning.",
+        "account_user_status": "Unsupported account user status for provisioning.",
+        "partner_type": "Unsupported partner type for provisioning.",
+        "partner_role": "Unsupported partner user role for provisioning.",
+        "partner_domain_status": "Unsupported partner domain status for provisioning.",
+        "partner_deal_stage": "Unsupported partner deal stage for provisioning.",
+    }
+    if "expression is of type character varying" in original:
+        for enum_name, detail in enum_type_mismatch_messages.items():
+            if f"is of type {enum_name}" in original:
+                return HTTPException(status_code=400, detail=detail)
 
     if "violates foreign key constraint" in original:
         return HTTPException(
