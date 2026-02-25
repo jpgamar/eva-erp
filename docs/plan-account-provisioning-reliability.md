@@ -1,6 +1,6 @@
 # ERP Account Provisioning Reliability Plan
 
-**Overall Progress:** `72%`
+**Overall Progress:** `84%`
 
 > **Implementation:** Use this plan to execute a focused reliability fix for account creation/provisioning in ERP.
 
@@ -155,11 +155,11 @@ Creating accounts from ERP should be deterministic and resilient:
 - [ ] 🟨 **Step 7: Local verification**
   - [x] 🟩 Run backend test suite
   - [x] 🟩 Run targeted frontend lint/typecheck
-  - [ ] 🟥 Manual API probe for representative error branches
+  - [x] 🟩 Manual API probe for representative error branches
 
 - [ ] 🟨 **Step 8: Production rollout**
-  - [ ] 🟥 Deploy frontend + backend through existing pipelines
-  - [ ] 🟥 Verify GitHub `Production Post-Deployment` success
+  - [x] 🟩 Deploy frontend + backend through existing pipelines
+  - [x] 🟩 Verify GitHub `Production Post-Deployment` success
   - [ ] 🟥 Smoke test `Eva Customers -> Create Account`
 
 ### Phase 5: Post-Deploy Observability
