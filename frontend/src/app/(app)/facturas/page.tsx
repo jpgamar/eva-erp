@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, FileDown, XCircle, FileText, AlertTriangle } from "lucide-react";
+import { Plus, FileDown, XCircle, FileText, AlertTriangle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { facturasApi } from "@/lib/api/facturas";
 import { customersApi } from "@/lib/api/customers";
@@ -19,7 +19,7 @@ import { SatProductCombobox } from "@/components/sat-product-combobox";
 
 interface Factura {
   id: string;
-  facturapi_id: string;
+  facturapi_id: string | null;
   cfdi_uuid: string | null;
   customer_name: string;
   customer_rfc: string;
@@ -30,6 +30,8 @@ interface Factura {
   line_items_json: any[] | null;
   subtotal: number;
   tax: number;
+  isr_retention: number;
+  iva_retention: number;
   total: number;
   currency: string;
   status: string;
@@ -52,7 +54,20 @@ function fmt(amount: number | null | undefined, currency = "MXN") {
   return `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
-const emptyLineItem = { product_key: "", description: "", quantity: "1", unit_price: "", tax_rate: "0.16" };
+const emptyLineItem = { product_key: "", description: "", quantity: "1", unit_price: "", tax_rate: "0.16", isr_retention: "", iva_retention: "" };
+
+const NO_RETENTION = "__none__";
+
+const ISR_PRESETS = [
+  { value: NO_RETENTION, label: "Sin retencion" },
+  { value: "0.0125", label: "1.25% RESICO" },
+  { value: "0.10", label: "10% Servicios PF" },
+];
+
+const IVA_RET_PRESETS = [
+  { value: NO_RETENTION, label: "Sin retencion" },
+  { value: "0.106667", label: "10.6667% (2/3 IVA)" },
+];
 
 const MANUAL_ENTRY = "__manual__";
 
@@ -89,6 +104,9 @@ export default function FacturasPage() {
 
   // Cancel dialog
   const [cancelTarget, setCancelTarget] = useState<Factura | null>(null);
+
+  // Stamp confirmation dialog
+  const [stampTarget, setStampTarget] = useState<Factura | null>(null);
 
   const fetchFacturas = async () => {
     try {
@@ -185,6 +203,8 @@ export default function FacturasPage() {
         quantity: parseInt(li.quantity) || 1,
         unit_price: parseFloat(li.unit_price) || 0,
         tax_rate: parseFloat(li.tax_rate) || 0.16,
+        isr_retention: li.isr_retention ? parseFloat(li.isr_retention) : null,
+        iva_retention: li.iva_retention ? parseFloat(li.iva_retention) : null,
       }));
 
       const payload: any = { ...form, line_items: items };
@@ -193,7 +213,7 @@ export default function FacturasPage() {
       }
 
       await facturasApi.create(payload);
-      toast.success("Factura created and stamped");
+      toast.success("Draft created");
       setCreateOpen(false);
       resetForm();
       await fetchFacturas();
@@ -218,6 +238,33 @@ export default function FacturasPage() {
       await fetchFacturas();
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed to cancel");
+    }
+  };
+
+  const handleStamp = async () => {
+    if (!stampTarget) return;
+    try {
+      await facturasApi.stamp(stampTarget.id);
+      toast.success("Factura stamped successfully");
+      setStampTarget(null);
+      await fetchFacturas();
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      if (typeof detail === "object" && detail?.facturapi_error) {
+        toast.error(`Facturapi error: ${JSON.stringify(detail.facturapi_error.message || detail.facturapi_error)}`);
+      } else {
+        toast.error(typeof detail === "string" ? detail : "Failed to stamp factura");
+      }
+    }
+  };
+
+  const handleDeleteDraft = async (f: Factura) => {
+    try {
+      await facturasApi.delete(f.id);
+      toast.success("Draft deleted");
+      await fetchFacturas();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to delete draft");
     }
   };
 
@@ -295,6 +342,7 @@ export default function FacturasPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
               <SelectItem value="valid">Valid</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
@@ -347,7 +395,9 @@ export default function FacturasPage() {
             ) : facturas.map((f) => (
               <TableRow key={f.id} className="hover:bg-gray-50/80">
                 <TableCell className="font-mono text-sm font-medium">
-                  {f.series ? `${f.series}-` : ""}{f.folio_number ?? "\u2014"}
+                  {f.status === "draft"
+                    ? <span className="text-gray-400">DRAFT</span>
+                    : <>{f.series ? `${f.series}-` : ""}{f.folio_number ?? "\u2014"}</>}
                 </TableCell>
                 <TableCell className="font-medium">{f.customer_name}</TableCell>
                 <TableCell className="font-mono text-sm text-muted">{f.customer_rfc}</TableCell>
@@ -362,28 +412,48 @@ export default function FacturasPage() {
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost" size="icon" className="h-8 w-8"
-                      title="Download PDF"
-                      onClick={() => handleDownloadPdf(f)}
-                    >
-                      <FileDown className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost" size="icon" className="h-8 w-8"
-                      title="Download XML"
-                      onClick={() => handleDownloadXml(f)}
-                    >
-                      <FileText className="h-4 w-4" />
-                    </Button>
+                    {f.status === "draft" && (
+                      <>
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-800"
+                          title="Stamp with SAT"
+                          onClick={() => setStampTarget(f)}
+                        >
+                          <Send className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700"
+                          title="Delete draft"
+                          onClick={() => handleDeleteDraft(f)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
                     {f.status === "valid" && (
-                      <Button
-                        variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700"
-                        title="Cancel"
-                        onClick={() => setCancelTarget(f)}
-                      >
-                        <XCircle className="h-4 w-4" />
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8"
+                          title="Download PDF"
+                          onClick={() => handleDownloadPdf(f)}
+                        >
+                          <FileDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8"
+                          title="Download XML"
+                          onClick={() => handleDownloadXml(f)}
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700"
+                          title="Cancel"
+                          onClick={() => setCancelTarget(f)}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </TableCell>
@@ -531,14 +601,33 @@ export default function FacturasPage() {
                           onChange={(e) => updateLineItem(idx, "unit_price", e.target.value)} required />
                       </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="w-32">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="w-28">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Tax Rate</Label>
                         <Input className="mt-1 rounded-lg text-sm" type="number" step="0.01" value={li.tax_rate}
                           onChange={(e) => updateLineItem(idx, "tax_rate", e.target.value)} />
                       </div>
+                      <div className="w-40">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Ret. ISR</Label>
+                        <Select value={li.isr_retention || NO_RETENTION} onValueChange={(v) => updateLineItem(idx, "isr_retention", v === NO_RETENTION ? "" : v)}>
+                          <SelectTrigger className="mt-1 rounded-lg text-sm h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {ISR_PRESETS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-44">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Ret. IVA</Label>
+                        <Select value={li.iva_retention || NO_RETENTION} onValueChange={(v) => updateLineItem(idx, "iva_retention", v === NO_RETENTION ? "" : v)}>
+                          <SelectTrigger className="mt-1 rounded-lg text-sm h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {IVA_RET_PRESETS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex-1" />
                       {lineItems.length > 1 && (
-                        <Button type="button" variant="ghost" size="sm" className="text-red-500 hover:text-red-700 h-7 text-xs"
+                        <Button type="button" variant="ghost" size="sm" className="text-red-500 hover:text-red-700 h-7 text-xs mt-4"
                           onClick={() => removeLineItem(idx)}>Remove</Button>
                       )}
                     </div>
@@ -546,6 +635,29 @@ export default function FacturasPage() {
                 ))}
               </div>
             </div>
+
+            {/* Totals preview */}
+            {(() => {
+              let sub = 0, iva = 0, isrRet = 0, ivaRet = 0;
+              for (const li of lineItems) {
+                const lineSub = (parseFloat(li.unit_price) || 0) * (parseInt(li.quantity) || 1);
+                sub += lineSub;
+                iva += lineSub * (parseFloat(li.tax_rate) || 0);
+                if (li.isr_retention) isrRet += lineSub * parseFloat(li.isr_retention);
+                if (li.iva_retention) ivaRet += lineSub * parseFloat(li.iva_retention);
+              }
+              const total = sub + iva - isrRet - ivaRet;
+              return (
+                <div className="rounded-lg border border-border bg-gray-50/50 p-3 space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Totals Preview</p>
+                  <div className="flex justify-between text-sm"><span className="text-muted">Subtotal</span><span className="font-mono">{fmt(sub, form.currency)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted">IVA</span><span className="font-mono">+{fmt(iva, form.currency)}</span></div>
+                  {isrRet > 0 && <div className="flex justify-between text-sm text-red-600"><span>Ret. ISR</span><span className="font-mono">-{fmt(isrRet, form.currency)}</span></div>}
+                  {ivaRet > 0 && <div className="flex justify-between text-sm text-red-600"><span>Ret. IVA</span><span className="font-mono">-{fmt(ivaRet, form.currency)}</span></div>}
+                  <div className="border-t border-border pt-1 flex justify-between text-sm font-semibold"><span>Total</span><span className="font-mono">{fmt(total, form.currency)}</span></div>
+                </div>
+              );
+            })()}
 
             {/* Notes */}
             <div>
@@ -557,10 +669,29 @@ export default function FacturasPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" className="rounded-lg" onClick={() => { resetForm(); setCreateOpen(false); }}>Cancel</Button>
               <Button type="submit" className="rounded-lg" disabled={submitting}>
-                {submitting ? "Stamping..." : "Create & Stamp"}
+                {submitting ? "Creating..." : "Create Draft"}
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stamp confirmation dialog */}
+      <Dialog open={!!stampTarget} onOpenChange={(v) => !v && setStampTarget(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Stamp Factura</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted">
+            Stamp this invoice for <strong>{stampTarget?.customer_name}</strong> ({fmt(stampTarget?.total, stampTarget?.currency)})?
+          </p>
+          <p className="text-sm text-amber-600 bg-amber-50 rounded-lg p-2">
+            This is irreversible — the CFDI will be submitted to the SAT.
+          </p>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" className="rounded-lg" onClick={() => setStampTarget(null)}>Cancel</Button>
+            <Button className="rounded-lg" onClick={handleStamp}>
+              <Send className="h-4 w-4 mr-2" /> Stamp &amp; Send to SAT
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

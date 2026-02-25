@@ -13,13 +13,15 @@ class Factura(Base):
     __tablename__ = "facturas"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    facturapi_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    facturapi_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     cfdi_uuid: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Customer info (denormalized from Facturapi response)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_rfc: Mapped[str] = mapped_column(String(13), nullable=False)
     customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
+    customer_tax_system: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    customer_zip: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
     # CFDI metadata
     use: Mapped[str] = mapped_column(String(10), nullable=False)  # Uso de CFDI e.g. G03
@@ -32,16 +34,19 @@ class Factura(Base):
     # Amounts
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    isr_retention: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    iva_retention: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MXN")
 
     # Status
-    status: Mapped[str] = mapped_column(String(20), default="valid")  # valid / cancelled
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft / valid / cancelled
     cancellation_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # File URLs (from Facturapi)
     pdf_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     xml_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Dates
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

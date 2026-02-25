@@ -1,11 +1,10 @@
 "use client";
 
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 
 function SSOHandler() {
   const params = useSearchParams();
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -14,21 +13,8 @@ function SSOHandler() {
       setError("No SSO token provided");
       return;
     }
-
-    fetch(`/api/v1/auth/sso?token=${encodeURIComponent(token)}`, {
-      credentials: "include",
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("SSO failed");
-        return res.json();
-      })
-      .then(() => {
-        router.push("/dashboard?welcome=1");
-      })
-      .catch(() => {
-        setError("SSO authentication failed");
-      });
-  }, [params, router]);
+    window.location.replace(`/api/v1/auth/sso?token=${encodeURIComponent(token)}`);
+  }, [params]);
 
   if (error) {
     return (

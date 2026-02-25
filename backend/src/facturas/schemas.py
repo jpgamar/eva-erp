@@ -12,6 +12,8 @@ class FacturaLineItem(BaseModel):
     quantity: int = 1
     unit_price: Decimal
     tax_rate: Decimal = Decimal("0.16")
+    isr_retention: Decimal | None = None   # e.g. 0.0125 for RESICO
+    iva_retention: Decimal | None = None   # e.g. 0.106667 for 2/3 IVA
 
 
 class FacturaCreate(BaseModel):
@@ -30,23 +32,28 @@ class FacturaCreate(BaseModel):
 
 class FacturaResponse(BaseModel):
     id: uuid.UUID
-    facturapi_id: str
+    facturapi_id: str | None
     cfdi_uuid: str | None
     customer_name: str
     customer_rfc: str
     customer_id: uuid.UUID | None
+    customer_tax_system: str | None
+    customer_zip: str | None
     use: str
     payment_form: str
     payment_method: str
     line_items_json: list | None
     subtotal: Decimal
     tax: Decimal
+    isr_retention: Decimal
+    iva_retention: Decimal
     total: Decimal
     currency: str
     status: str
     cancellation_status: str | None
     pdf_url: str | None
     xml_url: str | None
+    notes: str | None
     series: str | None
     folio_number: int | None
     issued_at: _dt.datetime | None
