@@ -303,6 +303,25 @@ async def approve_draft(
     return draft
 
 
+@router.delete("/accounts/{account_id}")
+async def deactivate_account(
+    account_id: uuid.UUID,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+):
+    """Soft-delete: set is_active = False."""
+    result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if not account.is_active:
+        raise HTTPException(status_code=400, detail="Account is already inactive")
+    account.is_active = False
+    account.updated_at = datetime.now(timezone.utc)
+    eva_db.add(account)
+    return {"message": f"Account '{account.name}' deactivated"}
+
+
 @router.delete("/drafts/{draft_id}")
 async def delete_draft(
     draft_id: uuid.UUID,

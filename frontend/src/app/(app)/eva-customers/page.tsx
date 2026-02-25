@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Plus, Search, Building2, FileText, Trash2, Check,
   ExternalLink, CheckCircle2, Handshake, DollarSign, TrendingDown,
+  CalendarDays, CreditCard, Hash, User2, ShieldAlert, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
@@ -129,6 +130,7 @@ export default function EvaCustomersPage() {
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [creatingAccount, setCreatingAccount] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
 
   const fetchData = async () => {
@@ -228,6 +230,25 @@ export default function EvaCustomersPage() {
       }
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed to impersonate account");
+    }
+  };
+
+  const handleDeleteAccount = async (account: EvaAccount) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to deactivate "${account.name}"? This will set the account to inactive.`
+    );
+    if (!confirmed) return;
+    setDeletingAccount(true);
+    try {
+      await evaPlatformApi.deleteAccount(account.id);
+      toast.success(`Account "${account.name}" deactivated`);
+      setSheetOpen(false);
+      setSelectedAccount(null);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to deactivate account"));
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -602,88 +623,145 @@ export default function EvaCustomersPage() {
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="w-[480px] sm:w-[560px] overflow-y-auto">
           {selectedAccount && (
-            <div className="space-y-5 pt-4">
-              {/* Sheet Header */}
-              <div className="flex items-start justify-between">
-                <div className="space-y-1.5">
-                  <SheetTitle className="text-left text-lg font-semibold">
-                    {selectedAccount.name}
-                  </SheetTitle>
-                  <div className="flex items-center gap-2">
-                    {selectedAccount.plan_tier && (
-                      <Badge className={`rounded-full text-xs ${PLAN_COLORS[selectedAccount.plan_tier] || ""}`}>
-                        {selectedAccount.plan_tier}
-                      </Badge>
-                    )}
-                    {selectedAccount.is_active ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-green-600">
-                        <span className="h-2 w-2 rounded-full bg-green-500" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className="h-2 w-2 rounded-full bg-red-500" />
-                        Inactive
-                      </span>
-                    )}
+            <div className="space-y-6 pt-4">
+              {/* Header */}
+              <div>
+                <SheetTitle className="text-left text-lg font-semibold">
+                  {selectedAccount.name}
+                </SheetTitle>
+                <div className="mt-2 flex items-center gap-2">
+                  {selectedAccount.is_active ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                      Inactive
+                    </span>
+                  )}
+                  {selectedAccount.plan_tier && (
+                    <Badge className={`rounded-full text-xs ${PLAN_COLORS[selectedAccount.plan_tier] || ""}`}>
+                      {selectedAccount.plan_tier}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Account Info */}
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account Info</p>
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Type</span>
+                    <span className="text-sm font-medium capitalize">
+                      {selectedAccount.account_type?.toLowerCase().replace("_", " ") || "\u2014"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CreditCard className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Plan</span>
+                    <span className="text-sm font-medium capitalize">{selectedAccount.plan_tier || "\u2014"}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Billing Cycle</span>
+                    <span className="text-sm font-medium capitalize">{selectedAccount.billing_interval || "\u2014"}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <ShieldAlert className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Subscription</span>
+                    <span className="text-sm font-medium capitalize">{selectedAccount.subscription_status || "\u2014"}</span>
                   </div>
                 </div>
               </div>
 
               <Separator />
 
-              {/* Info Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Account Type</p>
-                  <p className="mt-0.5 text-sm font-medium capitalize">
-                    {selectedAccount.account_type?.toLowerCase().replace("_", " ") || "\u2014"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Plan</p>
-                  <p className="mt-0.5 text-sm font-medium capitalize">
-                    {selectedAccount.plan_tier || "\u2014"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Billing Cycle</p>
-                  <p className="mt-0.5 text-sm font-medium capitalize">
-                    {selectedAccount.billing_interval || "\u2014"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Created</p>
-                  <p className="mt-0.5 text-sm font-medium">
-                    {new Date(selectedAccount.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                {selectedAccount.partner_id && (
-                  <div>
-                    <p className="text-xs text-muted-foreground">Partner ID</p>
-                    <p className="mt-0.5 text-sm font-medium font-mono">
-                      {selectedAccount.partner_id}
-                    </p>
+              {/* Dates */}
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Dates</p>
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Created</span>
+                    <span className="text-sm font-medium">
+                      {new Date(selectedAccount.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                    </span>
                   </div>
+                  {selectedAccount.updated_at && (
+                    <div className="flex items-center gap-3">
+                      <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground w-28 shrink-0">Updated</span>
+                      <span className="text-sm font-medium">
+                        {new Date(selectedAccount.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* IDs */}
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Identifiers</p>
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <Hash className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Account ID</span>
+                    <span className="text-sm font-mono text-muted-foreground truncate" title={selectedAccount.id}>
+                      {selectedAccount.id.slice(0, 8)}...{selectedAccount.id.slice(-4)}
+                    </span>
+                  </div>
+                  {selectedAccount.owner_user_id && (
+                    <div className="flex items-center gap-3">
+                      <User2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground w-28 shrink-0">Owner User</span>
+                      <span className="text-sm font-mono text-muted-foreground truncate" title={selectedAccount.owner_user_id}>
+                        {selectedAccount.owner_user_id.slice(0, 8)}...{selectedAccount.owner_user_id.slice(-4)}
+                      </span>
+                    </div>
+                  )}
+                  {selectedAccount.partner_id && (
+                    <div className="flex items-center gap-3">
+                      <Handshake className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground w-28 shrink-0">Partner ID</span>
+                      <span className="text-sm font-mono text-muted-foreground truncate" title={selectedAccount.partner_id}>
+                        {selectedAccount.partner_id.slice(0, 8)}...{selectedAccount.partner_id.slice(-4)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Actions */}
+              <div className="space-y-2.5">
+                <Button
+                  className="w-full rounded-lg bg-accent hover:bg-accent/90 text-white"
+                  onClick={() => handleImpersonate(selectedAccount)}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Impersonate Account
+                </Button>
+                {selectedAccount.is_active && (
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-lg border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    onClick={() => handleDeleteAccount(selectedAccount)}
+                    disabled={deletingAccount}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {deletingAccount ? "Deactivating..." : "Deactivate Account"}
+                  </Button>
                 )}
-                <div>
-                  <p className="text-xs text-muted-foreground">Subscription</p>
-                  <p className="mt-0.5 text-sm font-medium capitalize">
-                    {selectedAccount.subscription_status || "\u2014"}
-                  </p>
-                </div>
               </div>
-
-              <Separator />
-
-              {/* Impersonate Button */}
-              <Button
-                className="w-full rounded-lg bg-accent hover:bg-accent/90 text-white"
-                onClick={() => handleImpersonate(selectedAccount)}
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Impersonate Account
-              </Button>
             </div>
           )}
         </SheetContent>
