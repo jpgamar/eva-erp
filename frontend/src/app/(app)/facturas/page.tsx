@@ -465,15 +465,15 @@ export default function FacturasPage() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={(v) => { if (!v) resetForm(); setCreateOpen(v); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>New CFDI Invoice</DialogTitle></DialogHeader>
           <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-5">
             {/* Customer picker */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-3">Customer</p>
+              <p className="text-sm font-medium text-foreground border-b border-border pb-2 mb-4">Customer</p>
 
               <div className="mb-3">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Select Customer</Label>
+                <Label className="text-xs text-muted-foreground font-medium">Select Customer</Label>
                 <Select value={selectedCustomerId} onValueChange={handleCustomerSelect}>
                   <SelectTrigger className="mt-1.5 rounded-lg">
                     <SelectValue placeholder="Select a customer..." />
@@ -499,26 +499,26 @@ export default function FacturasPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Legal Name *</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">Legal Name *</Label>
                   <Input className="mt-1.5 rounded-lg" value={form.customer_name}
                     readOnly={customerFieldsReadOnly}
                     onChange={(e) => setForm(f => ({ ...f, customer_name: e.target.value }))} required />
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">RFC *</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">RFC *</Label>
                   <Input className="mt-1.5 rounded-lg" value={form.customer_rfc} maxLength={13}
                     readOnly={customerFieldsReadOnly}
                     onChange={(e) => setForm(f => ({ ...f, customer_rfc: e.target.value.toUpperCase() }))} required />
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Tax System *</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">Tax System *</Label>
                   <Select value={form.customer_tax_system} onValueChange={(v) => setForm(f => ({ ...f, customer_tax_system: v }))} disabled={customerFieldsReadOnly}>
                     <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                     <SelectContent>{TAX_SYSTEMS.map(ts => <SelectItem key={ts.value} value={ts.value}>{ts.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">ZIP Code *</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">ZIP Code *</Label>
                   <Input className="mt-1.5 rounded-lg" value={form.customer_zip} maxLength={5}
                     readOnly={customerFieldsReadOnly}
                     onChange={(e) => setForm(f => ({ ...f, customer_zip: e.target.value }))} required />
@@ -528,24 +528,24 @@ export default function FacturasPage() {
 
             {/* Invoice metadata */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-3">Invoice Details</p>
+              <p className="text-sm font-medium text-foreground border-b border-border pb-2 mb-4">Invoice Details</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Uso de CFDI</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">Uso de CFDI</Label>
                   <Select value={form.use} onValueChange={(v) => setForm(f => ({ ...f, use: v }))}>
                     <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                     <SelectContent>{CFDI_USES.map(u => <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Forma de Pago</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">Forma de Pago</Label>
                   <Select value={form.payment_form} onValueChange={(v) => setForm(f => ({ ...f, payment_form: v }))}>
                     <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                     <SelectContent>{PAYMENT_FORMS.map(pf => <SelectItem key={pf.value} value={pf.value}>{pf.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Metodo de Pago</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">Metodo de Pago</Label>
                   <Select value={form.payment_method} onValueChange={(v) => setForm(f => ({ ...f, payment_method: v }))}>
                     <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -555,7 +555,7 @@ export default function FacturasPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Currency</Label>
+                  <Label className="text-xs text-muted-foreground font-medium">Currency</Label>
                   <Select value={form.currency} onValueChange={(v) => setForm(f => ({ ...f, currency: v }))}>
                     <SelectTrigger className="mt-1.5 rounded-lg"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -569,46 +569,53 @@ export default function FacturasPage() {
 
             {/* Line items */}
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Line Items</p>
+              <div className="flex items-center justify-between border-b border-border pb-2 mb-4">
+                <p className="text-sm font-medium text-foreground">Line Items</p>
                 <Button type="button" variant="outline" size="sm" className="rounded-lg h-7 text-xs" onClick={addLineItem}>
                   <Plus className="h-3 w-3 mr-1" /> Add Item
                 </Button>
               </div>
               <div className="space-y-3">
                 {lineItems.map((li, idx) => (
-                  <div key={idx} className="rounded-lg border border-border p-3 space-y-2">
-                    <div className="grid grid-cols-5 gap-2">
+                  <div key={idx} className="rounded-lg border border-border bg-muted/30 p-4 space-y-3 relative">
+                    {lineItems.length > 1 && (
+                      <Button type="button" variant="ghost" size="icon"
+                        className="absolute top-2 right-2 h-6 w-6 text-muted-foreground/60 hover:text-red-500"
+                        onClick={() => removeLineItem(idx)}>
+                        <XCircle className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <div className="grid grid-cols-[160px_1fr] gap-3 pr-6">
                       <div>
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Clave de Producto *</Label>
+                        <Label className="text-[11px] text-muted-foreground">Clave Producto *</Label>
                         <div className="mt-1">
                           <SatProductCombobox value={li.product_key} onChange={(v) => updateLineItem(idx, "product_key", v)} />
                         </div>
                       </div>
-                      <div className="col-span-2">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Description *</Label>
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">Description *</Label>
                         <Input className="mt-1 rounded-lg text-sm" value={li.description}
                           onChange={(e) => updateLineItem(idx, "description", e.target.value)} required />
                       </div>
+                    </div>
+                    <div className="grid grid-cols-[4rem_1fr_5rem_1fr_1fr] gap-3">
                       <div>
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Qty</Label>
+                        <Label className="text-[11px] text-muted-foreground">Qty</Label>
                         <Input className="mt-1 rounded-lg text-sm" type="number" min="1" value={li.quantity}
                           onChange={(e) => updateLineItem(idx, "quantity", e.target.value)} />
                       </div>
                       <div>
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Unit Price *</Label>
+                        <Label className="text-[11px] text-muted-foreground">Unit Price *</Label>
                         <Input className="mt-1 rounded-lg text-sm" type="number" step="0.01" value={li.unit_price}
                           onChange={(e) => updateLineItem(idx, "unit_price", e.target.value)} required />
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="w-28">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Tax Rate</Label>
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">Tax</Label>
                         <Input className="mt-1 rounded-lg text-sm" type="number" step="0.01" value={li.tax_rate}
                           onChange={(e) => updateLineItem(idx, "tax_rate", e.target.value)} />
                       </div>
-                      <div className="w-40">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Ret. ISR</Label>
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">Ret. ISR</Label>
                         <Select value={li.isr_retention || NO_RETENTION} onValueChange={(v) => updateLineItem(idx, "isr_retention", v === NO_RETENTION ? "" : v)}>
                           <SelectTrigger className="mt-1 rounded-lg text-sm h-9"><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -616,8 +623,8 @@ export default function FacturasPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="w-44">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Ret. IVA</Label>
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">Ret. IVA</Label>
                         <Select value={li.iva_retention || NO_RETENTION} onValueChange={(v) => updateLineItem(idx, "iva_retention", v === NO_RETENTION ? "" : v)}>
                           <SelectTrigger className="mt-1 rounded-lg text-sm h-9"><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -625,11 +632,6 @@ export default function FacturasPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="flex-1" />
-                      {lineItems.length > 1 && (
-                        <Button type="button" variant="ghost" size="sm" className="text-red-500 hover:text-red-700 h-7 text-xs mt-4"
-                          onClick={() => removeLineItem(idx)}>Remove</Button>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -649,7 +651,7 @@ export default function FacturasPage() {
               const total = sub + iva - isrRet - ivaRet;
               return (
                 <div className="rounded-lg border border-border bg-gray-50/50 p-3 space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Totals Preview</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Totals</p>
                   <div className="flex justify-between text-sm"><span className="text-muted">Subtotal</span><span className="font-mono">{fmt(sub, form.currency)}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-muted">IVA</span><span className="font-mono">+{fmt(iva, form.currency)}</span></div>
                   {isrRet > 0 && <div className="flex justify-between text-sm text-red-600"><span>Ret. ISR</span><span className="font-mono">-{fmt(isrRet, form.currency)}</span></div>}
@@ -661,7 +663,7 @@ export default function FacturasPage() {
 
             {/* Notes */}
             <div>
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label>
+              <Label className="text-xs text-muted-foreground font-medium">Notes</Label>
               <Input className="mt-1.5 rounded-lg" value={form.notes}
                 onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
