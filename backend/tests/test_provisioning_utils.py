@@ -3,6 +3,7 @@ from fastapi import HTTPException
 
 from src.eva_platform.provisioning_utils import (
     map_provisioning_write_error,
+    normalize_account_type,
     normalize_billing_cycle,
     normalize_plan_tier,
 )
@@ -27,6 +28,17 @@ def test_normalize_billing_cycle_maps_yearly_to_annual():
 def test_normalize_billing_cycle_rejects_unknown_value():
     with pytest.raises(HTTPException) as exc:
         normalize_billing_cycle("weekly")
+    assert exc.value.status_code == 400
+
+
+def test_normalize_account_type_accepts_known_values():
+    assert normalize_account_type("commerce") == "COMMERCE"
+    assert normalize_account_type("PROPERTY_MANAGEMENT") == "PROPERTY_MANAGEMENT"
+
+
+def test_normalize_account_type_rejects_unknown_value():
+    with pytest.raises(HTTPException) as exc:
+        normalize_account_type("other")
     assert exc.value.status_code == 400
 
 

@@ -25,6 +25,7 @@ from src.eva_platform.schemas import (
 from src.eva_platform.provisioning_utils import (
     ensure_owner_user_is_available,
     map_provisioning_write_error,
+    normalize_account_type,
     normalize_billing_cycle,
     normalize_plan_tier,
 )
@@ -76,6 +77,7 @@ async def create_account(
     user: User = Depends(get_current_user),
 ):
     normalized_owner_email = data.owner_email.strip().lower()
+    normalized_account_type = normalize_account_type(data.account_type)
     normalized_plan_tier = normalize_plan_tier(data.plan_tier)
     normalized_billing_interval = normalize_billing_cycle(data.billing_cycle)
     password = data.temporary_password or secrets.token_urlsafe(16)
@@ -105,7 +107,7 @@ async def create_account(
             id=uuid.uuid4(),
             name=data.name,
             owner_user_id=str(sb_user_id),
-            account_type=data.account_type.upper(),
+            account_type=normalized_account_type,
             partner_id=data.partner_id,
             plan_tier=normalized_plan_tier,
             billing_interval=normalized_billing_interval,
@@ -220,6 +222,7 @@ async def approve_draft(
         raise HTTPException(status_code=400, detail=f"Draft is already '{draft.status}'")
 
     normalized_owner_email = draft.owner_email.strip().lower()
+    normalized_account_type = normalize_account_type(draft.account_type)
     normalized_plan_tier = normalize_plan_tier(draft.plan_tier)
     normalized_billing_interval = normalize_billing_cycle(draft.billing_cycle)
     password = secrets.token_urlsafe(16)
@@ -251,7 +254,7 @@ async def approve_draft(
             id=uuid.uuid4(),
             name=draft.name,
             owner_user_id=str(sb_user_id),
-            account_type=draft.account_type.upper(),
+            account_type=normalized_account_type,
             partner_id=draft.partner_id,
             plan_tier=normalized_plan_tier,
             billing_interval=normalized_billing_interval,

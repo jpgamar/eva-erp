@@ -7,7 +7,7 @@ or constraints that would emit DDL.
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from src.common.database import EvaBase
@@ -19,7 +19,10 @@ class EvaAccount(EvaBase):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     owner_user_id = Column(String, nullable=False)
-    account_type = Column(String(50), nullable=False)
+    account_type = Column(
+        SQLEnum("COMMERCE", "PROPERTY_MANAGEMENT", name="account_type", create_type=False),
+        nullable=False,
+    )
     partner_id = Column(UUID(as_uuid=True), nullable=True)
     default_currency = Column(String(3), nullable=False, default="USD")
     timezone = Column(String(64), nullable=True)
@@ -28,8 +31,14 @@ class EvaAccount(EvaBase):
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_subscription_id = Column(String(255), nullable=True)
     subscription_status = Column(String(50), nullable=True)
-    plan_tier = Column(String(50), nullable=True)
-    billing_interval = Column(String(20), nullable=True)
+    plan_tier = Column(
+        SQLEnum("STARTER", "STANDARD", "PRO", name="plan_tier", create_type=False),
+        nullable=True,
+    )
+    billing_interval = Column(
+        SQLEnum("MONTHLY", "ANNUAL", name="billing_interval", create_type=False),
+        nullable=True,
+    )
     billing_currency = Column(String(3), nullable=False, default="MXN")
     current_period_start = Column(DateTime(timezone=True), nullable=True)
     current_period_end = Column(DateTime(timezone=True), nullable=True)
@@ -63,8 +72,16 @@ class EvaAccountUser(EvaBase):
     user_id = Column(String, nullable=False)
     email = Column(String, nullable=False)
     display_name = Column(String(255), nullable=True)
-    role = Column(String(20), nullable=False, default="MEMBER")
-    status = Column(String(20), nullable=False, default="ACTIVE")
+    role = Column(
+        SQLEnum("OWNER", "ADMIN", "MEMBER", name="account_role", create_type=False),
+        nullable=False,
+        default="MEMBER",
+    )
+    status = Column(
+        SQLEnum("ACTIVE", "INVITED", name="account_user_status", create_type=False),
+        nullable=False,
+        default="ACTIVE",
+    )
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
@@ -82,7 +99,10 @@ class EvaPartner(EvaBase):
     theme_json = Column(JSONB, nullable=True)
     custom_domain = Column(String(255), nullable=True)
     contact_email = Column(String(255), nullable=True)
-    type = Column(String(20), nullable=False)  # WHITE_LABEL or SOLUTIONS
+    type = Column(
+        SQLEnum("WHITE_LABEL", "SOLUTIONS", name="partner_type", create_type=False),
+        nullable=False,
+    )
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
@@ -96,7 +116,11 @@ class EvaPartnerUser(EvaBase):
     user_id = Column(String, nullable=False)
     email = Column(String(255), nullable=False)
     display_name = Column(String(255), nullable=True)
-    role = Column(String(20), nullable=False, default="MEMBER")
+    role = Column(
+        SQLEnum("OWNER", "ADMIN", "MEMBER", name="partner_role", create_type=False),
+        nullable=False,
+        default="MEMBER",
+    )
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)

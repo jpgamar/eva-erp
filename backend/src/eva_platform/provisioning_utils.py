@@ -39,6 +39,16 @@ def normalize_billing_cycle(raw_value: str) -> str:
     return mapped
 
 
+def normalize_account_type(raw_value: str) -> str:
+    normalized = (raw_value or "").strip().upper()
+    if normalized not in {"COMMERCE", "PROPERTY_MANAGEMENT"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported account type. Allowed values: commerce, property_management.",
+        )
+    return normalized
+
+
 def map_provisioning_write_error(exc: Exception, default_message: str) -> HTTPException:
     original = str(getattr(exc, "orig", exc) or exc).lower()
 
