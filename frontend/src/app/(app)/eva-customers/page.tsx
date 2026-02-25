@@ -252,6 +252,25 @@ export default function EvaCustomersPage() {
     }
   };
 
+  const handlePermanentlyDeleteAccount = async (account: EvaAccount) => {
+    const confirmed = window.confirm(
+      `PERMANENTLY DELETE "${account.name}"? This will remove the account and all its users from the database. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setDeletingAccount(true);
+    try {
+      await evaPlatformApi.permanentlyDeleteAccount(account.id);
+      toast.success(`Account "${account.name}" permanently deleted`);
+      setSheetOpen(false);
+      setSelectedAccount(null);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to delete account"));
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const openDetail = (account: EvaAccount) => {
     setSelectedAccount(account);
     setSheetOpen(true);
@@ -621,9 +640,9 @@ export default function EvaCustomersPage() {
 
       {/* Detail Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-[480px] sm:w-[560px] overflow-y-auto">
+        <SheetContent className="w-[480px] sm:w-[560px] overflow-y-auto p-6">
           {selectedAccount && (
-            <div className="space-y-6 pt-4">
+            <div className="space-y-6 pt-2">
               {/* Header */}
               <div>
                 <SheetTitle className="text-left text-lg font-semibold">
@@ -750,7 +769,7 @@ export default function EvaCustomersPage() {
                   <ExternalLink className="h-4 w-4 mr-2" />
                   Impersonate Account
                 </Button>
-                {selectedAccount.is_active && (
+                {selectedAccount.is_active ? (
                   <Button
                     variant="outline"
                     className="w-full rounded-lg border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
@@ -759,6 +778,16 @@ export default function EvaCustomersPage() {
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     {deletingAccount ? "Deactivating..." : "Deactivate Account"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-lg border-red-300 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-900"
+                    onClick={() => handlePermanentlyDeleteAccount(selectedAccount)}
+                    disabled={deletingAccount}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {deletingAccount ? "Deleting..." : "Delete Permanently"}
                   </Button>
                 )}
               </div>

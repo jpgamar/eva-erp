@@ -22,6 +22,8 @@ export const evaPlatformApi = {
     api.post("/eva-platform/accounts", data).then((r) => r.data),
   deleteAccount: (id: string): Promise<{ message: string }> =>
     api.delete(`/eva-platform/accounts/${id}`).then((r) => r.data),
+  permanentlyDeleteAccount: (id: string): Promise<{ message: string }> =>
+    api.delete(`/eva-platform/accounts/${id}/permanent`).then((r) => r.data),
 
   // Drafts
   listDrafts: (params?: { status?: string }): Promise<AccountDraft[]> =>

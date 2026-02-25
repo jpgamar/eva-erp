@@ -322,6 +322,27 @@ async def deactivate_account(
     return {"message": f"Account '{account.name}' deactivated"}
 
 
+@router.delete("/accounts/{account_id}/permanent")
+async def permanently_delete_account(
+    account_id: uuid.UUID,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+):
+    """Hard-delete: remove account and its users from the database."""
+    result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if account.is_active:
+        raise HTTPException(status_code=400, detail="Deactivate the account before deleting permanently")
+    # Delete associated account_users first
+    await eva_db.execute(
+        EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
+    )
+    await eva_db.delete(account)
+    return {"message": f"Account '{account.name}' permanently deleted"}
+
+
 @router.delete("/drafts/{draft_id}")
 async def delete_draft(
     draft_id: uuid.UUID,
