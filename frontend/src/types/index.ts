@@ -127,6 +127,7 @@ export interface IncomeEntry {
   source: string;
   stripe_payment_id: string | null;
   customer_id: string | null;
+  account_id: string | null;
   description: string;
   amount: number;
   currency: string;
@@ -311,6 +312,9 @@ export interface AccountDraft {
   partner_id: string | null;
   plan_tier: string;
   billing_cycle: string;
+  billing_amount: number | null;
+  billing_currency: string;
+  is_billable: boolean;
   facturapi_org_api_key: string | null;
   notes: string | null;
   status: string;
@@ -433,6 +437,31 @@ export interface PlatformDashboard {
   open_issues: number;
   critical_issues: number;
   draft_accounts_pending: number;
+  pricing_billable_accounts: number;
+  pricing_configured_accounts: number;
+  pricing_coverage_pct: number;
+}
+
+export interface AccountPricing {
+  account_id: string;
+  account_name: string;
+  account_is_active: boolean;
+  billing_amount: number | null;
+  billing_currency: string;
+  billing_interval: string;
+  is_billable: boolean;
+  notes: string | null;
+  pricing_complete: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AccountPricingCoverage {
+  active_accounts: number;
+  billable_accounts: number;
+  configured_accounts: number;
+  missing_accounts: number;
+  coverage_pct: number;
 }
 
 // Infrastructure

@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -22,6 +23,9 @@ class AccountDraft(Base):
     partner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     plan_tier: Mapped[str] = mapped_column(String(50), default="STANDARD")
     billing_cycle: Mapped[str] = mapped_column(String(20), default="MONTHLY")
+    billing_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    billing_currency: Mapped[str] = mapped_column(String(3), default="MXN")
+    is_billable: Mapped[bool] = mapped_column(Boolean, default=True)
     facturapi_org_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft / approved / failed

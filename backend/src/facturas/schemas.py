@@ -18,6 +18,7 @@ class FacturaLineItem(BaseModel):
 
 class FacturaCreate(BaseModel):
     customer_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
     customer_name: str | None = None
     customer_rfc: str | None = None
     customer_tax_system: str | None = None  # Regimen fiscal e.g. "601"
@@ -37,6 +38,7 @@ class FacturaResponse(BaseModel):
     customer_name: str
     customer_rfc: str
     customer_id: uuid.UUID | None
+    account_id: uuid.UUID | None
     customer_tax_system: str | None
     customer_zip: str | None
     use: str

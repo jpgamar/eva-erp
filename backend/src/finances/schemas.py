@@ -39,6 +39,7 @@ class IncomeCreate(BaseModel):
     # Legacy flag kept for backwards compatibility with old clients.
     is_recurring: bool = False
     customer_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
 
 
 class IncomeUpdate(BaseModel):
@@ -50,6 +51,8 @@ class IncomeUpdate(BaseModel):
     recurrence_type: IncomeRecurrenceType | None = None
     custom_interval_months: int | None = Field(default=None, ge=1)
     is_recurring: bool | None = None
+    customer_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
 
 
 class IncomeResponse(BaseModel):
@@ -57,6 +60,7 @@ class IncomeResponse(BaseModel):
     source: str
     stripe_payment_id: str | None
     customer_id: uuid.UUID | None
+    account_id: uuid.UUID | None
     description: str
     amount: Decimal
     currency: str

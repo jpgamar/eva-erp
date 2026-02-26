@@ -20,6 +20,7 @@ class Factura(Base):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_rfc: Mapped[str] = mapped_column(String(13), nullable=False)
     customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     customer_tax_system: Mapped[str | None] = mapped_column(String(5), nullable=True)
     customer_zip: Mapped[str | None] = mapped_column(String(5), nullable=True)
 

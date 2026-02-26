@@ -10,6 +10,8 @@ import type {
   EvaPartnerDetail,
   PartnerDeal,
   PlatformDashboard,
+  AccountPricing,
+  AccountPricingCoverage,
   RuntimeHost,
   RuntimeEmployee,
   RuntimeEmployeeDetail,
@@ -27,6 +29,12 @@ export const evaPlatformApi = {
     api.get(`/eva-platform/accounts/${id}`).then((r) => r.data),
   createAccount: (data: Record<string, unknown>): Promise<EvaAccount> =>
     api.post("/eva-platform/accounts", data).then((r) => r.data),
+  listAccountPricing: (params?: { search?: string }): Promise<AccountPricing[]> =>
+    api.get("/eva-platform/account-pricing", { params }).then((r) => r.data),
+  updateAccountPricing: (accountId: string, data: Record<string, unknown>): Promise<AccountPricing> =>
+    api.patch(`/eva-platform/account-pricing/${accountId}`, data).then((r) => r.data),
+  pricingCoverage: (): Promise<AccountPricingCoverage> =>
+    api.get("/eva-platform/account-pricing/coverage").then((r) => r.data),
   deleteAccount: (id: string): Promise<{ message: string }> =>
     api.delete(`/eva-platform/accounts/${id}`).then((r) => r.data),
   permanentlyDeleteAccount: (id: string): Promise<{ message: string }> =>

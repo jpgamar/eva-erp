@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   TrendingUp, TrendingDown, Users, DollarSign,
-  ArrowUpRight, Wallet, Target, CheckSquare,
+  ArrowUpRight, Wallet, Target, CheckSquare, CalendarDays,
   Building2, Activity, Handshake, AlertTriangle, FileText,
 } from "lucide-react";
 import Link from "next/link";
@@ -431,6 +431,40 @@ export default function DashboardPage() {
             </div>
           );
         })()}
+
+        {/* Meetings */}
+        <Link href="/meetings" className="group flex">
+          <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg w-full">
+            <div className="h-1 bg-gradient-to-r from-cyan-400 to-cyan-500" />
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-50">
+                    <CalendarDays className="h-4 w-4 text-cyan-600" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">Meetings</p>
+                </div>
+                <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </div>
+
+              <div className="text-center mb-4">
+                <p className="font-mono text-3xl font-bold text-foreground">{data.upcoming_meetings}</p>
+                <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">Upcoming</p>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-border/50 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted">This month</span>
+                  <span className="font-mono text-xs font-semibold text-foreground">{data.meetings_this_month}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted">Total scheduled</span>
+                  <span className="font-mono text-xs font-semibold text-foreground">{data.total_meetings}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Link>
 
         {/* Vault / Eva Platform */}
         {(() => {

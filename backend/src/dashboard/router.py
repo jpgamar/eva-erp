@@ -18,6 +18,7 @@ from src.finances.recurrence import (
     income_monthly_equivalent,
     income_monthly_mrr_equivalent,
 )
+from src.meetings.models import Meeting
 from src.prospects.models import Prospect
 from src.tasks.models import Task
 from src.vault.models import Credential
@@ -61,6 +62,10 @@ class DashboardResponse(BaseModel):
     prospect_urgency: dict[str, int]
     # Tasks
     recent_tasks: list[dict]
+    # Meetings
+    total_meetings: int
+    upcoming_meetings: int
+    meetings_this_month: int
     # Vault
     vault_combined_usd: float
     vault_service_count: int
@@ -157,6 +162,12 @@ async def dashboard_summary(
             Task.status.in_(["todo", "in_progress"]),
             func.date(Task.created_at) < next_month_start,
         ).order_by(Task.created_at.desc()).limit(6),
+        "total_meetings": select(func.count(Meeting.id)).where(Meeting.date < next_month_start),
+        "upcoming_meetings": select(func.count(Meeting.id)).where(Meeting.date > func.now()),
+        "meetings_this_month": select(func.count(Meeting.id)).where(
+            Meeting.date >= month_start,
+            Meeting.date < next_month_start,
+        ),
         "vault_creds": select(Credential).where(
             Credential.is_deleted == False,
             Credential.monthly_cost.isnot(None),
@@ -184,6 +195,9 @@ async def dashboard_summary(
     arpu = Decimal(str(mrr / total_cust)) if total_cust > 0 else Decimal("0")
     open_tasks = r["open_tasks"].scalar() or 0
     overdue_tasks = r["overdue_tasks"].scalar() or 0
+    total_meetings = r["total_meetings"].scalar() or 0
+    upcoming_meetings = r["upcoming_meetings"].scalar() or 0
+    meetings_this_month = r["meetings_this_month"].scalar() or 0
 
     # Income MRR supports monthly/custom/one-time recurrence from metadata.
     income_entries = r["all_income"].scalars().all()
@@ -291,6 +305,9 @@ async def dashboard_summary(
         prospect_by_status=prospect_by_status,
         prospect_urgency=urgency,
         recent_tasks=recent_tasks,
+        total_meetings=total_meetings,
+        upcoming_meetings=upcoming_meetings,
+        meetings_this_month=meetings_this_month,
         vault_combined_usd=vault_combined_usd,
         vault_service_count=len(creds),
         vault_by_category=vault_by_category,

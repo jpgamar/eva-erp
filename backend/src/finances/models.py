@@ -39,6 +39,7 @@ class IncomeEntry(Base):
     stripe_payment_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     stripe_invoice_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MXN")

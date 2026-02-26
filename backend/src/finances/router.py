@@ -69,6 +69,7 @@ def _serialize_income(entry: IncomeEntry) -> IncomeResponse:
         source=entry.source,
         stripe_payment_id=entry.stripe_payment_id,
         customer_id=entry.customer_id,
+        account_id=entry.account_id,
         description=entry.description,
         amount=entry.amount,
         currency=entry.currency,
@@ -129,6 +130,7 @@ async def list_income(
     end_date: date | None = None,
     source: str | None = None,
     category: str | None = None,
+    account_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -141,6 +143,8 @@ async def list_income(
         q = q.where(IncomeEntry.source == source)
     if category:
         q = q.where(IncomeEntry.category == category)
+    if account_id:
+        q = q.where(IncomeEntry.account_id == account_id)
     result = await db.execute(q)
     entries = result.scalars().all()
     return [_serialize_income(entry) for entry in entries]
@@ -173,6 +177,7 @@ async def create_income(
         is_recurring=normalized_recurring,
         metadata_json=build_income_metadata(None, recurrence_type, custom_interval_months),
         customer_id=data.customer_id,
+        account_id=data.account_id,
         created_by=user.id,
     )
     db.add(entry)

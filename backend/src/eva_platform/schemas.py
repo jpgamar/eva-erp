@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 import datetime as _dt
 from typing import Any
-from pydantic import BaseModel
+from decimal import Decimal
+
+from pydantic import BaseModel, Field
 
 
 # ── Accounts ─────────────────────────────────────────────
@@ -57,6 +59,9 @@ class AccountDraftCreate(BaseModel):
     partner_id: uuid.UUID | None = None
     plan_tier: str = "STANDARD"
     billing_cycle: str = "MONTHLY"
+    billing_amount: Decimal | None = Field(default=None, ge=0)
+    billing_currency: str = "MXN"
+    is_billable: bool = True
     facturapi_org_api_key: str | None = None
     notes: str | None = None
     prospect_id: uuid.UUID | None = None
@@ -70,6 +75,9 @@ class AccountDraftUpdate(BaseModel):
     partner_id: uuid.UUID | None = None
     plan_tier: str | None = None
     billing_cycle: str | None = None
+    billing_amount: Decimal | None = Field(default=None, ge=0)
+    billing_currency: str | None = None
+    is_billable: bool | None = None
     facturapi_org_api_key: str | None = None
     notes: str | None = None
 
@@ -83,6 +91,9 @@ class AccountDraftResponse(BaseModel):
     partner_id: uuid.UUID | None
     plan_tier: str
     billing_cycle: str
+    billing_amount: Decimal | None
+    billing_currency: str
+    is_billable: bool
     facturapi_org_api_key: str | None
     notes: str | None
     status: str
@@ -94,6 +105,36 @@ class AccountDraftResponse(BaseModel):
     created_at: _dt.datetime
     updated_at: _dt.datetime
     model_config = {"from_attributes": True}
+
+
+class AccountPricingResponse(BaseModel):
+    account_id: uuid.UUID
+    account_name: str
+    account_is_active: bool
+    billing_amount: Decimal | None
+    billing_currency: str
+    billing_interval: str
+    is_billable: bool
+    notes: str | None
+    pricing_complete: bool
+    created_at: _dt.datetime | None = None
+    updated_at: _dt.datetime | None = None
+
+
+class AccountPricingUpdateRequest(BaseModel):
+    billing_amount: Decimal | None = Field(default=None, ge=0)
+    billing_currency: str | None = None
+    billing_interval: str | None = None
+    is_billable: bool | None = None
+    notes: str | None = None
+
+
+class AccountPricingCoverageResponse(BaseModel):
+    active_accounts: int
+    billable_accounts: int
+    configured_accounts: int
+    missing_accounts: int
+    coverage_pct: float
 
 
 # ── Monitoring ───────────────────────────────────────────
@@ -292,6 +333,9 @@ class PlatformDashboardResponse(BaseModel):
     open_issues: int
     critical_issues: int
     draft_accounts_pending: int
+    pricing_billable_accounts: int = 0
+    pricing_configured_accounts: int = 0
+    pricing_coverage_pct: float = 0.0
 
 
 # ── Infrastructure ───────────────────────────────────

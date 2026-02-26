@@ -9,7 +9,13 @@ import {
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
 import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
-import type { EvaAccount, AccountDraft, PlatformDashboard } from "@/types";
+import type {
+  EvaAccount,
+  AccountDraft,
+  PlatformDashboard,
+  AccountPricing,
+  AccountPricingCoverage,
+} from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +73,14 @@ const INITIAL_DRAFT_FORM = {
   notes: "",
 };
 
+const INITIAL_PRICING_FORM = {
+  billing_amount: "",
+  billing_currency: "MXN",
+  billing_interval: "MONTHLY",
+  is_billable: true,
+  notes: "",
+};
+
 const getApiErrorMessage = (error: any, fallback: string): string => {
   const detail = error?.response?.data?.detail;
   const errorCode = error?.response?.data?.error_code || detail?.code;
@@ -105,11 +119,25 @@ const getApiErrorMessage = (error: any, fallback: string): string => {
   return fallback;
 };
 
+const formatPricingLabel = (pricing: AccountPricing | undefined): string => {
+  if (!pricing) return "Not set";
+  if (!pricing.is_billable) return "Non-billable";
+  if (pricing.billing_amount == null) return "Not set";
+  const amount = Number(pricing.billing_amount).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  const interval = pricing.billing_interval === "ANNUAL" ? "annual" : "monthly";
+  return `${pricing.billing_currency} ${amount} / ${interval}`;
+};
+
 export default function EvaCustomersPage() {
   const [accounts, setAccounts] = useState<EvaAccount[]>([]);
   const [drafts, setDrafts] = useState<AccountDraft[]>([]);
   const [dashboard, setDashboard] = useState<PlatformDashboard | null>(null);
   const [metrics, setMetrics] = useState<DashboardData | null>(null);
+  const [pricingCoverage, setPricingCoverage] = useState<AccountPricingCoverage | null>(null);
+  const [pricingByAccount, setPricingByAccount] = useState<Record<string, AccountPricing>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
@@ -117,34 +145,44 @@ export default function EvaCustomersPage() {
   // Dialogs
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [addDraftOpen, setAddDraftOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
 
   // Detail sheet
   const [selectedAccount, setSelectedAccount] = useState<EvaAccount | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [pricingAccount, setPricingAccount] = useState<EvaAccount | null>(null);
 
   // Forms
   const [accountForm, setAccountForm] = useState({ ...INITIAL_ACCOUNT_FORM });
   const [draftForm, setDraftForm] = useState({ ...INITIAL_DRAFT_FORM });
+  const [pricingForm, setPricingForm] = useState({ ...INITIAL_PRICING_FORM });
 
   // Action loading
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [savingPricing, setSavingPricing] = useState(false);
 
 
   const fetchData = async () => {
     try {
-      const [accts, drfts, dash, met] = await Promise.all([
+      const [accts, drfts, dash, met, accountPricing, coverage] = await Promise.all([
         evaPlatformApi.listAccounts({ search: search || undefined }),
         evaPlatformApi.listDrafts(),
         evaPlatformApi.dashboard(),
         dashboardApi.summary().catch(() => null),
+        evaPlatformApi.listAccountPricing({ search: search || undefined }),
+        evaPlatformApi.pricingCoverage(),
       ]);
       setAccounts(accts);
       setDrafts(drfts);
       setDashboard(dash);
       setMetrics(met);
+      setPricingCoverage(coverage);
+      setPricingByAccount(
+        Object.fromEntries(accountPricing.map((item) => [item.account_id, item])),
+      );
     } catch {
       toast.error("Failed to load Eva accounts");
     } finally {
@@ -271,6 +309,51 @@ export default function EvaCustomersPage() {
     }
   };
 
+  const handleOpenPricing = (account: EvaAccount) => {
+    const pricing = pricingByAccount[account.id];
+    setPricingAccount(account);
+    setPricingForm({
+      billing_amount: pricing?.billing_amount != null ? String(pricing.billing_amount) : "",
+      billing_currency: pricing?.billing_currency || "MXN",
+      billing_interval: pricing?.billing_interval || "MONTHLY",
+      is_billable: pricing?.is_billable ?? true,
+      notes: pricing?.notes || "",
+    });
+    setPricingOpen(true);
+  };
+
+  const handleSavePricing = async () => {
+    if (!pricingAccount) return;
+    const amountRaw = pricingForm.billing_amount.trim();
+    if (pricingForm.is_billable && amountRaw.length === 0) {
+      toast.error("Billing amount is required for billable accounts");
+      return;
+    }
+    if (amountRaw.length > 0 && Number.isNaN(Number(amountRaw))) {
+      toast.error("Billing amount must be a valid number");
+      return;
+    }
+
+    setSavingPricing(true);
+    try {
+      await evaPlatformApi.updateAccountPricing(pricingAccount.id, {
+        billing_amount: amountRaw.length > 0 ? Number(amountRaw) : null,
+        billing_currency: pricingForm.billing_currency,
+        billing_interval: pricingForm.billing_interval,
+        is_billable: pricingForm.is_billable,
+        notes: pricingForm.notes.trim() || null,
+      });
+      toast.success("Account pricing updated");
+      setPricingOpen(false);
+      setPricingAccount(null);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to update pricing");
+    } finally {
+      setSavingPricing(false);
+    }
+  };
+
   const openDetail = (account: EvaAccount) => {
     setSelectedAccount(account);
     setSheetOpen(true);
@@ -349,7 +432,7 @@ export default function EvaCustomersPage() {
 
       {/* KPI Cards */}
       {dashboard && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
             <div className="flex items-center gap-4">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-light">
@@ -402,6 +485,24 @@ export default function EvaCustomersPage() {
               </div>
             </div>
           </div>
+          {pricingCoverage && (
+            <div className="rounded-xl border border-border border-l-[3px] border-l-violet-500 bg-card p-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+                  <DollarSign className="h-5 w-5 text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted">Pricing Coverage</p>
+                  <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                    {pricingCoverage.coverage_pct.toFixed(1)}%
+                  </p>
+                  <p className="text-[10px] text-muted">
+                    {pricingCoverage.configured_accounts}/{pricingCoverage.billable_accounts} billable configured
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -491,15 +592,16 @@ export default function EvaCustomersPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Type</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Billing</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[180px]">Actions</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[240px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {accounts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted py-12">
+                    <TableCell colSpan={7} className="text-center text-muted py-12">
                       No accounts found.
                     </TableCell>
                   </TableRow>
@@ -520,6 +622,9 @@ export default function EvaCustomersPage() {
                         ) : (
                           "\u2014"
                         )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatPricingLabel(pricingByAccount[a.id])}
                       </TableCell>
                       <TableCell>
                         {a.is_active ? (
@@ -547,6 +652,15 @@ export default function EvaCustomersPage() {
                           >
                             <ExternalLink className="h-3 w-3 mr-1" />
                             Impersonate
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-violet-300 text-violet-700 hover:bg-violet-50"
+                            onClick={() => handleOpenPricing(a)}
+                          >
+                            <DollarSign className="h-3 w-3 mr-1" />
+                            Set Price
                           </Button>
                         </div>
                       </TableCell>
@@ -696,6 +810,24 @@ export default function EvaCustomersPage() {
                     <span className="text-xs text-muted-foreground w-28 shrink-0">Subscription</span>
                     <span className="text-sm font-medium capitalize">{selectedAccount.subscription_status || "\u2014"}</span>
                   </div>
+                  <div className="flex items-center gap-3">
+                    <DollarSign className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Revenue</span>
+                    <span className="text-sm font-medium">
+                      {formatPricingLabel(pricingByAccount[selectedAccount.id])}
+                    </span>
+                  </div>
+                  <div className="pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg text-xs border-violet-300 text-violet-700 hover:bg-violet-50"
+                      onClick={() => handleOpenPricing(selectedAccount)}
+                    >
+                      <DollarSign className="h-3.5 w-3.5 mr-1.5" />
+                      Update Pricing
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -795,6 +927,114 @@ export default function EvaCustomersPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Account Pricing Dialog */}
+      <Dialog
+        open={pricingOpen}
+        onOpenChange={(open) => {
+          setPricingOpen(open);
+          if (!open) setPricingAccount(null);
+        }}
+      >
+        <DialogContent className="max-w-md p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-foreground">Account Pricing</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted">
+              {pricingAccount ? pricingAccount.name : "Configure projected revenue data"}
+            </p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSavePricing();
+            }}
+            className="space-y-3 px-6 py-4"
+          >
+            <div className="flex items-center justify-between rounded-lg border border-border bg-gray-50/70 px-3 py-2">
+              <div>
+                <p className="text-xs font-medium text-foreground">Billable account</p>
+                <p className="text-[11px] text-muted">Non-billable accounts are excluded from coverage</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={pricingForm.is_billable ? "default" : "outline"}
+                className={cn("h-7 rounded-md px-3 text-xs", pricingForm.is_billable ? "bg-accent text-white" : "")}
+                onClick={() => setPricingForm((form) => ({ ...form, is_billable: !form.is_billable }))}
+              >
+                {pricingForm.is_billable ? "Yes" : "No"}
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Amount</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  inputMode="decimal"
+                  value={pricingForm.billing_amount}
+                  onChange={(e) => setPricingForm((form) => ({ ...form, billing_amount: e.target.value }))}
+                  placeholder="0.00"
+                  disabled={!pricingForm.is_billable}
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Currency</Label>
+                <Select
+                  value={pricingForm.billing_currency}
+                  onValueChange={(v) => setPricingForm((form) => ({ ...form, billing_currency: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MXN">MXN</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Interval</Label>
+              <Select
+                value={pricingForm.billing_interval}
+                onValueChange={(v) => setPricingForm((form) => ({ ...form, billing_interval: v }))}
+              >
+                <SelectTrigger className="mt-1.5 rounded-lg">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MONTHLY">Monthly</SelectItem>
+                  <SelectItem value="ANNUAL">Annual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label>
+              <Textarea
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={pricingForm.notes}
+                onChange={(e) => setPricingForm((form) => ({ ...form, notes: e.target.value }))}
+                rows={2}
+                placeholder="Optional context for finance reconciliation"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" className="rounded-lg" onClick={() => setPricingOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="rounded-lg bg-accent hover:bg-accent/90 text-white disabled:opacity-70"
+                disabled={savingPricing}
+              >
+                {savingPricing ? "Saving..." : "Save Pricing"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* New Account Dialog */}
       <Dialog open={addAccountOpen} onOpenChange={setAddAccountOpen}>

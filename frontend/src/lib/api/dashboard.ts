@@ -31,6 +31,9 @@ export interface DashboardData {
   prospect_by_status: Record<string, number>;
   prospect_urgency: { urgent: number; soso: number; can_wait: number };
   recent_tasks: { id: string; title: string; status: string; due_date: string | null }[];
+  total_meetings: number;
+  upcoming_meetings: number;
+  meetings_this_month: number;
   vault_combined_usd: number;
   vault_service_count: number;
   vault_by_category: Record<string, number>;
