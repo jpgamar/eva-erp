@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     # Stripe
     eva_stripe_secret_key: str = ""
+    eva_stripe_webhook_secret: str = ""
+    stripe_reconciliation_enabled: bool = True
+    stripe_reconciliation_interval_seconds: int = 86400
 
     # EVA DB (read-only)
     eva_database_url: str = ""

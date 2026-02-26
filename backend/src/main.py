@@ -9,23 +9,35 @@ from sqlalchemy import text
 from src.common.config import settings
 from src.common.database import engine, eva_engine
 from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
+from src.finances.stripe_service import stripe_reconciliation_runner_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     monitor_stop = asyncio.Event()
     monitor_task: asyncio.Task | None = None
+    stripe_stop = asyncio.Event()
+    stripe_task: asyncio.Task | None = None
 
     if settings.monitoring_enabled:
         monitor_task = asyncio.create_task(monitoring_runner_loop(monitor_stop))
+    if settings.stripe_reconciliation_enabled:
+        stripe_task = asyncio.create_task(stripe_reconciliation_runner_loop(stripe_stop))
 
     yield
 
     monitor_stop.set()
+    stripe_stop.set()
     if monitor_task is not None:
         monitor_task.cancel()
         try:
             await monitor_task
+        except asyncio.CancelledError:
+            pass
+    if stripe_task is not None:
+        stripe_task.cancel()
+        try:
+            await stripe_task
         except asyncio.CancelledError:
             pass
 

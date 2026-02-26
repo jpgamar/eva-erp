@@ -52,6 +52,67 @@ class IncomeEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class StripePaymentEvent(Base):
+    __tablename__ = "stripe_payment_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stripe_event_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stripe_charge_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stripe_refund_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MXN")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    unlinked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="webhook")
+    payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    processing_status: Mapped[str] = mapped_column(String(20), nullable=False, default="processed")
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StripePayoutEvent(Base):
+    __tablename__ = "stripe_payout_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stripe_event_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    stripe_payout_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MXN")
+    arrival_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    unlinked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="webhook")
+    payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    processing_status: Mapped[str] = mapped_column(String(20), nullable=False, default="processed")
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ManualDepositEntry(Base):
+    __tablename__ = "manual_deposit_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MXN")
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    reason: Mapped[str] = mapped_column(String(40), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Expense(Base):
     __tablename__ = "expenses"
 

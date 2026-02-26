@@ -291,6 +291,13 @@ Panel sections:
 3. Wire dashboard to new coverage signals
 4. Proceed to Stripe ingestion and reconciliation engine
 
+### Delivery Queue (Kueike)
+
+- [x] Phase 1: Data Foundation
+- [ ] Phase 2: Stripe Ingestion + Reconciliation Engine (in progress)
+- [ ] Phase 3: Dashboard + Finances UX
+- [ ] Phase 4: Rollout, Safety, and Cleanup
+
 ---
 
 ## 11) Out of Scope (Current Iteration)
@@ -298,4 +305,3 @@ Panel sections:
 1. Prorated Projected Revenue (day-level proration)
 2. Automatic threshold alerting for gaps
 3. Removing current dashboard cards
-

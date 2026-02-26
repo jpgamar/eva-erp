@@ -26,6 +26,8 @@ class ExchangeRateUpdate(BaseModel):
 
 # Income
 IncomeRecurrenceType = Literal["monthly", "one_time", "custom"]
+ManualPaymentReason = Literal["offline_transfer", "cash", "adjustment", "correction"]
+ManualDepositReason = Literal["manual_bank_deposit", "adjustment"]
 
 
 class IncomeCreate(BaseModel):
@@ -40,6 +42,7 @@ class IncomeCreate(BaseModel):
     is_recurring: bool = False
     customer_id: uuid.UUID | None = None
     account_id: uuid.UUID | None = None
+    manual_reason: ManualPaymentReason = "offline_transfer"
 
 
 class IncomeUpdate(BaseModel):
@@ -53,6 +56,7 @@ class IncomeUpdate(BaseModel):
     is_recurring: bool | None = None
     customer_id: uuid.UUID | None = None
     account_id: uuid.UUID | None = None
+    manual_reason: ManualPaymentReason | None = None
 
 
 class IncomeResponse(BaseModel):
@@ -70,6 +74,7 @@ class IncomeResponse(BaseModel):
     is_recurring: bool
     recurrence_type: IncomeRecurrenceType
     custom_interval_months: int | None
+    manual_reason: ManualPaymentReason
     monthly_amount_usd: Decimal
     created_at: _dt.datetime
     model_config = {"from_attributes": True}
@@ -215,3 +220,61 @@ class CashBalanceResponse(BaseModel):
     notes: str | None
     created_at: _dt.datetime
     model_config = {"from_attributes": True}
+
+
+class ManualDepositCreate(BaseModel):
+    amount: Decimal = Field(gt=0)
+    currency: str = "MXN"
+    date: _dt.date
+    reason: ManualDepositReason
+    notes: str | None = None
+    account_id: uuid.UUID | None = None
+
+
+class ManualDepositResponse(BaseModel):
+    id: uuid.UUID
+    amount: Decimal
+    currency: str
+    date: _dt.date
+    reason: ManualDepositReason
+    notes: str | None
+    account_id: uuid.UUID | None
+    created_by: uuid.UUID | None
+    created_at: _dt.datetime
+    model_config = {"from_attributes": True}
+
+
+class StripeWebhookAckResponse(BaseModel):
+    accepted: bool
+    event_id: str | None = None
+    event_type: str | None = None
+    status: str
+
+
+class StripeReconcileRequest(BaseModel):
+    backfill: bool = False
+    start_date: _dt.date | None = None
+    end_date: _dt.date | None = None
+    max_events: int = Field(default=500, ge=1, le=10000)
+
+
+class StripeReconcileResponse(BaseModel):
+    fetched_events: int
+    processed_events: int
+    duplicate_events: int
+    ignored_events: int
+    failed_events: int
+
+
+class StripeReconciliationSummary(BaseModel):
+    period: str
+    payments_received: Decimal
+    refunds: Decimal
+    net_received: Decimal
+    payouts_paid: Decimal
+    payouts_failed: Decimal
+    manual_deposits: Decimal
+    manual_adjustments: Decimal
+    gap_to_deposit: Decimal
+    unlinked_payment_events: int
+    unlinked_payout_events: int

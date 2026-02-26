@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react";
 import {
   Plus, Wallet, DollarSign, TrendingDown, TrendingUp,
-  ArrowDownRight, ArrowUpRight, Trash2,
+  ArrowDownRight, ArrowUpRight, Trash2, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { incomeApi, expenseApi, invoiceApi, cashBalanceApi } from "@/lib/api/finances";
+import { incomeApi, expenseApi, invoiceApi, cashBalanceApi, stripeFinanceApi } from "@/lib/api/finances";
 import { useAuth } from "@/lib/auth/context";
 import type {
   IncomeEntry, IncomeSummary, Expense as ExpenseType,
-  InvoiceEntry, CashBalanceEntry,
+  InvoiceEntry, CashBalanceEntry, StripeReconciliationSummary,
 } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +80,8 @@ export default function FinancesPage() {
   const [expenseList, setExpenseList] = useState<ExpenseType[]>([]);
   const [invoiceList, setInvoiceList] = useState<InvoiceEntry[]>([]);
   const [cashBalance, setCashBalance] = useState<CashBalanceEntry | null>(null);
+  const [stripeSummary, setStripeSummary] = useState<StripeReconciliationSummary | null>(null);
+  const [syncingStripe, setSyncingStripe] = useState(false);
 
   const [addIncomeOpen, setAddIncomeOpen] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
@@ -111,6 +113,8 @@ export default function FinancesPage() {
       setExpenseList(eList);
       setInvoiceList(invList);
       setCashBalance(cash);
+      const stripe = await stripeFinanceApi.reconciliation().catch(() => null);
+      setStripeSummary(stripe);
     } catch { toast.error("Failed to load financial data"); } finally { setLoading(false); }
   };
 
@@ -203,6 +207,24 @@ export default function FinancesPage() {
       setCashOpen(false);
       await fetchAll();
     } catch (e: any) { toast.error(e?.response?.data?.detail || "Failed"); }
+  };
+
+  const handleStripeSync = async (backfill = false) => {
+    setSyncingStripe(true);
+    try {
+      const result = await stripeFinanceApi.reconcile({
+        backfill,
+        max_events: backfill ? 5000 : 500,
+      });
+      toast.success(
+        `Stripe sync complete: ${result.processed_events} processed, ${result.duplicate_events} duplicates`
+      );
+      await fetchAll();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Stripe sync failed");
+    } finally {
+      setSyncingStripe(false);
+    }
   };
 
   const currentMonth = new Date().getMonth();
@@ -352,6 +374,65 @@ export default function FinancesPage() {
               </div>
             </div>
           </div>
+
+          {/* Stripe Reconciliation */}
+          {stripeSummary && (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Stripe Reconciliation</p>
+                  <p className="text-xs text-muted">Period {stripeSummary.period}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => handleStripeSync(false)}
+                    disabled={syncingStripe}
+                  >
+                    <RefreshCw className={cn("mr-2 h-4 w-4", syncingStripe ? "animate-spin" : "")} />
+                    Sync
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => handleStripeSync(true)}
+                    disabled={syncingStripe}
+                  >
+                    Backfill
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted">Payments Received</p>
+                  <p className="font-mono text-base font-semibold">{fmt(stripeSummary.payments_received, "MXN")}</p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted">Refunds</p>
+                  <p className="font-mono text-base font-semibold text-red-600">{fmt(stripeSummary.refunds, "MXN")}</p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted">Bank Deposits</p>
+                  <p className="font-mono text-base font-semibold">{fmt(stripeSummary.payouts_paid, "MXN")}</p>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted">Gap To Deposit</p>
+                  <p className={cn("font-mono text-base font-semibold", stripeSummary.gap_to_deposit >= 0 ? "text-amber-600" : "text-green-600")}>
+                    {fmt(stripeSummary.gap_to_deposit, "MXN")}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <Badge variant="outline">Net Received: {fmt(stripeSummary.net_received, "MXN")}</Badge>
+                <Badge variant="outline">Manual Deposits: {fmt(stripeSummary.manual_deposits, "MXN")}</Badge>
+                <Badge variant="outline">Unlinked Payments: {stripeSummary.unlinked_payment_events}</Badge>
+                <Badge variant="outline">Unlinked Payouts: {stripeSummary.unlinked_payout_events}</Badge>
+              </div>
+            </div>
+          )}
 
           {/* Cash Balance */}
           <div className="rounded-xl border border-border bg-card p-6">

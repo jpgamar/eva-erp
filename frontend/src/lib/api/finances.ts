@@ -37,3 +37,16 @@ export const cashBalanceApi = {
   current: () => api.get("/finances/cash-balance/current").then(r => r.data),
   update: (data: any) => api.post("/finances/cash-balance", data).then(r => r.data),
 };
+
+export const manualDepositApi = {
+  list: (params?: { start_date?: string; end_date?: string }) =>
+    api.get("/finances/manual-deposits", { params }).then(r => r.data),
+  create: (data: any) => api.post("/finances/manual-deposits", data).then(r => r.data),
+};
+
+export const stripeFinanceApi = {
+  reconciliation: (period?: string) =>
+    api.get("/finances/stripe/reconciliation", { params: period ? { period } : undefined }).then(r => r.data),
+  reconcile: (data?: { backfill?: boolean; start_date?: string; end_date?: string; max_events?: number }) =>
+    api.post("/finances/stripe/reconcile", data || {}).then(r => r.data),
+};

@@ -2,14 +2,24 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+import stripe
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user, require_admin
 from src.auth.models import User
 from src.common.database import get_db
-from src.finances.models import CashBalance, ExchangeRate, Expense, IncomeEntry, Invoice
+from src.finances.models import (
+    CashBalance,
+    ExchangeRate,
+    Expense,
+    IncomeEntry,
+    Invoice,
+    ManualDepositEntry,
+    StripePaymentEvent,
+    StripePayoutEvent,
+)
 from src.finances.recurrence import (
     build_income_metadata,
     extract_income_recurrence,
@@ -33,12 +43,21 @@ from src.finances.schemas import (
     InvoiceCreate,
     InvoiceResponse,
     InvoiceUpdate,
+    ManualDepositCreate,
+    ManualDepositResponse,
     PartnerSummary,
+    StripeReconcileRequest,
+    StripeReconcileResponse,
+    StripeReconciliationSummary,
+    StripeWebhookAckResponse,
 )
+from src.finances.stripe_service import apply_stripe_event, reconcile_stripe_events, verify_and_parse_webhook
 
 router = APIRouter(prefix="/finances", tags=["finances"])
 
 DEFAULT_RATE = Decimal("0.05")
+ALLOWED_MANUAL_PAYMENT_REASONS = {"offline_transfer", "cash", "adjustment", "correction"}
+ALLOWED_MANUAL_DEPOSIT_REASONS = {"manual_bank_deposit", "adjustment"}
 
 
 async def _get_mxn_to_usd(db: AsyncSession) -> Decimal:
@@ -61,6 +80,43 @@ def _to_usd(amount: Decimal, currency: str, rate: Decimal) -> Decimal:
     return round(amount * rate, 2)
 
 
+def _normalize_manual_payment_reason(value: str | None) -> str:
+    reason = str(value or "offline_transfer").strip().lower()
+    if reason not in ALLOWED_MANUAL_PAYMENT_REASONS:
+        raise HTTPException(status_code=422, detail="Invalid manual_reason")
+    return reason
+
+
+def _extract_manual_payment_reason(metadata_json: dict | None) -> str:
+    if isinstance(metadata_json, dict):
+        raw = str(metadata_json.get("manual_reason") or "offline_transfer").strip().lower()
+        return raw if raw in ALLOWED_MANUAL_PAYMENT_REASONS else "offline_transfer"
+    return "offline_transfer"
+
+
+def _normalize_manual_deposit_reason(value: str) -> str:
+    reason = str(value or "").strip().lower()
+    if reason not in ALLOWED_MANUAL_DEPOSIT_REASONS:
+        raise HTTPException(status_code=422, detail="Invalid manual deposit reason")
+    return reason
+
+
+def _resolve_period(period: str | None) -> tuple[str, date, date]:
+    today = date.today()
+    if period is None:
+        start = today.replace(day=1)
+    else:
+        try:
+            start = date.fromisoformat(f"{period}-01")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid period format. Expected YYYY-MM") from exc
+    if start.month == 12:
+        next_month = date(start.year + 1, 1, 1)
+    else:
+        next_month = date(start.year, start.month + 1, 1)
+    return start.strftime("%Y-%m"), start, next_month
+
+
 def _serialize_income(entry: IncomeEntry) -> IncomeResponse:
     recurrence_type, custom_interval_months = extract_income_recurrence(entry.metadata_json, entry.is_recurring)
     monthly_amount_usd = income_monthly_mrr_equivalent(entry.amount_usd, recurrence_type, custom_interval_months)
@@ -79,6 +135,7 @@ def _serialize_income(entry: IncomeEntry) -> IncomeResponse:
         is_recurring=entry.is_recurring,
         recurrence_type=recurrence_type,
         custom_interval_months=custom_interval_months,
+        manual_reason=_extract_manual_payment_reason(entry.metadata_json),
         monthly_amount_usd=monthly_amount_usd,
         created_at=entry.created_at,
     )
@@ -157,6 +214,7 @@ async def create_income(
     user: User = Depends(get_current_user),
 ):
     rate = await _get_mxn_to_usd(db)
+    manual_reason = _normalize_manual_payment_reason(data.manual_reason)
     try:
         recurrence_type, custom_interval_months, normalized_recurring = normalize_income_recurrence_payload(
             recurrence_type=data.recurrence_type,
@@ -175,7 +233,7 @@ async def create_income(
         category=data.category,
         date=data.date,
         is_recurring=normalized_recurring,
-        metadata_json=build_income_metadata(None, recurrence_type, custom_interval_months),
+        metadata_json=build_income_metadata({"manual_reason": manual_reason}, recurrence_type, custom_interval_months),
         customer_id=data.customer_id,
         account_id=data.account_id,
         created_by=user.id,
@@ -207,6 +265,7 @@ async def update_income(
         payload.pop("custom_interval_months", None) if "custom_interval_months" in payload else None
     )
     recurring_flag = payload.pop("is_recurring", None) if "is_recurring" in payload else None
+    manual_reason = payload.pop("manual_reason", None) if "manual_reason" in payload else None
 
     for field, value in payload.items():
         setattr(entry, field, value)
@@ -224,6 +283,12 @@ async def update_income(
             raise HTTPException(status_code=422, detail=str(exc))
         entry.is_recurring = normalized_recurring
         entry.metadata_json = build_income_metadata(entry.metadata_json, normalized_type, normalized_interval)
+
+    if "manual_reason" in data.model_fields_set:
+        normalized_reason = _normalize_manual_payment_reason(manual_reason)
+        metadata = dict(entry.metadata_json or {})
+        metadata["manual_reason"] = normalized_reason
+        entry.metadata_json = metadata
 
     # Recalculate USD
     entry.amount_usd = _to_usd(entry.amount, entry.currency, rate)
@@ -433,6 +498,199 @@ async def partner_summary(
         totals[name] = totals.get(name, 0) + float(e.amount_usd)
 
     return PartnerSummary(partner_totals=totals)
+
+
+# ─── Stripe Ingestion + Reconciliation ────────────────────────────
+
+@router.post("/stripe/webhook", response_model=StripeWebhookAckResponse)
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
+    db: AsyncSession = Depends(get_db),
+):
+    payload = await request.body()
+    try:
+        event = verify_and_parse_webhook(payload, stripe_signature)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except stripe.error.SignatureVerificationError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Stripe event payload") from exc
+
+    status = await apply_stripe_event(db, event, source="webhook")
+    return StripeWebhookAckResponse(
+        accepted=True,
+        event_id=str(event.get("id") or ""),
+        event_type=str(event.get("type") or ""),
+        status=status,
+    )
+
+
+@router.post("/stripe/reconcile", response_model=StripeReconcileResponse)
+async def reconcile_stripe(
+    data: StripeReconcileRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    try:
+        stats = await reconcile_stripe_events(
+            db,
+            backfill=data.backfill,
+            start_date=data.start_date,
+            end_date=data.end_date,
+            max_events=data.max_events,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return StripeReconcileResponse(**stats)
+
+
+@router.get("/stripe/reconciliation", response_model=StripeReconciliationSummary)
+async def stripe_reconciliation_summary(
+    period: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    period_key, month_start, next_month = _resolve_period(period)
+
+    payments_received = (
+        await db.execute(
+            select(func.coalesce(func.sum(StripePaymentEvent.amount), 0)).where(
+                StripePaymentEvent.stripe_event_type == "payment_intent.succeeded",
+                StripePaymentEvent.occurred_at >= month_start,
+                StripePaymentEvent.occurred_at < next_month,
+            )
+        )
+    ).scalar() or Decimal("0")
+
+    refunds = (
+        await db.execute(
+            select(func.coalesce(func.sum(func.abs(StripePaymentEvent.amount)), 0)).where(
+                StripePaymentEvent.stripe_event_type == "charge.refunded",
+                StripePaymentEvent.occurred_at >= month_start,
+                StripePaymentEvent.occurred_at < next_month,
+            )
+        )
+    ).scalar() or Decimal("0")
+
+    payouts_paid = (
+        await db.execute(
+            select(func.coalesce(func.sum(StripePayoutEvent.amount), 0)).where(
+                StripePayoutEvent.status == "paid",
+                StripePayoutEvent.paid_at.isnot(None),
+                StripePayoutEvent.paid_at >= month_start,
+                StripePayoutEvent.paid_at < next_month,
+            )
+        )
+    ).scalar() or Decimal("0")
+
+    payouts_failed = (
+        await db.execute(
+            select(func.coalesce(func.sum(StripePayoutEvent.amount), 0)).where(
+                StripePayoutEvent.status == "failed",
+                StripePayoutEvent.failed_at.isnot(None),
+                StripePayoutEvent.failed_at >= month_start,
+                StripePayoutEvent.failed_at < next_month,
+            )
+        )
+    ).scalar() or Decimal("0")
+
+    manual_deposits = (
+        await db.execute(
+            select(func.coalesce(func.sum(ManualDepositEntry.amount), 0)).where(
+                ManualDepositEntry.reason == "manual_bank_deposit",
+                ManualDepositEntry.date >= month_start,
+                ManualDepositEntry.date < next_month,
+            )
+        )
+    ).scalar() or Decimal("0")
+
+    manual_adjustments = (
+        await db.execute(
+            select(func.coalesce(func.sum(ManualDepositEntry.amount), 0)).where(
+                ManualDepositEntry.reason == "adjustment",
+                ManualDepositEntry.date >= month_start,
+                ManualDepositEntry.date < next_month,
+            )
+        )
+    ).scalar() or Decimal("0")
+
+    unlinked_payment_events = (
+        await db.execute(
+            select(func.count(StripePaymentEvent.id)).where(
+                StripePaymentEvent.unlinked == True,
+                StripePaymentEvent.occurred_at >= month_start,
+                StripePaymentEvent.occurred_at < next_month,
+            )
+        )
+    ).scalar() or 0
+
+    unlinked_payout_events = (
+        await db.execute(
+            select(func.count(StripePayoutEvent.id)).where(
+                StripePayoutEvent.unlinked == True,
+                StripePayoutEvent.created_at >= month_start,
+                StripePayoutEvent.created_at < next_month,
+            )
+        )
+    ).scalar() or 0
+
+    net_received = (Decimal(payments_received) - Decimal(refunds)).quantize(Decimal("0.01"))
+    gap_to_deposit = (net_received - Decimal(payouts_paid) - Decimal(manual_deposits)).quantize(Decimal("0.01"))
+
+    return StripeReconciliationSummary(
+        period=period_key,
+        payments_received=Decimal(payments_received).quantize(Decimal("0.01")),
+        refunds=Decimal(refunds).quantize(Decimal("0.01")),
+        net_received=net_received,
+        payouts_paid=Decimal(payouts_paid).quantize(Decimal("0.01")),
+        payouts_failed=Decimal(payouts_failed).quantize(Decimal("0.01")),
+        manual_deposits=Decimal(manual_deposits).quantize(Decimal("0.01")),
+        manual_adjustments=Decimal(manual_adjustments).quantize(Decimal("0.01")),
+        gap_to_deposit=gap_to_deposit,
+        unlinked_payment_events=unlinked_payment_events,
+        unlinked_payout_events=unlinked_payout_events,
+    )
+
+
+@router.post("/manual-deposits", response_model=ManualDepositResponse, status_code=201)
+async def create_manual_deposit(
+    data: ManualDepositCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    reason = _normalize_manual_deposit_reason(data.reason)
+    entry = ManualDepositEntry(
+        account_id=data.account_id,
+        amount=data.amount,
+        currency=data.currency,
+        date=data.date,
+        reason=reason,
+        notes=data.notes,
+        created_by=user.id,
+    )
+    db.add(entry)
+    await db.flush()
+    await db.refresh(entry)
+    return entry
+
+
+@router.get("/manual-deposits", response_model=list[ManualDepositResponse])
+async def list_manual_deposits(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = select(ManualDepositEntry).order_by(ManualDepositEntry.date.desc(), ManualDepositEntry.created_at.desc())
+    if start_date:
+        q = q.where(ManualDepositEntry.date >= start_date)
+    if end_date:
+        q = q.where(ManualDepositEntry.date <= end_date)
+    result = await db.execute(q)
+    return result.scalars().all()
 
 
 # ─── Invoices ─────────────────────────────────────────────────────

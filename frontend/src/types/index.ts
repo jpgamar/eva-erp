@@ -137,6 +137,7 @@ export interface IncomeEntry {
   is_recurring: boolean;
   recurrence_type: "monthly" | "one_time" | "custom";
   custom_interval_months: number | null;
+  manual_reason: "offline_transfer" | "cash" | "adjustment" | "correction";
   monthly_amount_usd: number;
   created_at: string;
 }
@@ -206,6 +207,40 @@ export interface CashBalanceEntry {
   date: string;
   notes: string | null;
   created_at: string;
+}
+
+export interface ManualDepositEntry {
+  id: string;
+  amount: number;
+  currency: string;
+  date: string;
+  reason: "manual_bank_deposit" | "adjustment";
+  notes: string | null;
+  account_id: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface StripeReconciliationSummary {
+  period: string;
+  payments_received: number;
+  refunds: number;
+  net_received: number;
+  payouts_paid: number;
+  payouts_failed: number;
+  manual_deposits: number;
+  manual_adjustments: number;
+  gap_to_deposit: number;
+  unlinked_payment_events: number;
+  unlinked_payout_events: number;
+}
+
+export interface StripeReconcileResult {
+  fetched_events: number;
+  processed_events: number;
+  duplicate_events: number;
+  ignored_events: number;
+  failed_events: number;
 }
 
 // Customers
