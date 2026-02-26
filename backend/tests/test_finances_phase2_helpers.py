@@ -1,10 +1,13 @@
 from decimal import Decimal
+from datetime import datetime, timezone
 
 import pytest
 
 from fastapi import HTTPException
 
+from src.finances.models import StripePaymentEvent
 from src.finances.router import (
+    _income_key_for_payment_event,
     _normalize_manual_deposit_reason,
     _normalize_manual_payment_reason,
     _resolve_period,
@@ -52,3 +55,32 @@ def test_resolve_period_default_and_custom() -> None:
 
     key_default, _, _ = _resolve_period(None)
     assert len(key_default) == 7
+
+
+def test_income_key_for_payment_event_handles_payment_intent_and_refund() -> None:
+    now = datetime.now(timezone.utc)
+    payment_event = StripePaymentEvent(
+        stripe_event_id="evt_1",
+        stripe_event_type="payment_intent.succeeded",
+        stripe_payment_intent_id="pi_1",
+        amount=Decimal("10.00"),
+        currency="MXN",
+        occurred_at=now,
+        unlinked=True,
+        source="webhook",
+        processing_status="processed",
+    )
+    refund_event = StripePaymentEvent(
+        stripe_event_id="evt_2",
+        stripe_event_type="charge.refunded",
+        stripe_charge_id="ch_1",
+        amount=Decimal("-5.00"),
+        currency="MXN",
+        occurred_at=now,
+        unlinked=True,
+        source="webhook",
+        processing_status="processed",
+    )
+
+    assert _income_key_for_payment_event(payment_event) == "pi:pi_1"
+    assert _income_key_for_payment_event(refund_event) == "refund:ch_1"

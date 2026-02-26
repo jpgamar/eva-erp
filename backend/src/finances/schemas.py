@@ -278,3 +278,60 @@ class StripeReconciliationSummary(BaseModel):
     gap_to_deposit: Decimal
     unlinked_payment_events: int
     unlinked_payout_events: int
+
+
+class StripeUnlinkedPaymentEvent(BaseModel):
+    stripe_event_id: str
+    stripe_event_type: str
+    stripe_payment_intent_id: str | None
+    stripe_customer_id: str | None
+    customer_id: uuid.UUID | None
+    account_id: uuid.UUID | None
+    amount: Decimal
+    currency: str
+    occurred_at: _dt.datetime
+    unlinked: bool
+    source: str
+    model_config = {"from_attributes": True}
+
+
+class StripeUnlinkedPayoutEvent(BaseModel):
+    stripe_event_id: str
+    stripe_event_type: str
+    stripe_payout_id: str
+    status: str
+    account_id: uuid.UUID | None
+    amount: Decimal
+    currency: str
+    created_at: _dt.datetime
+    unlinked: bool
+    source: str
+    model_config = {"from_attributes": True}
+
+
+class StripeUnlinkedEventsResponse(BaseModel):
+    payment_events: list[StripeUnlinkedPaymentEvent]
+    payout_events: list[StripeUnlinkedPayoutEvent]
+    payment_count: int
+    payout_count: int
+
+
+class StripeLinkEventRequest(BaseModel):
+    account_id: uuid.UUID
+    customer_id: uuid.UUID | None = None
+
+
+class StripeLinkEventResponse(BaseModel):
+    linked: bool
+    stripe_event_id: str
+    account_id: uuid.UUID | None
+    customer_id: uuid.UUID | None = None
+    updated_income_rows: int = 0
+
+
+class FinanceParityCheckResponse(BaseModel):
+    period: str
+    lifecycle_payments_mxn: Decimal
+    legacy_income_mxn: Decimal
+    difference_mxn: Decimal
+    within_threshold: bool

@@ -49,4 +49,12 @@ export const stripeFinanceApi = {
     api.get("/finances/stripe/reconciliation", { params: period ? { period } : undefined }).then(r => r.data),
   reconcile: (data?: { backfill?: boolean; start_date?: string; end_date?: string; max_events?: number }) =>
     api.post("/finances/stripe/reconcile", data || {}).then(r => r.data),
+  unlinked: (params?: { period?: string; limit?: number }) =>
+    api.get("/finances/stripe/unlinked", { params }).then(r => r.data),
+  linkPaymentEvent: (stripeEventId: string, data: { account_id: string; customer_id?: string | null }) =>
+    api.post(`/finances/stripe/unlinked/payment/${stripeEventId}/link`, data).then(r => r.data),
+  linkPayoutEvent: (stripeEventId: string, data: { account_id: string }) =>
+    api.post(`/finances/stripe/unlinked/payout/${stripeEventId}/link`, data).then(r => r.data),
+  parityCheck: (params?: { period?: string; threshold_mxn?: number }) =>
+    api.get("/finances/rollout/parity-check", { params }).then(r => r.data),
 };

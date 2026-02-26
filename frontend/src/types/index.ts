@@ -243,6 +243,48 @@ export interface StripeReconcileResult {
   failed_events: number;
 }
 
+export interface StripeUnlinkedPaymentEvent {
+  stripe_event_id: string;
+  stripe_event_type: string;
+  stripe_payment_intent_id: string | null;
+  stripe_customer_id: string | null;
+  customer_id: string | null;
+  account_id: string | null;
+  amount: number;
+  currency: string;
+  occurred_at: string;
+  unlinked: boolean;
+  source: string;
+}
+
+export interface StripeUnlinkedPayoutEvent {
+  stripe_event_id: string;
+  stripe_event_type: string;
+  stripe_payout_id: string;
+  status: string;
+  account_id: string | null;
+  amount: number;
+  currency: string;
+  created_at: string;
+  unlinked: boolean;
+  source: string;
+}
+
+export interface StripeUnlinkedEventsResponse {
+  payment_events: StripeUnlinkedPaymentEvent[];
+  payout_events: StripeUnlinkedPayoutEvent[];
+  payment_count: number;
+  payout_count: number;
+}
+
+export interface FinanceParityCheck {
+  period: string;
+  lifecycle_payments_mxn: number;
+  legacy_income_mxn: number;
+  difference_mxn: number;
+  within_threshold: boolean;
+}
+
 // Customers
 export interface Customer {
   id: string;

@@ -87,7 +87,6 @@ export default function FinancesPage() {
 
   const [addIncomeOpen, setAddIncomeOpen] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
-  const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [cashOpen, setCashOpen] = useState(false);
   const [deletingIncomeId, setDeletingIncomeId] = useState<string | null>(null);
 
@@ -101,7 +100,6 @@ export default function FinancesPage() {
     custom_interval_months: "2",
   });
   const [expenseForm, setExpenseForm] = useState({ name: "", amount: "", currency: "USD", category: "infrastructure", vendor: "", date: new Date().toISOString().split("T")[0], is_recurring: false, recurrence: "monthly" });
-  const [invoiceForm, setInvoiceForm] = useState({ customer_name: "", customer_email: "", description: "", currency: "MXN", issue_date: new Date().toISOString().split("T")[0], due_date: "", item_desc: "", item_qty: "1", item_price: "", tax: "" });
   const [cashForm, setCashForm] = useState({ amount: "", currency: "MXN", date: new Date().toISOString().split("T")[0], notes: "" });
 
   const fetchAll = async () => {
@@ -182,26 +180,6 @@ export default function FinancesPage() {
     } finally {
       setDeletingIncomeId(null);
     }
-  };
-
-  const handleAddInvoice = async () => {
-    try {
-      const unitPrice = parseFloat(invoiceForm.item_price);
-      const qty = parseInt(invoiceForm.item_qty);
-      await invoiceApi.create({
-        customer_name: invoiceForm.customer_name,
-        customer_email: invoiceForm.customer_email || null,
-        description: invoiceForm.description || null,
-        currency: invoiceForm.currency,
-        issue_date: invoiceForm.issue_date,
-        due_date: invoiceForm.due_date,
-        tax: invoiceForm.tax ? parseFloat(invoiceForm.tax) : null,
-        line_items: [{ description: invoiceForm.item_desc, quantity: qty, unit_price: unitPrice, total: unitPrice * qty }],
-      });
-      toast.success("Invoice created");
-      setAddInvoiceOpen(false);
-      await fetchAll();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
   const handleUpdateCash = async () => {
@@ -288,7 +266,7 @@ export default function FinancesPage() {
       {/* OVERVIEW */}
       {tab === "overview" && (
         <div className="space-y-6">
-          {lifecycleSummary && (
+          {lifecycleSummary?.lifecycle_kpis_enabled && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700/80">Projected Revenue</p>
@@ -458,7 +436,7 @@ export default function FinancesPage() {
                   </p>
                 </div>
               </div>
-              {lifecycleSummary && (
+              {lifecycleSummary?.lifecycle_kpis_enabled && (
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-lg border border-border p-3">
                     <p className="text-[11px] uppercase tracking-wider text-muted">Projected</p>
@@ -654,10 +632,11 @@ export default function FinancesPage() {
       {/* INVOICES */}
       {tab === "invoices" && (
         <div className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" className="rounded-lg" onClick={() => setAddInvoiceOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" /> New Invoice
-            </Button>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Legacy Module</p>
+            <p className="mt-1 text-sm text-amber-800">
+              `finances/invoices` is now read-only. Create and manage invoices in the SAT Facturas module.
+            </p>
           </div>
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <Table>
@@ -805,56 +784,6 @@ export default function FinancesPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" className="rounded-lg" onClick={() => setAddExpenseOpen(false)}>Cancel</Button>
               <Button type="submit" className="rounded-lg">Add</Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={addInvoiceOpen} onOpenChange={setAddInvoiceOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>New Invoice</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); handleAddInvoice(); }} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Customer *</Label>
-                <Input className="mt-1.5 rounded-lg" value={invoiceForm.customer_name} onChange={(e) => setInvoiceForm(f => ({ ...f, customer_name: e.target.value }))} required />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Email</Label>
-                <Input className="mt-1.5 rounded-lg" value={invoiceForm.customer_email} onChange={(e) => setInvoiceForm(f => ({ ...f, customer_email: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Item *</Label>
-                <Input className="mt-1.5 rounded-lg" value={invoiceForm.item_desc} onChange={(e) => setInvoiceForm(f => ({ ...f, item_desc: e.target.value }))} required />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Qty</Label>
-                <Input className="mt-1.5 rounded-lg" type="number" value={invoiceForm.item_qty} onChange={(e) => setInvoiceForm(f => ({ ...f, item_qty: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Price *</Label>
-                <Input className="mt-1.5 rounded-lg" type="number" step="0.01" value={invoiceForm.item_price} onChange={(e) => setInvoiceForm(f => ({ ...f, item_price: e.target.value }))} required />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Issue Date</Label>
-                <Input className="mt-1.5 rounded-lg" type="date" value={invoiceForm.issue_date} onChange={(e) => setInvoiceForm(f => ({ ...f, issue_date: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Due Date *</Label>
-                <Input className="mt-1.5 rounded-lg" type="date" value={invoiceForm.due_date} onChange={(e) => setInvoiceForm(f => ({ ...f, due_date: e.target.value }))} required />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Tax</Label>
-                <Input className="mt-1.5 rounded-lg" type="number" step="0.01" value={invoiceForm.tax} onChange={(e) => setInvoiceForm(f => ({ ...f, tax: e.target.value }))} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" className="rounded-lg" onClick={() => setAddInvoiceOpen(false)}>Cancel</Button>
-              <Button type="submit" className="rounded-lg">Create</Button>
             </div>
           </form>
         </DialogContent>

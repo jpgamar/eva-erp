@@ -50,6 +50,8 @@ export interface DashboardData {
   pricing_billable_accounts: number;
   pricing_configured_accounts: number;
   pricing_coverage_pct: number;
+  lifecycle_kpis_enabled: boolean;
+  lifecycle_kpi_source: string;
 }
 
 export const dashboardApi = {

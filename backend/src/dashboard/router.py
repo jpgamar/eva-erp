@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, or_, select
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.common.config import settings
 from src.common.database import async_session, eva_async_session
 from src.customers.models import Customer
 from src.eva_platform.models import EvaAccount
@@ -95,6 +96,8 @@ class DashboardResponse(BaseModel):
     pricing_billable_accounts: int
     pricing_configured_accounts: int
     pricing_coverage_pct: float
+    lifecycle_kpis_enabled: bool
+    lifecycle_kpi_source: str
 
 
 async def _run_query(query):
@@ -436,6 +439,20 @@ async def dashboard_summary(
 
     gap_to_collect_mxn = (invoiced_sat_mxn - payments_received_mxn).quantize(Decimal("0.01"))
     gap_to_deposit_mxn = (payments_received_mxn - bank_deposits_mxn).quantize(Decimal("0.01"))
+    lifecycle_kpi_source = str(settings.finance_kpi_source or "lifecycle").strip().lower()
+    lifecycle_kpis_enabled = lifecycle_kpi_source != "legacy"
+
+    if not lifecycle_kpis_enabled:
+        projected_revenue_mxn = Decimal("0.00")
+        invoiced_sat_mxn = Decimal("0.00")
+        payments_received_mxn = Decimal("0.00")
+        bank_deposits_mxn = Decimal("0.00")
+        gap_to_collect_mxn = Decimal("0.00")
+        gap_to_deposit_mxn = Decimal("0.00")
+        unlinked_revenue_mxn = Decimal("0.00")
+        manual_adjustments_mxn = Decimal("0.00")
+        unlinked_payment_events = 0
+        unlinked_payout_events = 0
 
     return DashboardResponse(
         period=period_key,
@@ -487,4 +504,6 @@ async def dashboard_summary(
         pricing_billable_accounts=pricing_billable_accounts,
         pricing_configured_accounts=pricing_configured_accounts,
         pricing_coverage_pct=pricing_coverage_pct,
+        lifecycle_kpis_enabled=lifecycle_kpis_enabled,
+        lifecycle_kpi_source=lifecycle_kpi_source,
     )

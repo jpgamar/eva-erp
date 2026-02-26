@@ -115,6 +115,7 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-4 animate-erp-entrance">
       {/* ── Revenue Lifecycle Row (Phase 3) ───────────── */}
+      {data.lifecycle_kpis_enabled && (
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700/80">Projected Revenue</p>
@@ -149,6 +150,7 @@ export default function DashboardPage() {
           <p className="text-[10px] text-orange-700/70">Received - Deposited</p>
         </div>
       </div>
+      )}
 
       {/* ── KPI Hero Row ────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
@@ -570,6 +572,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Reconciliation Panel ───────────────────── */}
+      {data.lifecycle_kpis_enabled && (
       <div className="rounded-2xl border border-border bg-card p-5">
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -612,6 +615,7 @@ export default function DashboardPage() {
           </span>
         </div>
       </div>
+      )}
 
       {/* ── Eva Platform ─────────────────────────────── */}
       {platform && (

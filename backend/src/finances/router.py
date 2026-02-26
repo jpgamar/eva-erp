@@ -46,9 +46,13 @@ from src.finances.schemas import (
     ManualDepositCreate,
     ManualDepositResponse,
     PartnerSummary,
+    FinanceParityCheckResponse,
+    StripeLinkEventRequest,
+    StripeLinkEventResponse,
     StripeReconcileRequest,
     StripeReconcileResponse,
     StripeReconciliationSummary,
+    StripeUnlinkedEventsResponse,
     StripeWebhookAckResponse,
 )
 from src.finances.stripe_service import apply_stripe_event, reconcile_stripe_events, verify_and_parse_webhook
@@ -78,6 +82,12 @@ def _to_usd(amount: Decimal, currency: str, rate: Decimal) -> Decimal:
     if currency == "USD":
         return amount
     return round(amount * rate, 2)
+
+
+def _to_mxn(amount: Decimal, currency: str, usd_to_mxn: Decimal) -> Decimal:
+    if currency == "USD":
+        return round(amount * usd_to_mxn, 2)
+    return amount
 
 
 def _normalize_manual_payment_reason(value: str | None) -> str:
@@ -115,6 +125,12 @@ def _resolve_period(period: str | None) -> tuple[str, date, date]:
     else:
         next_month = date(start.year, start.month + 1, 1)
     return start.strftime("%Y-%m"), start, next_month
+
+
+def _income_key_for_payment_event(event: StripePaymentEvent) -> str:
+    if event.stripe_event_type == "payment_intent.succeeded":
+        return f"pi:{event.stripe_payment_intent_id or event.stripe_event_id}"
+    return f"refund:{event.stripe_refund_id or event.stripe_charge_id or event.stripe_event_id}"
 
 
 def _serialize_income(entry: IncomeEntry) -> IncomeResponse:
@@ -655,6 +671,166 @@ async def stripe_reconciliation_summary(
     )
 
 
+@router.get("/stripe/unlinked", response_model=StripeUnlinkedEventsResponse)
+async def list_unlinked_stripe_events(
+    period: str | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _, month_start, next_month = _resolve_period(period)
+    safe_limit = max(1, min(limit, 500))
+
+    payment_query = (
+        select(StripePaymentEvent)
+        .where(
+            StripePaymentEvent.unlinked == True,
+            StripePaymentEvent.occurred_at >= month_start,
+            StripePaymentEvent.occurred_at < next_month,
+        )
+        .order_by(StripePaymentEvent.occurred_at.desc())
+        .limit(safe_limit)
+    )
+    payout_query = (
+        select(StripePayoutEvent)
+        .where(
+            StripePayoutEvent.unlinked == True,
+            StripePayoutEvent.created_at >= month_start,
+            StripePayoutEvent.created_at < next_month,
+        )
+        .order_by(StripePayoutEvent.created_at.desc())
+        .limit(safe_limit)
+    )
+
+    payment_rows = (await db.execute(payment_query)).scalars().all()
+    payout_rows = (await db.execute(payout_query)).scalars().all()
+    return StripeUnlinkedEventsResponse(
+        payment_events=payment_rows,
+        payout_events=payout_rows,
+        payment_count=len(payment_rows),
+        payout_count=len(payout_rows),
+    )
+
+
+@router.post("/stripe/unlinked/payment/{stripe_event_id}/link", response_model=StripeLinkEventResponse)
+async def link_unlinked_payment_event(
+    stripe_event_id: str,
+    data: StripeLinkEventRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    result = await db.execute(
+        select(StripePaymentEvent).where(StripePaymentEvent.stripe_event_id == stripe_event_id)
+    )
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Stripe payment event not found")
+
+    event.account_id = data.account_id
+    event.customer_id = data.customer_id
+    event.unlinked = False
+    db.add(event)
+
+    income_key = _income_key_for_payment_event(event)
+    income_rows = await db.execute(
+        select(IncomeEntry).where(IncomeEntry.stripe_payment_id == income_key)
+    )
+    incomes = income_rows.scalars().all()
+    for income in incomes:
+        income.account_id = data.account_id
+        if data.customer_id is not None:
+            income.customer_id = data.customer_id
+        db.add(income)
+
+    return StripeLinkEventResponse(
+        linked=True,
+        stripe_event_id=event.stripe_event_id,
+        account_id=event.account_id,
+        customer_id=event.customer_id,
+        updated_income_rows=len(incomes),
+    )
+
+
+@router.post("/stripe/unlinked/payout/{stripe_event_id}/link", response_model=StripeLinkEventResponse)
+async def link_unlinked_payout_event(
+    stripe_event_id: str,
+    data: StripeLinkEventRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    result = await db.execute(
+        select(StripePayoutEvent).where(StripePayoutEvent.stripe_event_id == stripe_event_id)
+    )
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Stripe payout event not found")
+
+    event.account_id = data.account_id
+    event.unlinked = False
+    db.add(event)
+
+    return StripeLinkEventResponse(
+        linked=True,
+        stripe_event_id=event.stripe_event_id,
+        account_id=event.account_id,
+        updated_income_rows=0,
+    )
+
+
+@router.get("/rollout/parity-check", response_model=FinanceParityCheckResponse)
+async def rollout_parity_check(
+    period: str | None = None,
+    threshold_mxn: Decimal = Decimal("1.00"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    period_key, month_start, next_month = _resolve_period(period)
+    rate_row = await db.execute(
+        select(ExchangeRate.rate)
+        .where(ExchangeRate.from_currency == "USD", ExchangeRate.to_currency == "MXN")
+        .order_by(ExchangeRate.effective_date.desc())
+        .limit(1)
+    )
+    usd_to_mxn = Decimal(str(rate_row.scalar() or 20))
+
+    stripe_events = (
+        await db.execute(
+            select(StripePaymentEvent).where(
+                StripePaymentEvent.occurred_at >= month_start,
+                StripePaymentEvent.occurred_at < next_month,
+            )
+        )
+    ).scalars().all()
+
+    lifecycle_payments_mxn = Decimal("0")
+    for event in stripe_events:
+        lifecycle_payments_mxn += _to_mxn(Decimal(event.amount or 0), event.currency, usd_to_mxn)
+    lifecycle_payments_mxn = lifecycle_payments_mxn.quantize(Decimal("0.01"))
+
+    incomes = (
+        await db.execute(
+            select(IncomeEntry).where(
+                IncomeEntry.date >= month_start,
+                IncomeEntry.date < next_month,
+            )
+        )
+    ).scalars().all()
+    legacy_income_mxn = Decimal("0")
+    for income in incomes:
+        legacy_income_mxn += _to_mxn(Decimal(income.amount or 0), income.currency, usd_to_mxn)
+    legacy_income_mxn = legacy_income_mxn.quantize(Decimal("0.01"))
+
+    difference_mxn = (lifecycle_payments_mxn - legacy_income_mxn).quantize(Decimal("0.01"))
+    safe_threshold = abs(Decimal(threshold_mxn))
+    return FinanceParityCheckResponse(
+        period=period_key,
+        lifecycle_payments_mxn=lifecycle_payments_mxn,
+        legacy_income_mxn=legacy_income_mxn,
+        difference_mxn=difference_mxn,
+        within_threshold=abs(difference_mxn) <= safe_threshold,
+    )
+
+
 @router.post("/manual-deposits", response_model=ManualDepositResponse, status_code=201)
 async def create_manual_deposit(
     data: ManualDepositCreate,
@@ -717,43 +893,10 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rate = await _get_mxn_to_usd(db)
-
-    # Generate invoice number
-    year = data.issue_date.year
-    count_result = await db.execute(
-        select(func.count(Invoice.id))
-        .where(func.extract("year", Invoice.issue_date) == year)
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy invoices are read-only. Use the SAT Facturas module.",
     )
-    count = count_result.scalar() or 0
-    invoice_number = f"EVA-{year}-{str(count + 1).zfill(3)}"
-
-    subtotal = sum(item.total for item in data.line_items)
-    total = subtotal + (data.tax or Decimal("0"))
-    line_items_json = [item.model_dump() for item in data.line_items]
-
-    invoice = Invoice(
-        invoice_number=invoice_number,
-        customer_id=data.customer_id,
-        customer_name=data.customer_name,
-        customer_email=data.customer_email,
-        description=data.description,
-        line_items_json=line_items_json,
-        subtotal=subtotal,
-        tax=data.tax,
-        total=total,
-        currency=data.currency,
-        total_usd=_to_usd(total, data.currency, rate),
-        status="draft",
-        issue_date=data.issue_date,
-        due_date=data.due_date,
-        notes=data.notes,
-        created_by=user.id,
-    )
-    db.add(invoice)
-    await db.flush()
-    await db.refresh(invoice)
-    return invoice
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
@@ -776,26 +919,10 @@ async def update_invoice(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
-    invoice = result.scalar_one_or_none()
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-
-    update_data = data.model_dump(exclude_unset=True)
-
-    if "line_items" in update_data and update_data["line_items"] is not None:
-        items = update_data.pop("line_items")
-        invoice.line_items_json = [i.model_dump() if hasattr(i, "model_dump") else i for i in items]
-        invoice.subtotal = sum(Decimal(str(i.get("total", i.total) if isinstance(i, dict) else i.total)) for i in (data.line_items or []))
-        invoice.total = invoice.subtotal + (invoice.tax or Decimal("0"))
-        rate = await _get_mxn_to_usd(db)
-        invoice.total_usd = _to_usd(invoice.total, invoice.currency, rate)
-
-    for field, value in update_data.items():
-        setattr(invoice, field, value)
-
-    db.add(invoice)
-    return invoice
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy invoices are read-only. Use the SAT Facturas module.",
+    )
 
 
 @router.delete("/invoices/{invoice_id}")
@@ -804,14 +931,10 @@ async def delete_invoice(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
-    invoice = result.scalar_one_or_none()
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-    if invoice.status != "draft":
-        raise HTTPException(status_code=400, detail="Can only delete draft invoices")
-    await db.delete(invoice)
-    return {"message": "Invoice deleted"}
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy invoices are read-only. Use the SAT Facturas module.",
+    )
 
 
 # ─── Cash Balance ─────────────────────────────────────────────────

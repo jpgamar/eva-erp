@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     eva_stripe_webhook_secret: str = ""
     stripe_reconciliation_enabled: bool = True
     stripe_reconciliation_interval_seconds: int = 86400
+    finance_kpi_source: str = "lifecycle"
 
     # EVA DB (read-only)
     eva_database_url: str = ""
