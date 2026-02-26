@@ -19,6 +19,7 @@ import {
   Activity,
   Building2,
   Handshake,
+  Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -81,6 +82,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Eva Customers", icon: Building2, href: "/eva-customers", phase: 8 },
       { label: "Monitoring", icon: Activity, href: "/monitoring", phase: 8 },
+      { label: "Infrastructure", icon: Server, href: "/infrastructure", phase: 8 },
     ],
   },
   {

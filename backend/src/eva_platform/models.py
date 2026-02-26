@@ -7,8 +7,8 @@ or constraints that would emit DDL.
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, Float, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum as SQLEnum, Float, Integer, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from src.common.database import EvaBase
 
@@ -239,3 +239,87 @@ class EvaMonitoringCheck(EvaBase):
     error_message = Column(String(500), nullable=True)
     details = Column(JSONB, nullable=True)
     checked_at = Column(DateTime(timezone=True), nullable=False)
+
+
+# ── OpenClaw Infrastructure ─────────────────────────────
+
+
+class EvaOpenclawRuntimeHost(EvaBase):
+    __tablename__ = "openclaw_runtime_hosts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider_host_id = Column(String, nullable=False, unique=True)
+    name = Column(String, nullable=False, unique=True)
+    region = Column(String, nullable=False, default="nbg1")
+    host_class = Column(String, nullable=False, default="cx53")
+    state = Column(String, nullable=False, default="active")
+    public_ip = Column(String, nullable=True)
+    vcpu = Column(Integer, nullable=False, default=16)
+    ram_mb = Column(Integer, nullable=False, default=32768)
+    disk_gb = Column(Integer, nullable=False, default=320)
+    max_tenants = Column(Integer, nullable=False, default=8)
+    saturation = Column(Float, nullable=False, default=0.0)
+    last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class EvaOpenclawRuntimeAllocation(EvaBase):
+    __tablename__ = "openclaw_runtime_allocations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    openclaw_agent_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
+    runtime_host_id = Column(UUID(as_uuid=True), nullable=True)
+    tenant_class = Column(String, nullable=False, default="standard")
+    state = Column(String, nullable=False, default="pending")
+    priority = Column(Integer, nullable=False, default=100)
+    cpu_reservation_mcpu = Column(Integer, nullable=False, default=2000)
+    ram_reservation_mb = Column(Integer, nullable=False, default=4096)
+    gateway_port = Column(Integer, nullable=True)
+    container_name = Column(String, nullable=True)
+    runtime_subdir = Column(String, nullable=True)
+    queued_reason = Column(String, nullable=True)
+    reconnect_risk = Column(String, nullable=False, default="safe")
+    placed_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class EvaOpenclawAgent(EvaBase):
+    __tablename__ = "openclaw_agents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    label = Column(String, nullable=False, default="Main employee")
+    status = Column(String, nullable=False, default="draft")
+    status_detail = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    phone_number = Column(String, nullable=True)
+    vps_ip = Column(String, nullable=True)
+    connections_state = Column(JSONB, nullable=False, default=dict)
+    whatsapp_connected = Column(Boolean, nullable=False, default=False)
+    telegram_connected = Column(Boolean, nullable=False, default=False)
+    telegram_bot_id = Column(BigInteger, nullable=True)
+    widget_allowed_domains = Column(ARRAY(String), nullable=True)
+    provisioning_started_at = Column(DateTime(timezone=True), nullable=True)
+    provisioning_completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class EvaOpenclawRuntimeEvent(EvaBase):
+    __tablename__ = "openclaw_runtime_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source = Column(String, nullable=False)
+    event_type = Column(String, nullable=False)
+    severity = Column(String, nullable=False, default="info")
+    reason_code = Column(String, nullable=True)
+    payload = Column(JSONB, nullable=False, default=dict)
+    openclaw_agent_id = Column(UUID(as_uuid=True), nullable=True)
+    runtime_host_id = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)

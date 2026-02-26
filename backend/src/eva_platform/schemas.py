@@ -294,5 +294,121 @@ class PlatformDashboardResponse(BaseModel):
     draft_accounts_pending: int
 
 
+# ── Infrastructure ───────────────────────────────────
+
+
+class RuntimeHostResponse(BaseModel):
+    id: uuid.UUID
+    provider_host_id: str
+    name: str
+    region: str
+    host_class: str
+    state: str
+    public_ip: str | None
+    vcpu: int
+    ram_mb: int
+    disk_gb: int
+    max_tenants: int
+    tenant_count: int
+    saturation: float
+    last_heartbeat_at: _dt.datetime | None
+    created_at: _dt.datetime
+    model_config = {"from_attributes": True}
+
+
+class RuntimeEmployeeResponse(BaseModel):
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    account_id: uuid.UUID
+    account_name: str | None = None
+    label: str
+    status: str
+    phone_number: str | None
+    allocation_state: str | None
+    container_name: str | None
+    gateway_port: int | None
+    cpu_reservation_mcpu: int | None
+    ram_reservation_mb: int | None
+    reconnect_risk: str | None
+    whatsapp_connected: bool
+    telegram_connected: bool
+    vps_ip: str | None
+    model_config = {"from_attributes": True}
+
+
+class RuntimeEventResponse(BaseModel):
+    id: uuid.UUID
+    source: str
+    event_type: str
+    severity: str
+    reason_code: str | None
+    payload: dict[str, Any]
+    created_at: _dt.datetime
+    model_config = {"from_attributes": True}
+
+
+class RuntimeEmployeeDetailResponse(BaseModel):
+    # Agent info
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    account_id: uuid.UUID
+    account_name: str | None = None
+    label: str
+    status: str
+    status_detail: str | None
+    error: str | None
+    phone_number: str | None
+    connections_state: dict[str, Any]
+    whatsapp_connected: bool
+    telegram_connected: bool
+    provisioning_started_at: _dt.datetime | None
+    provisioning_completed_at: _dt.datetime | None
+    # Allocation info
+    allocation_state: str | None
+    container_name: str | None
+    gateway_port: int | None
+    host_name: str | None
+    host_ip: str | None
+    cpu_reservation_mcpu: int | None
+    ram_reservation_mb: int | None
+    reconnect_risk: str | None
+    queued_reason: str | None
+    placed_at: _dt.datetime | None
+    started_at: _dt.datetime | None
+    # Recent events
+    recent_events: list[RuntimeEventResponse]
+    model_config = {"from_attributes": True}
+
+
+class DockerContainerResponse(BaseModel):
+    name: str
+    state: str
+    status: str
+    ports: str
+    image: str
+    created_at: str
+
+
+class FileEntryResponse(BaseModel):
+    name: str
+    path: str
+    is_dir: bool
+    size: int | None
+    modified_at: _dt.datetime | None
+
+
+class FileContentResponse(BaseModel):
+    path: str
+    content: str
+    size: int
+    truncated: bool
+
+
+class DockerLogsResponse(BaseModel):
+    container_name: str
+    lines: str
+    tail: int
+
+
 # Forward ref fix
 EvaPartnerDetailResponse.model_rebuild()

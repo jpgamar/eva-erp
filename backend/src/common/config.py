@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # SSO handoff from EvaAI (shared secret with EvaAI backend)
     erp_sso_secret: str = ""
 
+    # OpenClaw Infrastructure (SSH access to runtime hosts)
+    eva_ssh_private_key_base64: str = ""
+    hetzner_api_token: str = ""
+
     # Environment
     environment: str = "development"
     vault_session_ttl_minutes: int = 0

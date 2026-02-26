@@ -24,6 +24,7 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/assistant": { title: "Eva AI", subtitle: "Coming soon" },
   "/eva-customers": { title: "Eva Customers", subtitle: "Platform accounts and drafts" },
   "/monitoring": { title: "Monitoring", subtitle: "Platform health and issues" },
+  "/infrastructure": { title: "Infrastructure", subtitle: "OpenClaw runtime hosts and employees" },
   "/partners": { title: "Partners", subtitle: "Partner management and deals" },
   "/team": { title: "Team", subtitle: "Manage team members" },
   "/settings": { title: "Settings", subtitle: "Account preferences" },

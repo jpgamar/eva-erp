@@ -435,6 +435,98 @@ export interface PlatformDashboard {
   draft_accounts_pending: number;
 }
 
+// Infrastructure
+export interface RuntimeHost {
+  id: string;
+  provider_host_id: string;
+  name: string;
+  region: string;
+  host_class: string;
+  state: string;
+  public_ip: string | null;
+  vcpu: number;
+  ram_mb: number;
+  disk_gb: number;
+  max_tenants: number;
+  tenant_count: number;
+  saturation: number;
+  last_heartbeat_at: string | null;
+  created_at: string;
+}
+
+export interface RuntimeEmployee {
+  id: string;
+  agent_id: string;
+  account_id: string;
+  account_name: string | null;
+  label: string;
+  status: string;
+  phone_number: string | null;
+  allocation_state: string | null;
+  container_name: string | null;
+  gateway_port: number | null;
+  cpu_reservation_mcpu: number | null;
+  ram_reservation_mb: number | null;
+  reconnect_risk: string | null;
+  whatsapp_connected: boolean;
+  telegram_connected: boolean;
+  vps_ip: string | null;
+}
+
+export interface RuntimeEmployeeDetail extends RuntimeEmployee {
+  status_detail: string | null;
+  error: string | null;
+  connections_state: Record<string, unknown>;
+  provisioning_started_at: string | null;
+  provisioning_completed_at: string | null;
+  host_name: string | null;
+  host_ip: string | null;
+  queued_reason: string | null;
+  placed_at: string | null;
+  started_at: string | null;
+  recent_events: RuntimeEvent[];
+}
+
+export interface RuntimeEvent {
+  id: string;
+  source: string;
+  event_type: string;
+  severity: string;
+  reason_code: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface DockerContainer {
+  name: string;
+  state: string;
+  status: string;
+  ports: string;
+  image: string;
+  created_at: string;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number | null;
+  modified_at: string | null;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+}
+
+export interface DockerLogs {
+  container_name: string;
+  lines: string;
+  tail: number;
+}
+
 // Assistant
 export interface AssistantMessage {
   role: "user" | "assistant";

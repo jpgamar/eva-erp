@@ -10,6 +10,13 @@ import type {
   EvaPartnerDetail,
   PartnerDeal,
   PlatformDashboard,
+  RuntimeHost,
+  RuntimeEmployee,
+  RuntimeEmployeeDetail,
+  DockerContainer,
+  DockerLogs,
+  FileEntry,
+  FileContent,
 } from "@/types";
 
 export const evaPlatformApi = {
@@ -90,4 +97,20 @@ export const evaPlatformApi = {
   // Health
   health: (): Promise<{ status: string; detail?: string }> =>
     api.get("/eva-platform/health").then((r) => r.data),
+
+  // Infrastructure
+  listHosts: (): Promise<RuntimeHost[]> =>
+    api.get("/eva-platform/infrastructure/hosts").then((r) => r.data),
+  listHostEmployees: (hostId: string): Promise<RuntimeEmployee[]> =>
+    api.get(`/eva-platform/infrastructure/hosts/${hostId}/employees`).then((r) => r.data),
+  getEmployeeDetail: (agentId: string): Promise<RuntimeEmployeeDetail> =>
+    api.get(`/eva-platform/infrastructure/employees/${agentId}`).then((r) => r.data),
+  getDockerStatus: (hostIp: string): Promise<DockerContainer[]> =>
+    api.get(`/eva-platform/infrastructure/hosts/${hostIp}/docker/status`).then((r) => r.data),
+  getDockerLogs: (hostIp: string, containerName: string, tail?: number): Promise<DockerLogs> =>
+    api.get(`/eva-platform/infrastructure/hosts/${hostIp}/docker/logs/${containerName}`, { params: { tail } }).then((r) => r.data),
+  listFiles: (hostIp: string, path?: string): Promise<FileEntry[]> =>
+    api.get(`/eva-platform/infrastructure/hosts/${hostIp}/files`, { params: { path } }).then((r) => r.data),
+  getFileContent: (hostIp: string, path: string): Promise<FileContent> =>
+    api.get(`/eva-platform/infrastructure/hosts/${hostIp}/files/content`, { params: { path } }).then((r) => r.data),
 };
