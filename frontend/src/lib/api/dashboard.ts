@@ -37,6 +37,19 @@ export interface DashboardData {
   vault_combined_usd: number;
   vault_service_count: number;
   vault_by_category: Record<string, number>;
+  projected_revenue_mxn: number;
+  invoiced_sat_mxn: number;
+  payments_received_mxn: number;
+  bank_deposits_mxn: number;
+  gap_to_collect_mxn: number;
+  gap_to_deposit_mxn: number;
+  unlinked_revenue_mxn: number;
+  manual_adjustments_mxn: number;
+  unlinked_payment_events: number;
+  unlinked_payout_events: number;
+  pricing_billable_accounts: number;
+  pricing_configured_accounts: number;
+  pricing_coverage_pct: number;
 }
 
 export const dashboardApi = {

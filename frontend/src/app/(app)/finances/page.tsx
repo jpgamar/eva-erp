@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { incomeApi, expenseApi, invoiceApi, cashBalanceApi, stripeFinanceApi } from "@/lib/api/finances";
+import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
 import { useAuth } from "@/lib/auth/context";
 import type {
   IncomeEntry, IncomeSummary, Expense as ExpenseType,
@@ -81,6 +82,7 @@ export default function FinancesPage() {
   const [invoiceList, setInvoiceList] = useState<InvoiceEntry[]>([]);
   const [cashBalance, setCashBalance] = useState<CashBalanceEntry | null>(null);
   const [stripeSummary, setStripeSummary] = useState<StripeReconciliationSummary | null>(null);
+  const [lifecycleSummary, setLifecycleSummary] = useState<DashboardData | null>(null);
   const [syncingStripe, setSyncingStripe] = useState(false);
 
   const [addIncomeOpen, setAddIncomeOpen] = useState(false);
@@ -104,15 +106,17 @@ export default function FinancesPage() {
 
   const fetchAll = async () => {
     try {
-      const [iSum, iList, eList, invList, cash] = await Promise.all([
+      const [iSum, iList, eList, invList, cash, lifecycle] = await Promise.all([
         incomeApi.summary(), incomeApi.list(),
         expenseApi.list(), invoiceApi.list(), cashBalanceApi.current(),
+        dashboardApi.summary().catch(() => null),
       ]);
       setIncomeSummary(iSum);
       setIncomeList(iList);
       setExpenseList(eList);
       setInvoiceList(invList);
       setCashBalance(cash);
+      setLifecycleSummary(lifecycle);
       const stripe = await stripeFinanceApi.reconciliation().catch(() => null);
       setStripeSummary(stripe);
     } catch { toast.error("Failed to load financial data"); } finally { setLoading(false); }
@@ -284,6 +288,35 @@ export default function FinancesPage() {
       {/* OVERVIEW */}
       {tab === "overview" && (
         <div className="space-y-6">
+          {lifecycleSummary && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700/80">Projected Revenue</p>
+                <p className="mt-1 font-mono text-base font-bold text-emerald-900">{fmt(lifecycleSummary.projected_revenue_mxn, "MXN")}</p>
+              </div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-700/80">Invoiced (SAT)</p>
+                <p className="mt-1 font-mono text-base font-bold text-blue-900">{fmt(lifecycleSummary.invoiced_sat_mxn, "MXN")}</p>
+              </div>
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700/80">Payments Received</p>
+                <p className="mt-1 font-mono text-base font-bold text-indigo-900">{fmt(lifecycleSummary.payments_received_mxn, "MXN")}</p>
+              </div>
+              <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-700/80">Bank Deposits</p>
+                <p className="mt-1 font-mono text-base font-bold text-cyan-900">{fmt(lifecycleSummary.bank_deposits_mxn, "MXN")}</p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700/80">Gap To Collect</p>
+                <p className="mt-1 font-mono text-base font-bold text-amber-900">{fmt(lifecycleSummary.gap_to_collect_mxn, "MXN")}</p>
+              </div>
+              <div className="rounded-xl border border-orange-200 bg-orange-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700/80">Gap To Deposit</p>
+                <p className="mt-1 font-mono text-base font-bold text-orange-900">{fmt(lifecycleSummary.gap_to_deposit_mxn, "MXN")}</p>
+              </div>
+            </div>
+          )}
+
           {/* KPI row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
@@ -425,6 +458,26 @@ export default function FinancesPage() {
                   </p>
                 </div>
               </div>
+              {lifecycleSummary && (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted">Projected</p>
+                    <p className="font-mono text-base font-semibold">{fmt(lifecycleSummary.projected_revenue_mxn, "MXN")}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted">Invoiced SAT</p>
+                    <p className="font-mono text-base font-semibold">{fmt(lifecycleSummary.invoiced_sat_mxn, "MXN")}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted">Unlinked Revenue</p>
+                    <p className="font-mono text-base font-semibold">{fmt(lifecycleSummary.unlinked_revenue_mxn, "MXN")}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted">Manual Adjustments</p>
+                    <p className="font-mono text-base font-semibold">{fmt(lifecycleSummary.manual_adjustments_mxn, "MXN")}</p>
+                  </div>
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant="outline">Net Received: {fmt(stripeSummary.net_received, "MXN")}</Badge>
                 <Badge variant="outline">Manual Deposits: {fmt(stripeSummary.manual_deposits, "MXN")}</Badge>

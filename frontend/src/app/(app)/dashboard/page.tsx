@@ -114,6 +114,42 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-4 animate-erp-entrance">
+      {/* ── Revenue Lifecycle Row (Phase 3) ───────────── */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700/80">Projected Revenue</p>
+          <p className="mt-1 font-mono text-lg font-bold text-emerald-900">{fmt(data.projected_revenue_mxn, "MXN")}</p>
+          <p className="text-[10px] text-emerald-700/70">
+            Coverage {data.pricing_configured_accounts}/{data.pricing_billable_accounts} ({data.pricing_coverage_pct.toFixed(1)}%)
+          </p>
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-700/80">Invoiced (SAT)</p>
+          <p className="mt-1 font-mono text-lg font-bold text-blue-900">{fmt(data.invoiced_sat_mxn, "MXN")}</p>
+          <p className="text-[10px] text-blue-700/70">Only `facturas` valid</p>
+        </div>
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700/80">Payments Received</p>
+          <p className="mt-1 font-mono text-lg font-bold text-indigo-900">{fmt(data.payments_received_mxn, "MXN")}</p>
+          <p className="text-[10px] text-indigo-700/70">Stripe + manual payments</p>
+        </div>
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-700/80">Bank Deposits</p>
+          <p className="mt-1 font-mono text-lg font-bold text-cyan-900">{fmt(data.bank_deposits_mxn, "MXN")}</p>
+          <p className="text-[10px] text-cyan-700/70">Stripe payouts + manual deposits</p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700/80">Gap To Collect</p>
+          <p className="mt-1 font-mono text-lg font-bold text-amber-900">{fmt(data.gap_to_collect_mxn, "MXN")}</p>
+          <p className="text-[10px] text-amber-700/70">Invoiced - Received</p>
+        </div>
+        <div className="rounded-xl border border-orange-200 bg-orange-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700/80">Gap To Deposit</p>
+          <p className="mt-1 font-mono text-lg font-bold text-orange-900">{fmt(data.gap_to_deposit_mxn, "MXN")}</p>
+          <p className="text-[10px] text-orange-700/70">Received - Deposited</p>
+        </div>
+      </div>
+
       {/* ── KPI Hero Row ────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
 
@@ -531,6 +567,50 @@ export default function DashboardPage() {
             </div>
           );
         })()}
+      </div>
+
+      {/* ── Reconciliation Panel ───────────────────── */}
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Revenue Reconciliation</p>
+            <p className="text-xs text-muted">Period {data.period}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted">Projected</p>
+            <p className="font-mono text-sm font-semibold">{fmt(data.projected_revenue_mxn, "MXN")}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted">Invoiced SAT</p>
+            <p className="font-mono text-sm font-semibold">{fmt(data.invoiced_sat_mxn, "MXN")}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted">Payments</p>
+            <p className="font-mono text-sm font-semibold">{fmt(data.payments_received_mxn, "MXN")}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted">Deposits</p>
+            <p className="font-mono text-sm font-semibold">{fmt(data.bank_deposits_mxn, "MXN")}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted">Unlinked Revenue</p>
+            <p className="font-mono text-sm font-semibold">{fmt(data.unlinked_revenue_mxn, "MXN")}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted">Manual Adjustments</p>
+            <p className="font-mono text-sm font-semibold">{fmt(data.manual_adjustments_mxn, "MXN")}</p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full border border-border px-2 py-0.5">
+            Unlinked payment events: {data.unlinked_payment_events}
+          </span>
+          <span className="rounded-full border border-border px-2 py-0.5">
+            Unlinked payout events: {data.unlinked_payout_events}
+          </span>
+        </div>
       </div>
 
       {/* ── Eva Platform ─────────────────────────────── */}
