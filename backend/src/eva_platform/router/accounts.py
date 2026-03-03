@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db, get_eva_db
+from src.eva_platform.onboarding import build_account_onboarding
 from src.eva_platform.models import EvaAccount, EvaAccountUser
 from src.eva_platform.drafts.models import AccountDraft
 from src.eva_platform.pricing_models import AccountPricingProfile
@@ -20,10 +21,12 @@ from src.eva_platform.schemas import (
     AccountPricingResponse,
     AccountPricingUpdateRequest,
     AccountDraftCreate,
+    AccountDraftProvisionResponse,
     AccountDraftResponse,
     AccountDraftUpdate,
     EvaAccountCreateRequest,
     EvaAccountDetailResponse,
+    EvaAccountProvisionResponse,
     EvaAccountResponse,
 )
 from src.eva_platform.provisioning_utils import (
@@ -258,7 +261,7 @@ async def get_account(
     return account
 
 
-@router.post("/accounts", response_model=EvaAccountDetailResponse, status_code=201)
+@router.post("/accounts", response_model=EvaAccountProvisionResponse, status_code=201)
 async def create_account(
     data: EvaAccountCreateRequest,
     eva_db: AsyncSession = Depends(get_eva_db),
@@ -332,7 +335,21 @@ async def create_account(
             "Account provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
-    return account
+    try:
+        onboarding = await build_account_onboarding(
+            owner_email=normalized_owner_email,
+            owner_name=data.owner_name,
+            account_name=data.name,
+            send_setup_email=data.send_setup_email,
+        )
+    except SupabaseAdminError as exc:
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return EvaAccountProvisionResponse(
+        account=EvaAccountDetailResponse.model_validate(account),
+        onboarding=onboarding,
+    )
 
 
 # ── Draft Accounts (ERP DB) ─────────────────────────────
@@ -399,7 +416,7 @@ async def update_draft(
     return draft
 
 
-@router.post("/drafts/{draft_id}/approve", response_model=AccountDraftResponse)
+@router.post("/drafts/{draft_id}/approve", response_model=AccountDraftProvisionResponse)
 async def approve_draft(
     draft_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -506,7 +523,25 @@ async def approve_draft(
             "Account provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
-    return draft
+    try:
+        onboarding = await build_account_onboarding(
+            owner_email=normalized_owner_email,
+            owner_name=draft.owner_name,
+            account_name=draft.name,
+            send_setup_email=True,
+        )
+    except SupabaseAdminError as exc:
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    if draft.provisioned_account_id is None:
+        raise HTTPException(status_code=500, detail="Account provisioning succeeded but no account id was returned.")
+
+    return AccountDraftProvisionResponse(
+        draft=AccountDraftResponse.model_validate(draft),
+        account_id=draft.provisioned_account_id,
+        onboarding=onboarding,
+    )
 
 
 @router.delete("/accounts/{account_id}")

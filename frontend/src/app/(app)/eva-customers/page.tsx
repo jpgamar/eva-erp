@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Plus, Search, Building2, FileText, Trash2, Check,
   ExternalLink, CheckCircle2, Handshake, DollarSign, TrendingDown,
-  CalendarDays, CreditCard, Hash, User2, ShieldAlert, RefreshCw,
+  CalendarDays, CreditCard, Hash, User2, ShieldAlert, RefreshCw, Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
@@ -15,6 +15,7 @@ import type {
   PlatformDashboard,
   AccountPricing,
   AccountPricingCoverage,
+  AccountOnboarding,
 } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,11 +34,6 @@ const TABS = [
   { key: "active", label: "Active Accounts" },
   { key: "drafts", label: "Draft Accounts" },
 ];
-
-const STATUS_COLORS: Record<string, string> = {
-  active: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
-  inactive: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
-};
 
 const DRAFT_STATUS_COLORS: Record<string, string> = {
   draft: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
@@ -60,6 +56,7 @@ const INITIAL_ACCOUNT_FORM = {
   plan_tier: "starter",
   billing_cycle: "monthly",
   facturapi_org_api_key: "",
+  send_setup_email: true,
 };
 
 const INITIAL_DRAFT_FORM = {
@@ -163,6 +160,16 @@ export default function EvaCustomersPage() {
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [savingPricing, setSavingPricing] = useState(false);
+  const [accountOnboarding, setAccountOnboarding] = useState<AccountOnboarding | null>(null);
+
+  const copyOnboardingLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Setup link copied");
+    } catch {
+      toast.error("Failed to copy setup link");
+    }
+  };
 
 
   const fetchData = async () => {
@@ -198,16 +205,20 @@ export default function EvaCustomersPage() {
     if (creatingAccount) return;
     setCreatingAccount(true);
     try {
-      await evaPlatformApi.createAccount({
+      const result = await evaPlatformApi.createAccount({
         ...accountForm,
         name: accountForm.name.trim(),
         owner_email: accountForm.owner_email.trim().toLowerCase(),
         owner_name: accountForm.owner_name.trim(),
         facturapi_org_api_key: accountForm.facturapi_org_api_key || null,
       });
-      toast.success("Account created successfully");
-      setAddAccountOpen(false);
-      setAccountForm({ ...INITIAL_ACCOUNT_FORM });
+      setAccountOnboarding(result.onboarding);
+      setAccountForm({ ...INITIAL_ACCOUNT_FORM, name: accountForm.name.trim() });
+      if (result.onboarding.email_status === "sent") {
+        toast.success("Account created and setup email sent");
+      } else {
+        toast.success("Account created. Share setup link manually.");
+      }
       await fetchData();
     } catch (e: any) {
       toast.error(getApiErrorMessage(e, "Failed to create account"));
@@ -423,7 +434,10 @@ export default function EvaCustomersPage() {
           <Button
             size="sm"
             className="rounded-lg bg-accent hover:bg-accent/90 text-white"
-            onClick={() => setAddAccountOpen(true)}
+            onClick={() => {
+              setAccountOnboarding(null);
+              setAddAccountOpen(true);
+            }}
           >
             <Plus className="h-4 w-4 mr-2" /> New Account
           </Button>
@@ -1037,7 +1051,13 @@ export default function EvaCustomersPage() {
       </Dialog>
 
       {/* New Account Dialog */}
-      <Dialog open={addAccountOpen} onOpenChange={setAddAccountOpen}>
+      <Dialog
+        open={addAccountOpen}
+        onOpenChange={(open) => {
+          setAddAccountOpen(open);
+          if (!open) setAccountOnboarding(null);
+        }}
+      >
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
           <div className="border-b border-border bg-gray-50/80 px-6 py-4">
             <DialogHeader>
@@ -1142,6 +1162,47 @@ export default function EvaCustomersPage() {
                 />
               </div>
             </div>
+            <label className="flex items-center gap-2 rounded-lg border border-border bg-gray-50/70 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={accountForm.send_setup_email}
+                onChange={(e) => setAccountForm((f) => ({ ...f, send_setup_email: e.target.checked }))}
+              />
+              Send setup email to owner
+            </label>
+            {accountOnboarding && (
+              <div className="rounded-lg border border-border bg-gray-50/80 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">Owner onboarding</p>
+                  <Badge
+                    className={cn(
+                      "rounded-full text-xs",
+                      accountOnboarding.email_status === "sent"
+                        ? "bg-green-100 text-green-700"
+                        : accountOnboarding.email_status === "failed"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-gray-100 text-gray-700",
+                    )}
+                  >
+                    {accountOnboarding.email_status}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  {accountOnboarding.email_message || "Share the setup link with the owner."}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 rounded-lg text-xs"
+                    onClick={() => copyOnboardingLink(accountOnboarding.onboarding_link)}
+                  >
+                    <Copy className="h-3.5 w-3.5 mr-1.5" />
+                    Copy setup link
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"

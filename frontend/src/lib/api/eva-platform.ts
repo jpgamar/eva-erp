@@ -1,7 +1,9 @@
 import api from "./client";
 import type {
   EvaAccount,
+  EvaAccountProvisionResult,
   AccountDraft,
+  AccountDraftProvisionResult,
   MonitoringOverview,
   MonitoringIssue,
   MonitoringCheck,
@@ -9,6 +11,7 @@ import type {
   EvaPartner,
   EvaPartnerDetail,
   PartnerDeal,
+  DealAccountProvisionResult,
   PlatformDashboard,
   AccountPricing,
   AccountPricingCoverage,
@@ -27,7 +30,7 @@ export const evaPlatformApi = {
     api.get("/eva-platform/accounts", { params }).then((r) => r.data),
   getAccount: (id: string): Promise<EvaAccount> =>
     api.get(`/eva-platform/accounts/${id}`).then((r) => r.data),
-  createAccount: (data: Record<string, unknown>): Promise<EvaAccount> =>
+  createAccount: (data: Record<string, unknown>): Promise<EvaAccountProvisionResult> =>
     api.post("/eva-platform/accounts", data).then((r) => r.data),
   listAccountPricing: (params?: { search?: string }): Promise<AccountPricing[]> =>
     api.get("/eva-platform/account-pricing", { params }).then((r) => r.data),
@@ -47,7 +50,7 @@ export const evaPlatformApi = {
     api.post("/eva-platform/drafts", data).then((r) => r.data),
   updateDraft: (id: string, data: Record<string, unknown>): Promise<AccountDraft> =>
     api.patch(`/eva-platform/drafts/${id}`, data).then((r) => r.data),
-  approveDraft: (id: string): Promise<AccountDraft> =>
+  approveDraft: (id: string): Promise<AccountDraftProvisionResult> =>
     api.post(`/eva-platform/drafts/${id}/approve`).then((r) => r.data),
   deleteDraft: (id: string): Promise<void> =>
     api.delete(`/eva-platform/drafts/${id}`).then((r) => r.data),
@@ -91,7 +94,7 @@ export const evaPlatformApi = {
     api.post(`/eva-platform/deals/${id}/won`).then((r) => r.data),
   markDealLost: (id: string, reason?: string): Promise<PartnerDeal> =>
     api.post(`/eva-platform/deals/${id}/lost`, { reason }).then((r) => r.data),
-  createAccountFromDeal: (id: string, data: Record<string, unknown>): Promise<PartnerDeal> =>
+  createAccountFromDeal: (id: string, data: Record<string, unknown>): Promise<DealAccountProvisionResult> =>
     api.post(`/eva-platform/deals/${id}/create-account`, data).then((r) => r.data),
 
   // Impersonation

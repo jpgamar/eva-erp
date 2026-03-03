@@ -60,3 +60,10 @@ SendGrid check for FMAccesorios hits the FM ERP health endpoint
 - Checks are persisted into `admin_monitoring_checks`.
 - Incidents are managed in `admin_monitoring_issues`.
 - If Eva DB is not configured, monitoring endpoints still return live service checks, but issue/check history will be empty.
+
+## Account Onboarding Email (New)
+
+- EVA ERP account provisioning now generates an owner setup link and attempts setup-email delivery.
+- Email delivery uses `SENDGRID_API_KEY` from backend environment.
+- If SendGrid is missing/unavailable, account provisioning still succeeds and returns onboarding data with `email_status=failed`.
+- Operators should copy/share the `onboarding_link` fallback shown in the ERP UI when email delivery fails.

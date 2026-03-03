@@ -47,6 +47,19 @@ class EvaAccountCreateRequest(BaseModel):
     billing_cycle: str = "MONTHLY"
     facturapi_org_api_key: str | None = None
     temporary_password: str | None = None
+    send_setup_email: bool = True
+
+
+class AccountOnboardingResponse(BaseModel):
+    owner_email: str
+    onboarding_link: str
+    email_status: str  # sent | failed | skipped
+    email_message: str | None = None
+
+
+class EvaAccountProvisionResponse(BaseModel):
+    account: EvaAccountDetailResponse
+    onboarding: AccountOnboardingResponse
 
 
 # ── Account Drafts ───────────────────────────────────────
@@ -105,6 +118,12 @@ class AccountDraftResponse(BaseModel):
     created_at: _dt.datetime
     updated_at: _dt.datetime
     model_config = {"from_attributes": True}
+
+
+class AccountDraftProvisionResponse(BaseModel):
+    draft: AccountDraftResponse
+    account_id: uuid.UUID
+    onboarding: AccountOnboardingResponse
 
 
 class AccountPricingResponse(BaseModel):
@@ -314,6 +333,13 @@ class DealAccountCreateRequest(BaseModel):
     owner_email: str
     plan_tier: str = "STANDARD"
     temporary_password: str | None = None
+    send_setup_email: bool = True
+
+
+class DealAccountProvisionResponse(BaseModel):
+    deal: DealResponse
+    account_id: uuid.UUID
+    onboarding: AccountOnboardingResponse
 
 
 # ── Impersonation ────────────────────────────────────────

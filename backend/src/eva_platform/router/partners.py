@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_eva_db
+from src.eva_platform.onboarding import build_account_onboarding
 from src.eva_platform.models import (
     EvaAccount,
     EvaAccountUser,
@@ -22,6 +23,7 @@ from src.eva_platform.models import (
 )
 from src.eva_platform.schemas import (
     DealAccountCreateRequest,
+    DealAccountProvisionResponse,
     DealCreateRequest,
     DealLostRequest,
     DealResponse,
@@ -372,7 +374,7 @@ async def mark_deal_lost(
     return deal
 
 
-@router.post("/deals/{deal_id}/create-account", response_model=DealResponse)
+@router.post("/deals/{deal_id}/create-account", response_model=DealAccountProvisionResponse)
 async def create_account_from_deal(
     deal_id: uuid.UUID,
     data: DealAccountCreateRequest,
@@ -456,4 +458,19 @@ async def create_account_from_deal(
             "Account provisioning failed after auth user creation. Please contact support.",
         ) from exc
 
-    return deal
+    try:
+        onboarding = await build_account_onboarding(
+            owner_email=normalized_owner_email,
+            owner_name=data.name,
+            account_name=data.name,
+            send_setup_email=data.send_setup_email,
+        )
+    except SupabaseAdminError as exc:
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return DealAccountProvisionResponse(
+        deal=DealResponse.model_validate(deal),
+        account_id=account.id,
+        onboarding=onboarding,
+    )

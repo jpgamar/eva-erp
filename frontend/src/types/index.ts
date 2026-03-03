@@ -380,6 +380,18 @@ export interface EvaAccount {
   updated_at: string;
 }
 
+export interface AccountOnboarding {
+  owner_email: string;
+  onboarding_link: string;
+  email_status: "sent" | "failed" | "skipped";
+  email_message: string | null;
+}
+
+export interface EvaAccountProvisionResult {
+  account: EvaAccount;
+  onboarding: AccountOnboarding;
+}
+
 export interface AccountDraft {
   id: string;
   name: string;
@@ -505,6 +517,18 @@ export interface PartnerDeal {
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DealAccountProvisionResult {
+  deal: PartnerDeal;
+  account_id: string;
+  onboarding: AccountOnboarding;
+}
+
+export interface AccountDraftProvisionResult {
+  draft: AccountDraft;
+  account_id: string;
+  onboarding: AccountOnboarding;
 }
 
 export interface PlatformDashboard {

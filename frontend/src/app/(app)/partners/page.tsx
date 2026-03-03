@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import {
   Plus, Search, Handshake, ExternalLink, CheckCircle2,
-  FileText, Users,
+  FileText, Users, Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
-import type { EvaPartner, EvaPartnerDetail, PartnerDeal, EvaAccount } from "@/types";
+import type { EvaPartner, EvaPartnerDetail, PartnerDeal, EvaAccount, AccountOnboarding } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +61,13 @@ const INITIAL_FORM = {
   contact_email: "",
 };
 
+const INITIAL_DEAL_ACCOUNT_FORM = {
+  name: "",
+  owner_email: "",
+  plan_tier: "STANDARD",
+  send_setup_email: true,
+};
+
 /* ---------- Component ---------- */
 
 export default function PartnersPage() {
@@ -78,6 +85,20 @@ export default function PartnersPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<EvaPartnerDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [dealAccountOpen, setDealAccountOpen] = useState(false);
+  const [activeDealForAccount, setActiveDealForAccount] = useState<PartnerDeal | null>(null);
+  const [creatingDealAccount, setCreatingDealAccount] = useState(false);
+  const [dealAccountForm, setDealAccountForm] = useState({ ...INITIAL_DEAL_ACCOUNT_FORM });
+  const [dealOnboarding, setDealOnboarding] = useState<AccountOnboarding | null>(null);
+
+  const copyOnboardingLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Setup link copied");
+    } catch {
+      toast.error("Failed to copy setup link");
+    }
+  };
 
   /* ---- Computed KPIs ---- */
   const totalPartners = partners.length;
@@ -179,13 +200,44 @@ export default function PartnersPage() {
     }
   };
 
-  const handleCreateAccount = async (deal: PartnerDeal) => {
+  const handleCreateAccount = (deal: PartnerDeal) => {
+    setActiveDealForAccount(deal);
+    setDealOnboarding(null);
+    setDealAccountForm({
+      name: deal.company_name || "",
+      owner_email: deal.contact_email || "",
+      plan_tier: String(deal.plan_tier || "STANDARD").toUpperCase(),
+      send_setup_email: true,
+    });
+    setDealAccountOpen(true);
+  };
+
+  const handleSubmitDealAccount = async () => {
+    if (!activeDealForAccount) return;
+    if (!dealAccountForm.name.trim() || !dealAccountForm.owner_email.trim()) {
+      toast.error("Account name and owner email are required.");
+      return;
+    }
+
+    setCreatingDealAccount(true);
     try {
-      await evaPlatformApi.createAccountFromDeal(deal.id, {});
-      toast.success(`Account created from deal "${deal.company_name}"`);
+      const result = await evaPlatformApi.createAccountFromDeal(activeDealForAccount.id, {
+        name: dealAccountForm.name.trim(),
+        owner_email: dealAccountForm.owner_email.trim().toLowerCase(),
+        plan_tier: dealAccountForm.plan_tier,
+        send_setup_email: dealAccountForm.send_setup_email,
+      });
+      setDealOnboarding(result.onboarding);
+      toast.success(
+        result.onboarding.email_status === "sent"
+          ? `Account created for "${activeDealForAccount.company_name}" and setup email sent`
+          : `Account created for "${activeDealForAccount.company_name}". Share setup link manually.`,
+      );
       if (detail) await refreshDetail(detail.id);
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed to create account from deal");
+    } finally {
+      setCreatingDealAccount(false);
     }
   };
 
@@ -705,6 +757,140 @@ export default function PartnersPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {/* Deal Create Account Dialog */}
+      <Dialog
+        open={dealAccountOpen}
+        onOpenChange={(open) => {
+          setDealAccountOpen(open);
+          if (!open) {
+            setActiveDealForAccount(null);
+            setDealOnboarding(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-foreground">
+                Create Account from Deal
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted">
+              {activeDealForAccount ? activeDealForAccount.company_name : "Confirm owner details before provisioning"}
+            </p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSubmitDealAccount();
+            }}
+            className="space-y-3 px-6 py-4"
+          >
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Account Name *
+              </Label>
+              <Input
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={dealAccountForm.name}
+                onChange={(e) => setDealAccountForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Owner Email *
+              </Label>
+              <Input
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                type="email"
+                value={dealAccountForm.owner_email}
+                onChange={(e) => setDealAccountForm((f) => ({ ...f, owner_email: e.target.value }))}
+                required
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Plan Tier *
+              </Label>
+              <Select
+                value={dealAccountForm.plan_tier}
+                onValueChange={(value) => setDealAccountForm((f) => ({ ...f, plan_tier: value }))}
+              >
+                <SelectTrigger className="mt-1.5 rounded-lg">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="STARTER">Starter</SelectItem>
+                  <SelectItem value="STANDARD">Standard</SelectItem>
+                  <SelectItem value="PRO">Pro</SelectItem>
+                  <SelectItem value="CUSTOM">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-border bg-gray-50/70 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={dealAccountForm.send_setup_email}
+                onChange={(e) =>
+                  setDealAccountForm((f) => ({ ...f, send_setup_email: e.target.checked }))
+                }
+              />
+              Send setup email to owner
+            </label>
+
+            {dealOnboarding && (
+              <div className="rounded-lg border border-border bg-gray-50/80 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">Owner onboarding</p>
+                  <Badge
+                    className={
+                      dealOnboarding.email_status === "sent"
+                        ? "rounded-full text-xs bg-green-100 text-green-700"
+                        : dealOnboarding.email_status === "failed"
+                          ? "rounded-full text-xs bg-amber-100 text-amber-700"
+                          : "rounded-full text-xs bg-gray-100 text-gray-700"
+                    }
+                  >
+                    {dealOnboarding.email_status}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  {dealOnboarding.email_message || "Share the setup link with the owner."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-3 h-8 rounded-lg text-xs"
+                  onClick={() => copyOnboardingLink(dealOnboarding.onboarding_link)}
+                >
+                  <Copy className="h-3.5 w-3.5 mr-1.5" />
+                  Copy setup link
+                </Button>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-lg"
+                onClick={() => setDealAccountOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="rounded-lg bg-accent hover:bg-accent/90 text-white"
+                disabled={creatingDealAccount}
+              >
+                {creatingDealAccount ? "Creating..." : "Create Account"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Partner Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
