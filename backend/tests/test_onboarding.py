@@ -36,6 +36,13 @@ def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
 
 def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypatch):
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
+    called = {"recovery": False}
+
+    async def _recovery_ok(email: str):
+        called["recovery"] = True
+        assert email == "owner@example.com"
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _recovery_ok)
 
     original_key = settings.sendgrid_api_key
     settings.sendgrid_api_key = ""
@@ -51,6 +58,36 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypat
     finally:
         settings.sendgrid_api_key = original_key
 
+    assert called["recovery"] is True
+    assert result.email_status == "sent"
+    assert "supabase" in (result.email_message or "").lower()
+
+
+def test_build_account_onboarding_returns_failed_when_fallback_also_fails(monkeypatch):
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
+    called = {"recovery": False}
+
+    async def _recovery_fail(email: str):
+        called["recovery"] = True
+        raise SupabaseAdminError("recover endpoint failed")
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _recovery_fail)
+
+    original_key = settings.sendgrid_api_key
+    settings.sendgrid_api_key = ""
+    try:
+        result = asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                account_name="Acme",
+                send_setup_email=True,
+            )
+        )
+    finally:
+        settings.sendgrid_api_key = original_key
+
+    assert called["recovery"] is True
     assert result.email_status == "failed"
     assert "share" in (result.email_message or "").lower()
 

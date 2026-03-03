@@ -261,6 +261,28 @@ class SupabaseAdminClient:
         raise SupabaseAdminError(f"Failed to generate link: {msg}")
 
     @classmethod
+    async def send_recovery_email(cls, email: str) -> None:
+        """Trigger Supabase Auth password recovery email for an existing user."""
+        normalized_email = email.strip().lower()
+        payload = {"email": normalized_email}
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await cls._request_with_retries(
+                client,
+                "POST",
+                f"{cls._base_url()}/auth/v1/recover",
+                headers=cls._headers(),
+                json=payload,
+            )
+
+        if resp.status_code in {200, 202}:
+            return
+
+        msg, _ = cls._extract_error(resp)
+        logger.error("Supabase send_recovery_email failed: %s %s", resp.status_code, msg)
+        raise SupabaseAdminError(f"Failed to send recovery email: {msg}")
+
+    @classmethod
     async def _lookup_user_by_email(cls, email: str) -> dict[str, Any] | None:
         """Search Supabase admin users for matching email."""
         normalized = email.strip().lower()
