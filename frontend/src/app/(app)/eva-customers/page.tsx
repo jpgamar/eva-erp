@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Plus, Search, Building2, FileText, Trash2, Check,
   ExternalLink, CheckCircle2, Handshake, DollarSign, TrendingDown,
-  CalendarDays, CreditCard, Hash, User2, ShieldAlert, RefreshCw, Copy,
+  CalendarDays, CreditCard, Hash, User2, ShieldAlert, RefreshCw, Copy, Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 import { evaPlatformApi } from "@/lib/api/eva-platform";
@@ -162,6 +162,7 @@ export default function EvaCustomersPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [savingPricing, setSavingPricing] = useState(false);
   const [accountOnboarding, setAccountOnboarding] = useState<AccountOnboarding | null>(null);
+  const [resendingOnboardingFor, setResendingOnboardingFor] = useState<string | null>(null);
 
   const copyOnboardingLink = async (link: string) => {
     try {
@@ -277,6 +278,28 @@ export default function EvaCustomersPage() {
       window.open(result.magic_link_url, "_blank", "noopener,noreferrer");
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed to impersonate account");
+    }
+  };
+
+  const handleResendOnboarding = async (account: EvaAccount) => {
+    if (resendingOnboardingFor === account.id) return;
+    setResendingOnboardingFor(account.id);
+    try {
+      const onboarding = await evaPlatformApi.resendAccountOnboarding(account.id, { send_setup_email: true });
+      if (onboarding.email_status === "sent") {
+        toast.success(`Setup email sent to ${onboarding.owner_email}`);
+      } else {
+        try {
+          await navigator.clipboard.writeText(onboarding.onboarding_link);
+          toast.warning("Setup email failed. Link copied to clipboard.");
+        } catch {
+          toast.warning("Setup email failed. Copy the setup link manually.");
+        }
+      }
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to resend setup email"));
+    } finally {
+      setResendingOnboardingFor(null);
     }
   };
 
@@ -606,7 +629,7 @@ export default function EvaCustomersPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Billing</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[240px]">Actions</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[320px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -659,6 +682,16 @@ export default function EvaCustomersPage() {
                           >
                             <DollarSign className="h-3 w-3 mr-1" />
                             Set Price
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => handleResendOnboarding(a)}
+                            disabled={resendingOnboardingFor === a.id}
+                          >
+                            <Mail className="h-3 w-3 mr-1" />
+                            {resendingOnboardingFor === a.id ? "Sending..." : "Resend Setup"}
                           </Button>
                         </div>
                       </TableCell>
@@ -723,6 +756,16 @@ export default function EvaCustomersPage() {
                           >
                             <ExternalLink className="h-3 w-3 mr-1" />
                             Impersonate
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => handleResendOnboarding(a)}
+                            disabled={resendingOnboardingFor === a.id}
+                          >
+                            <Mail className="h-3 w-3 mr-1" />
+                            {resendingOnboardingFor === a.id ? "Sending..." : "Resend Setup"}
                           </Button>
                         </div>
                       </TableCell>
@@ -962,6 +1005,15 @@ export default function EvaCustomersPage() {
                 >
                   <ExternalLink className="h-4 w-4 mr-2" />
                   Impersonate Account
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full rounded-lg border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                  onClick={() => handleResendOnboarding(selectedAccount)}
+                  disabled={resendingOnboardingFor === selectedAccount.id}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  {resendingOnboardingFor === selectedAccount.id ? "Sending setup email..." : "Resend Setup Email"}
                 </Button>
                 {selectedAccount.is_active ? (
                   <Button

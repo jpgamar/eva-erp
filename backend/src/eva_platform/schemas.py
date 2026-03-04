@@ -57,6 +57,10 @@ class AccountOnboardingResponse(BaseModel):
     email_message: str | None = None
 
 
+class ResendAccountOnboardingRequest(BaseModel):
+    send_setup_email: bool = True
+
+
 class EvaAccountProvisionResponse(BaseModel):
     account: EvaAccountDetailResponse
     onboarding: AccountOnboardingResponse

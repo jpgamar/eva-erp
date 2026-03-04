@@ -2,6 +2,7 @@ import api from "./client";
 import type {
   EvaAccount,
   EvaAccountProvisionResult,
+  AccountOnboarding,
   AccountDraft,
   AccountDraftProvisionResult,
   MonitoringOverview,
@@ -32,6 +33,11 @@ export const evaPlatformApi = {
     api.get(`/eva-platform/accounts/${id}`).then((r) => r.data),
   createAccount: (data: Record<string, unknown>): Promise<EvaAccountProvisionResult> =>
     api.post("/eva-platform/accounts", data).then((r) => r.data),
+  resendAccountOnboarding: (
+    id: string,
+    data: { send_setup_email?: boolean } = { send_setup_email: true },
+  ): Promise<AccountOnboarding> =>
+    api.post(`/eva-platform/accounts/${id}/resend-onboarding`, data).then((r) => r.data),
   listAccountPricing: (params?: { search?: string }): Promise<AccountPricing[]> =>
     api.get("/eva-platform/account-pricing", { params }).then((r) => r.data),
   updateAccountPricing: (accountId: string, data: Record<string, unknown>): Promise<AccountPricing> =>

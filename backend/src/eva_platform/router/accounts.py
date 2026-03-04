@@ -19,6 +19,7 @@ from src.eva_platform.models import EvaAccount, EvaAccountUser
 from src.eva_platform.drafts.models import AccountDraft
 from src.eva_platform.pricing_models import AccountPricingProfile
 from src.eva_platform.schemas import (
+    AccountOnboardingResponse,
     AccountPricingCoverageResponse,
     AccountPricingResponse,
     AccountPricingUpdateRequest,
@@ -30,6 +31,7 @@ from src.eva_platform.schemas import (
     EvaAccountDetailResponse,
     EvaAccountProvisionResponse,
     EvaAccountResponse,
+    ResendAccountOnboardingRequest,
 )
 from src.eva_platform.provisioning_utils import (
     ensure_owner_user_is_available,
@@ -50,6 +52,45 @@ logger = logging.getLogger(__name__)
 
 VALID_BILLING_CURRENCIES = {"MXN", "USD"}
 VALID_BILLING_INTERVALS = {"MONTHLY", "ANNUAL"}
+
+
+def _normalize_account_user_role(role: str | None) -> str:
+    return (role or "").strip().upper()
+
+
+def _normalize_account_user_status(status: str | None) -> str:
+    return (status or "").strip().upper()
+
+
+def _build_owner_candidates(account: EvaAccount, users: list[EvaAccountUser]) -> list[EvaAccountUser]:
+    """Return deterministic owner candidates (best -> worst)."""
+    account_owner_user_id = (account.owner_user_id or "").strip()
+    ranked: list[tuple[int, int, EvaAccountUser]] = []
+
+    for idx, candidate in enumerate(users):
+        email = (candidate.email or "").strip()
+        if not email:
+            continue
+
+        matches_owner_user_id = bool(account_owner_user_id) and candidate.user_id == account_owner_user_id
+        is_owner_role = _normalize_account_user_role(candidate.role) == "OWNER"
+        is_active = _normalize_account_user_status(candidate.status) == "ACTIVE"
+
+        if matches_owner_user_id and is_active:
+            rank = 0
+        elif is_owner_role and is_active:
+            rank = 1
+        elif matches_owner_user_id:
+            rank = 2
+        elif is_owner_role:
+            rank = 3
+        else:
+            continue
+
+        ranked.append((rank, idx, candidate))
+
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in ranked]
 
 
 def _normalize_billing_currency(value: str | None) -> str:
@@ -443,6 +484,49 @@ async def get_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     return account
+
+
+@router.post("/accounts/{account_id}/resend-onboarding", response_model=AccountOnboardingResponse)
+async def resend_account_onboarding(
+    account_id: uuid.UUID,
+    data: ResendAccountOnboardingRequest,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    _user: User = Depends(get_current_user),
+):
+    result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    users_result = await eva_db.execute(
+        select(EvaAccountUser).where(EvaAccountUser.account_id == account_id).order_by(
+            EvaAccountUser.created_at.asc(),
+            EvaAccountUser.id.asc(),
+        )
+    )
+    account_users = list(users_result.scalars().all())
+    owner_candidates = _build_owner_candidates(account, account_users)
+    if not owner_candidates:
+        raise HTTPException(status_code=404, detail="No owner user found for this account")
+
+    owner = owner_candidates[0]
+    owner_email = (owner.email or "").strip().lower()
+    owner_name = (owner.display_name or "").strip()
+    if not owner_email:
+        raise HTTPException(status_code=422, detail="Owner user is missing a valid email")
+
+    try:
+        onboarding = await build_account_onboarding(
+            owner_email=owner_email,
+            owner_name=owner_name,
+            product_label=resolve_product_label(normalize_account_type(account.account_type)),
+            send_setup_email=data.send_setup_email,
+        )
+    except SupabaseAdminError as exc:
+        status_code, detail = map_supabase_error_to_http(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return onboarding
 
 
 @router.post("/accounts", response_model=EvaAccountProvisionResponse, status_code=201)
