@@ -1,12 +1,14 @@
 """Eva Customers: real accounts (Eva DB) + draft accounts (ERP DB)."""
 
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
@@ -104,6 +106,20 @@ def _build_account_pricing_response(
         created_at=profile.created_at if profile else None,
         updated_at=profile.updated_at if profile else None,
     )
+
+
+def _map_permanent_delete_error(exc: IntegrityError) -> HTTPException:
+    """Map DB integrity failures for permanent delete into actionable API errors."""
+    original = str(getattr(exc, "orig", exc))
+    lowered = original.lower()
+    if "foreign key constraint" in lowered:
+        table_matches = re.findall(r'on table "([^"]+)"', original, flags=re.IGNORECASE)
+        table_name = table_matches[-1] if table_matches else None
+        detail = "Cannot permanently delete account because related records still exist"
+        if table_name:
+            detail = f"{detail} (blocking table: {table_name})"
+        return HTTPException(status_code=409, detail=detail)
+    return HTTPException(status_code=500, detail="Failed to permanently delete account")
 
 
 # ── Real Accounts (Eva DB) ───────────────────────────────
@@ -578,10 +594,15 @@ async def permanently_delete_account(
     if account.is_active:
         raise HTTPException(status_code=400, detail="Deactivate the account before deleting permanently")
     # Delete associated account_users first
-    await eva_db.execute(
-        EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
-    )
-    await eva_db.delete(account)
+    try:
+        await eva_db.execute(
+            EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
+        )
+        await eva_db.delete(account)
+        # Force constraint checks here so we can map DB errors to a clear API response.
+        await eva_db.flush()
+    except IntegrityError as exc:
+        raise _map_permanent_delete_error(exc) from exc
     return {"message": f"Account '{account.name}' permanently deleted"}
 
 
