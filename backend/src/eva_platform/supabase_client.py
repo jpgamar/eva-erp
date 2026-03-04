@@ -232,6 +232,7 @@ class SupabaseAdminClient:
         cls,
         email: str,
         link_type: str = "magiclink",
+        redirect_to: str | None = None,
     ) -> str:
         """Generate a magic link URL for a Supabase user.
 
@@ -242,6 +243,9 @@ class SupabaseAdminClient:
             "email": normalized_email,
             "type": link_type,
         }
+        redirect_url = (redirect_to or "").strip()
+        if redirect_url:
+            payload["redirect_to"] = redirect_url
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await cls._request_with_retries(
@@ -261,10 +265,14 @@ class SupabaseAdminClient:
         raise SupabaseAdminError(f"Failed to generate link: {msg}")
 
     @classmethod
-    async def send_recovery_email(cls, email: str) -> None:
+    async def send_recovery_email(cls, email: str, redirect_to: str | None = None) -> None:
         """Trigger Supabase Auth password recovery email for an existing user."""
         normalized_email = email.strip().lower()
         payload = {"email": normalized_email}
+        params: dict[str, str] = {}
+        redirect_url = (redirect_to or "").strip()
+        if redirect_url:
+            params["redirect_to"] = redirect_url
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await cls._request_with_retries(
@@ -273,6 +281,7 @@ class SupabaseAdminClient:
                 f"{cls._base_url()}/auth/v1/recover",
                 headers=cls._headers(),
                 json=payload,
+                params=params or None,
             )
 
         if resp.status_code in {200, 202}:

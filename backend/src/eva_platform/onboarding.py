@@ -25,10 +25,12 @@ async def build_account_onboarding(
     Setup link generation is required for a successful response. Email delivery
     is best-effort and falls back to manual sharing.
     """
+    redirect_to = (settings.eva_app_onboarding_redirect_url or "").strip() or None
     try:
         onboarding_link = await SupabaseAdminClient.admin_generate_link(
             email=owner_email,
             link_type="recovery",
+            redirect_to=redirect_to,
         )
     except SupabaseAdminError as exc:
         raise exc
@@ -66,9 +68,11 @@ async def _send_setup_email(
     product_label: str,
     onboarding_link: str,
 ) -> tuple[bool, str]:
+    redirect_to = (settings.eva_app_onboarding_redirect_url or "").strip() or None
+
     async def _send_via_supabase_fallback(reason: str) -> tuple[bool, str]:
         try:
-            await SupabaseAdminClient.send_recovery_email(owner_email)
+            await SupabaseAdminClient.send_recovery_email(owner_email, redirect_to=redirect_to)
             logger.info("Setup email fallback sent via Supabase Auth for %s (%s)", owner_email, reason)
             return True, "Setup email sent via Supabase fallback."
         except SupabaseAdminError as exc:

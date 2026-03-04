@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     sendgrid_from_name: str = "Eva ERP"
     sendgrid_reply_to: str = "hi@goeva.ai"
     sendgrid_logo_url: str = "https://app.goeva.ai/favicon.ico"
+    eva_app_onboarding_redirect_url: str = "https://app.goeva.ai/login?redirect=%2Fdashboard"
 
     # Facturapi (CFDI electronic invoicing)
     facturapi_api_key: str = ""

@@ -7,9 +7,15 @@ from src.eva_platform import onboarding
 from src.eva_platform.supabase_client import SupabaseAdminError
 
 
-async def _fake_generate_link(*, email: str, link_type: str = "recovery") -> str:
+async def _fake_generate_link(
+    *,
+    email: str,
+    link_type: str = "recovery",
+    redirect_to: str | None = None,
+) -> str:
     assert email
     assert link_type
+    assert redirect_to
     return "https://example.com/setup-link"
 
 
@@ -38,9 +44,10 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypat
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
     called = {"recovery": False}
 
-    async def _recovery_ok(email: str):
+    async def _recovery_ok(email: str, redirect_to: str | None = None):
         called["recovery"] = True
         assert email == "owner@example.com"
+        assert redirect_to == settings.eva_app_onboarding_redirect_url
 
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _recovery_ok)
 
@@ -67,8 +74,9 @@ def test_build_account_onboarding_returns_failed_when_fallback_also_fails(monkey
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
     called = {"recovery": False}
 
-    async def _recovery_fail(email: str):
+    async def _recovery_fail(email: str, redirect_to: str | None = None):
         called["recovery"] = True
+        assert redirect_to == settings.eva_app_onboarding_redirect_url
         raise SupabaseAdminError("recover endpoint failed")
 
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _recovery_fail)
@@ -111,6 +119,33 @@ def test_build_account_onboarding_reports_sent_status(monkeypatch):
 
     assert result.email_status == "sent"
     assert result.email_message == "Setup email sent successfully."
+
+
+def test_build_account_onboarding_passes_redirect_to_supabase(monkeypatch):
+    observed: dict[str, str | None] = {"redirect_to": None}
+
+    async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
+        observed["redirect_to"] = redirect_to
+        return "https://example.com/setup-link"
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _capture_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "ok"
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    result = asyncio.run(
+        onboarding.build_account_onboarding(
+            owner_email="owner@example.com",
+            owner_name="Owner",
+            product_label="Eva Commerce",
+            send_setup_email=True,
+        )
+    )
+
+    assert result.onboarding_link == "https://example.com/setup-link"
+    assert observed["redirect_to"] == settings.eva_app_onboarding_redirect_url
 
 
 def test_build_account_onboarding_raises_when_setup_link_missing(monkeypatch):
