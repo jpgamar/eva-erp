@@ -89,6 +89,17 @@ def test_map_permanent_delete_error_last_won_stage_to_409() -> None:
     assert "last won stage" in mapped.detail.lower()
 
 
+def test_map_permanent_delete_error_generic_cannot_delete_to_409() -> None:
+    exc = _dbapi_error("Cannot delete account while active rents pipeline state exists")
+
+    mapped = _map_permanent_delete_error(exc)
+
+    assert isinstance(mapped, HTTPException)
+    assert mapped.status_code == 409
+    assert "related records still exist" in mapped.detail.lower()
+    assert "reason:" in mapped.detail.lower()
+
+
 def test_is_last_won_stage_delete_error_detects_raise_error_message() -> None:
     exc = _dbapi_error("Cannot delete the last won stage in a pipeline")
     assert _is_last_won_stage_delete_error(exc) is True

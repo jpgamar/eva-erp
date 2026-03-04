@@ -110,8 +110,10 @@ def _build_account_pricing_response(
 
 def _map_permanent_delete_error(exc: Exception) -> HTTPException:
     """Map DB integrity failures for permanent delete into actionable API errors."""
-    original = str(getattr(exc, "orig", exc))
+    original = str(getattr(exc, "orig", exc)).strip()
     lowered = original.lower()
+    table_matches = re.findall(r'on table "([^"]+)"', original, flags=re.IGNORECASE)
+    table_name = table_matches[-1] if table_matches else None
     if "cannot delete the last won stage in a pipeline" in lowered:
         return HTTPException(
             status_code=409,
@@ -121,11 +123,27 @@ def _map_permanent_delete_error(exc: Exception) -> HTTPException:
             ),
         )
     if "foreign key constraint" in lowered:
-        table_matches = re.findall(r'on table "([^"]+)"', original, flags=re.IGNORECASE)
-        table_name = table_matches[-1] if table_matches else None
         detail = "Cannot permanently delete account because related records still exist"
         if table_name:
             detail = f"{detail} (blocking table: {table_name})"
+        return HTTPException(status_code=409, detail=detail)
+    if any(
+        token in lowered
+        for token in (
+            "cannot delete",
+            "delete is blocked",
+            "is still referenced",
+            "dependent objects still exist",
+            "violates",
+            "constraint",
+        )
+    ):
+        detail = "Cannot permanently delete account because related records still exist"
+        if table_name:
+            detail = f"{detail} (blocking table: {table_name})"
+        reason = original.splitlines()[0][:180]
+        if reason:
+            detail = f"{detail}. Reason: {reason}"
         return HTTPException(status_code=409, detail=detail)
     return HTTPException(status_code=500, detail="Failed to permanently delete account")
 
@@ -699,21 +717,28 @@ async def permanently_delete_account(
         await eva_db.flush()
     except SQLAlchemyError as exc:
         if _is_last_won_stage_delete_error(exc):
-            await eva_db.rollback()
-            cleaned = await _cleanup_pipeline_stage_account_refs(eva_db, account_id)
-            if cleaned:
-                retry_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
-                retry_account = retry_result.scalar_one_or_none()
-                if retry_account and not retry_account.is_active:
-                    try:
-                        await eva_db.execute(
-                            EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
-                        )
-                        await eva_db.delete(retry_account)
-                        await eva_db.flush()
-                        return {"message": f"Account '{retry_account.name}' permanently deleted"}
-                    except SQLAlchemyError as retry_exc:
-                        raise _map_permanent_delete_error(retry_exc) from retry_exc
+            try:
+                await eva_db.rollback()
+                cleaned = await _cleanup_pipeline_stage_account_refs(eva_db, account_id)
+                if cleaned:
+                    retry_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+                    retry_account = retry_result.scalar_one_or_none()
+                    if retry_account and not retry_account.is_active:
+                        try:
+                            await eva_db.execute(
+                                EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
+                            )
+                            await eva_db.delete(retry_account)
+                            await eva_db.flush()
+                            return {"message": f"Account '{retry_account.name}' permanently deleted"}
+                        except SQLAlchemyError as retry_exc:
+                            raise _map_permanent_delete_error(retry_exc) from retry_exc
+            except SQLAlchemyError as cleanup_exc:
+                logger.exception(
+                    "Permanent delete cleanup failed for account_id=%s",
+                    account_id,
+                )
+                raise _map_permanent_delete_error(cleanup_exc) from cleanup_exc
         raise _map_permanent_delete_error(exc) from exc
     return {"message": f"Account '{account.name}' permanently deleted"}
 
