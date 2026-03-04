@@ -629,7 +629,7 @@ export default function EvaCustomersPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Billing</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[320px]">Actions</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[240px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -682,16 +682,6 @@ export default function EvaCustomersPage() {
                           >
                             <DollarSign className="h-3 w-3 mr-1" />
                             Set Price
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 rounded-lg text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                            onClick={() => handleResendOnboarding(a)}
-                            disabled={resendingOnboardingFor === a.id}
-                          >
-                            <Mail className="h-3 w-3 mr-1" />
-                            {resendingOnboardingFor === a.id ? "Sending..." : "Resend Setup"}
                           </Button>
                         </div>
                       </TableCell>
@@ -756,16 +746,6 @@ export default function EvaCustomersPage() {
                           >
                             <ExternalLink className="h-3 w-3 mr-1" />
                             Impersonate
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 rounded-lg text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                            onClick={() => handleResendOnboarding(a)}
-                            disabled={resendingOnboardingFor === a.id}
-                          >
-                            <Mail className="h-3 w-3 mr-1" />
-                            {resendingOnboardingFor === a.id ? "Sending..." : "Resend Setup"}
                           </Button>
                         </div>
                       </TableCell>
