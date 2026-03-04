@@ -274,10 +274,7 @@ export default function EvaCustomersPage() {
     try {
       const result = await evaPlatformApi.impersonateAccount(account.id);
       toast.success(`Impersonating ${result.account_name}`);
-      const win = window.open(result.magic_link_url, "_blank", "noopener,noreferrer");
-      if (!win) {
-        window.location.href = result.magic_link_url;
-      }
+      window.open(result.magic_link_url, "_blank", "noopener,noreferrer");
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed to impersonate account");
     }
