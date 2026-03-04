@@ -5,9 +5,9 @@ import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const EVA_SIDEBAR_WIDTH_PX = 420;
-const BOOTSTRAP_TO_FINAL_DELAY_MS = 180;
-const BOOTSTRAP_MAX_WAIT_MS = 2400;
+const EVA_SIDEBAR_WIDTH_PX = 0;
+const BOOTSTRAP_TO_FINAL_DELAY_MS = 1200;
+const BOOTSTRAP_MAX_WAIT_MS = 6000;
 const FINAL_FIRST_LOAD_SETTLE_MS = 1200;
 const FINAL_READY_FALLBACK_MS = 4500;
 

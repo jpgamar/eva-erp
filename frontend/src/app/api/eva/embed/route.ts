@@ -308,8 +308,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const bootstrapManualUrl = buildEvaManualUrl(config.appBase, "/inbox");
-    const employeeManualUrl = buildEvaManualUrl(config.appBase, `/employees/${agentId}`);
+    const employeeRedirectPath = `/employees/${agentId}?erp_embed=1&tab=profile`;
+    const bootstrapManualUrl = buildEvaManualUrl(config.appBase, "/inbox?erp_embed=1");
+    const employeeManualUrl = buildEvaManualUrl(config.appBase, employeeRedirectPath);
     const bootstrapUrl = createEvaSsoUrl(
       bootstrapManualUrl,
       login.accessToken,
