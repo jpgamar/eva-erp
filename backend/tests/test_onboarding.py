@@ -184,9 +184,15 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
     assert captured["json"]["from"]["name"] == "Eva ERP"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
+    assert captured["json"]["personalizations"][0]["subject"] == "Configura tu acceso a Eva Commerce"
     assert captured["json"]["tracking_settings"]["click_tracking"]["enable"] is False
+    text = captured["json"]["content"][0]["value"]
+    assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in text
+    assert "Si el enlace expira" not in text
     html = captured["json"]["content"][1]["value"]
     assert "<img" not in html
     assert "Eva Commerce" in html
-    assert "Eva AI" in html
+    assert "viewBox=\"0 0 300 320\"" in html
     assert "Completar configuracion" in html
+    assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in html
+    assert "Si el enlace expira" not in html
