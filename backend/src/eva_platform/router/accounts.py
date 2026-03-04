@@ -159,7 +159,7 @@ async def _cleanup_pipeline_stage_account_refs(
     eva_db: AsyncSession,
     account_id: uuid.UUID,
 ) -> bool:
-    """Detach/delete pipeline or stage records tied to account so delete can proceed."""
+    """Detach/reassign pipeline or stage records tied to account so delete can proceed."""
     refs_result = await eva_db.execute(
         text(
             """
@@ -192,6 +192,24 @@ async def _cleanup_pipeline_stage_account_refs(
     if not refs:
         return False
 
+    fallback_account_id = None
+    if any(not row.is_nullable for row in refs):
+        fallback_result = await eva_db.execute(
+            text(
+                """
+                SELECT id
+                FROM accounts
+                WHERE id <> :account_id
+                ORDER BY is_active DESC, created_at ASC
+                LIMIT 1
+                """
+            ),
+            {"account_id": account_id},
+        )
+        fallback_account_id = fallback_result.scalar_one_or_none()
+        if fallback_account_id is None:
+            return False
+
     changed_rows = 0
     for row in refs:
         table_name = row.qualified_table
@@ -203,11 +221,68 @@ async def _cleanup_pipeline_stage_account_refs(
             )
             result = await eva_db.execute(stmt, {"account_id": account_id})
         else:
-            stmt = text(
-                f"DELETE FROM {table_name} "
-                f"WHERE {column_name} = :account_id"
+            schema_name, raw_table_name = table_name.split(".", 1)
+            has_name_column = await eva_db.execute(
+                text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = :schema_name
+                          AND table_name = :table_name
+                          AND column_name = 'name'
+                    )
+                    """
+                ),
+                {
+                    "schema_name": schema_name,
+                    "table_name": raw_table_name,
+                },
             )
-            result = await eva_db.execute(stmt, {"account_id": account_id})
+            if has_name_column.scalar_one():
+                stmt = text(
+                    f"""
+                    UPDATE {table_name} AS src
+                    SET
+                      name = CASE
+                        WHEN EXISTS (
+                          SELECT 1
+                          FROM {table_name} AS dst
+                          WHERE dst.{column_name} = :fallback_account_id
+                            AND dst.name = src.name
+                        ) OR EXISTS (
+                          SELECT 1
+                          FROM {table_name} AS peer
+                          WHERE peer.{column_name} = :account_id
+                            AND peer.name = src.name
+                            AND peer.ctid <> src.ctid
+                        )
+                        THEN src.name || ' [archived-' || replace(src.ctid::text, ',', '_') || ']'
+                        ELSE src.name
+                      END,
+                      {column_name} = :fallback_account_id
+                    WHERE src.{column_name} = :account_id
+                    """
+                )
+                result = await eva_db.execute(
+                    stmt,
+                    {
+                        "account_id": account_id,
+                        "fallback_account_id": fallback_account_id,
+                    },
+                )
+            else:
+                stmt = text(
+                    f"UPDATE {table_name} SET {column_name} = :fallback_account_id "
+                    f"WHERE {column_name} = :account_id"
+                )
+                result = await eva_db.execute(
+                    stmt,
+                    {
+                        "account_id": account_id,
+                        "fallback_account_id": fallback_account_id,
+                    },
+                )
         if result.rowcount:
             changed_rows += int(result.rowcount)
 

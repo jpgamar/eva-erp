@@ -38,6 +38,9 @@ class _ScalarResult:
     def __init__(self, value):
         self._value = value
 
+    def scalar_one(self):
+        return self._value
+
     def scalar_one_or_none(self):
         return self._value
 
@@ -107,6 +110,7 @@ def test_is_last_won_stage_delete_error_detects_raise_error_message() -> None:
 
 def test_cleanup_pipeline_stage_account_refs_updates_nullable_and_not_null_refs() -> None:
     account_id = uuid.uuid4()
+    fallback_id = uuid.uuid4()
     refs = [
         SimpleNamespace(
             qualified_table="public.pipeline_stages",
@@ -122,7 +126,9 @@ def test_cleanup_pipeline_stage_account_refs_updates_nullable_and_not_null_refs(
     session = _FakeSession(
         [
             _RowsResult(refs),
+            _ScalarResult(fallback_id),
             _ExecResult(2),
+            _ScalarResult(True),
             _ExecResult(1),
         ]
     )
@@ -130,9 +136,10 @@ def test_cleanup_pipeline_stage_account_refs_updates_nullable_and_not_null_refs(
     changed = asyncio.run(_cleanup_pipeline_stage_account_refs(session, account_id))
 
     assert changed is True
-    assert "SET account_id = NULL" in session.calls[1][0]
-    assert "DELETE FROM public.pipeline_stage_states" in session.calls[2][0]
-    assert "WHERE owner_account_id = :account_id" in session.calls[2][0]
+    assert "SET account_id = NULL" in session.calls[2][0]
+    assert "UPDATE public.pipeline_stage_states AS src" in session.calls[4][0]
+    assert "owner_account_id" in session.calls[4][0]
+    assert "fallback_account_id" in session.calls[4][0]
 
 
 def test_cleanup_pipeline_stage_account_refs_returns_false_when_no_refs() -> None:
@@ -141,7 +148,7 @@ def test_cleanup_pipeline_stage_account_refs_returns_false_when_no_refs() -> Non
     assert changed is False
 
 
-def test_cleanup_pipeline_stage_account_refs_deletes_not_null_refs_without_fallback() -> None:
+def test_cleanup_pipeline_stage_account_refs_returns_false_without_fallback_for_not_null() -> None:
     refs = [
         SimpleNamespace(
             qualified_table="public.pipeline_stage_states",
@@ -149,6 +156,31 @@ def test_cleanup_pipeline_stage_account_refs_deletes_not_null_refs_without_fallb
             is_nullable=False,
         ),
     ]
-    session = _FakeSession([_RowsResult(refs), _ExecResult(1)])
+    session = _FakeSession([_RowsResult(refs), _ScalarResult(None)])
     changed = asyncio.run(_cleanup_pipeline_stage_account_refs(session, uuid.uuid4()))
+    assert changed is False
+
+
+def test_cleanup_pipeline_stage_account_refs_updates_not_null_without_name_column() -> None:
+    account_id = uuid.uuid4()
+    fallback_id = uuid.uuid4()
+    refs = [
+        SimpleNamespace(
+            qualified_table="public.pipeline_stage_states",
+            quoted_column="owner_account_id",
+            is_nullable=False,
+        ),
+    ]
+    session = _FakeSession(
+        [
+            _RowsResult(refs),
+            _ScalarResult(fallback_id),
+            _ScalarResult(False),
+            _ExecResult(3),
+        ]
+    )
+
+    changed = asyncio.run(_cleanup_pipeline_stage_account_refs(session, account_id))
+
     assert changed is True
+    assert "SET owner_account_id = :fallback_account_id" in session.calls[3][0]
