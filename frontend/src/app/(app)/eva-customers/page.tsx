@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { key: "active", label: "Active Accounts" },
+  { key: "inactive", label: "Inactive Accounts" },
   { key: "drafts", label: "Draft Accounts" },
 ];
 
@@ -613,14 +614,14 @@ export default function EvaCustomersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {accounts.length === 0 ? (
+                {accounts.filter((a) => a.is_active).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted py-12">
-                      No accounts found.
+                      No active accounts found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  accounts.map((a) => (
+                  accounts.filter((a) => a.is_active).map((a) => (
                     <TableRow
                       key={a.id}
                       className="cursor-pointer hover:bg-gray-50/80"
@@ -641,17 +642,10 @@ export default function EvaCustomersPage() {
                         {formatPricingLabel(pricingByAccount[a.id])}
                       </TableCell>
                       <TableCell>
-                        {a.is_active ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs">
-                            <span className="h-2 w-2 rounded-full bg-green-500" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <span className="h-2 w-2 rounded-full bg-red-500" />
-                            Inactive
-                          </span>
-                        )}
+                        <span className="inline-flex items-center gap-1.5 text-xs">
+                          <span className="h-2 w-2 rounded-full bg-green-500" />
+                          Active
+                        </span>
                       </TableCell>
                       <TableCell className="text-sm">
                         {new Date(a.created_at).toLocaleDateString()}
@@ -675,6 +669,70 @@ export default function EvaCustomersPage() {
                           >
                             <DollarSign className="h-3 w-3 mr-1" />
                             Set Price
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {/* Inactive Accounts */}
+      {tab === "inactive" && (
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50/80">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Type</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accounts.filter((a) => !a.is_active).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted py-12">
+                      No inactive accounts.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  accounts.filter((a) => !a.is_active).map((a) => (
+                    <TableRow
+                      key={a.id}
+                      className="cursor-pointer hover:bg-gray-50/80 opacity-70"
+                      onClick={() => openDetail(a)}
+                    >
+                      <TableCell className="font-medium text-foreground">{a.name}</TableCell>
+                      <TableCell className="text-sm capitalize">{a.account_type?.toLowerCase().replace("_", " ") || "\u2014"}</TableCell>
+                      <TableCell>
+                        {a.plan_tier ? (
+                          <Badge className={`rounded-full text-xs ${PLAN_COLORS[a.plan_tier] || ""}`}>
+                            {a.plan_tier}
+                          </Badge>
+                        ) : (
+                          "\u2014"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-accent/30 text-accent hover:bg-accent/10"
+                            onClick={() => handleImpersonate(a)}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Impersonate
                           </Button>
                         </div>
                       </TableCell>
