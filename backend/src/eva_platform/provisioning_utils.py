@@ -49,6 +49,15 @@ def normalize_account_type(raw_value: str) -> str:
     return normalized
 
 
+def resolve_product_label(account_type: str | None) -> str:
+    normalized = (account_type or "").strip().upper()
+    if normalized == "COMMERCE":
+        return "Eva Commerce"
+    if normalized == "PROPERTY_MANAGEMENT":
+        return "Eva Rents"
+    return "Eva"
+
+
 def normalize_deal_stage(raw_value: str) -> str:
     normalized = (raw_value or "").strip().lower()
     aliases = {

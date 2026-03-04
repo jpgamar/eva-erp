@@ -25,7 +25,7 @@ def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
         onboarding.build_account_onboarding(
             owner_email="owner@example.com",
             owner_name="Owner",
-            account_name="Acme",
+            product_label="Eva Commerce",
             send_setup_email=False,
         )
     )
@@ -51,7 +51,7 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypat
             onboarding.build_account_onboarding(
                 owner_email="owner@example.com",
                 owner_name="Owner",
-                account_name="Acme",
+                product_label="Eva Commerce",
                 send_setup_email=True,
             )
         )
@@ -80,7 +80,7 @@ def test_build_account_onboarding_returns_failed_when_fallback_also_fails(monkey
             onboarding.build_account_onboarding(
                 owner_email="owner@example.com",
                 owner_name="Owner",
-                account_name="Acme",
+                product_label="Eva Commerce",
                 send_setup_email=True,
             )
         )
@@ -104,7 +104,7 @@ def test_build_account_onboarding_reports_sent_status(monkeypatch):
         onboarding.build_account_onboarding(
             owner_email="owner@example.com",
             owner_name="Owner",
-            account_name="Acme",
+            product_label="Eva Commerce",
             send_setup_email=True,
         )
     )
@@ -124,7 +124,7 @@ def test_build_account_onboarding_raises_when_setup_link_missing(monkeypatch):
             onboarding.build_account_onboarding(
                 owner_email="owner@example.com",
                 owner_name="Owner",
-                account_name="Acme",
+                product_label="Eva Commerce",
                 send_setup_email=True,
             )
         )
@@ -159,18 +159,16 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     original_from_email = settings.sendgrid_from_email
     original_from_name = settings.sendgrid_from_name
     original_reply_to = settings.sendgrid_reply_to
-    original_logo_url = settings.sendgrid_logo_url
     settings.sendgrid_api_key = "SG.test"
     settings.sendgrid_from_email = "no-reply@goeva.ai"
     settings.sendgrid_from_name = "Eva ERP"
     settings.sendgrid_reply_to = "hi@goeva.ai"
-    settings.sendgrid_logo_url = "https://app.goeva.ai/favicon.ico"
     try:
         ok, message = asyncio.run(
             onboarding._send_setup_email(
                 owner_email="owner@example.com",
                 owner_name="Owner",
-                account_name="Acme",
+                product_label="Eva Commerce",
                 onboarding_link="https://example.com/setup-link",
             )
         )
@@ -179,7 +177,6 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
         settings.sendgrid_from_email = original_from_email
         settings.sendgrid_from_name = original_from_name
         settings.sendgrid_reply_to = original_reply_to
-        settings.sendgrid_logo_url = original_logo_url
 
     assert ok is True
     assert "successfully" in message.lower()
@@ -187,6 +184,8 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
     assert captured["json"]["from"]["name"] == "Eva ERP"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
+    assert captured["json"]["tracking_settings"]["click_tracking"]["enable"] is False
     html = captured["json"]["content"][1]["value"]
-    assert "https://app.goeva.ai/favicon.ico" in html
-    assert "Complete account setup" in html
+    assert "<svg" in html
+    assert "Eva Commerce" in html
+    assert "Completar configuracion" in html

@@ -7,6 +7,7 @@ from src.eva_platform.provisioning_utils import (
     normalize_billing_cycle,
     normalize_deal_stage,
     normalize_plan_tier,
+    resolve_product_label,
 )
 
 
@@ -41,6 +42,12 @@ def test_normalize_account_type_rejects_unknown_value():
     with pytest.raises(HTTPException) as exc:
         normalize_account_type("other")
     assert exc.value.status_code == 400
+
+
+def test_resolve_product_label_maps_known_account_types():
+    assert resolve_product_label("COMMERCE") == "Eva Commerce"
+    assert resolve_product_label("property_management") == "Eva Rents"
+    assert resolve_product_label(None) == "Eva"
 
 
 def test_normalize_deal_stage_accepts_known_values():

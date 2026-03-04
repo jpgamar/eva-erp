@@ -35,6 +35,7 @@ from src.eva_platform.provisioning_utils import (
     normalize_account_type,
     normalize_billing_cycle,
     normalize_plan_tier,
+    resolve_product_label,
 )
 from src.eva_platform.supabase_client import (
     SupabaseAdminClient,
@@ -339,7 +340,7 @@ async def create_account(
         onboarding = await build_account_onboarding(
             owner_email=normalized_owner_email,
             owner_name=data.owner_name,
-            account_name=data.name,
+            product_label=resolve_product_label(normalized_account_type),
             send_setup_email=data.send_setup_email,
         )
     except SupabaseAdminError as exc:
@@ -527,7 +528,7 @@ async def approve_draft(
         onboarding = await build_account_onboarding(
             owner_email=normalized_owner_email,
             owner_name=draft.owner_name,
-            account_name=draft.name,
+            product_label=resolve_product_label(normalized_account_type),
             send_setup_email=True,
         )
     except SupabaseAdminError as exc:

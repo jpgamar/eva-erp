@@ -39,6 +39,7 @@ from src.eva_platform.provisioning_utils import (
     map_provisioning_write_error,
     normalize_deal_stage,
     normalize_plan_tier,
+    resolve_product_label,
 )
 from src.eva_platform.supabase_client import (
     SupabaseAdminClient,
@@ -462,7 +463,7 @@ async def create_account_from_deal(
         onboarding = await build_account_onboarding(
             owner_email=normalized_owner_email,
             owner_name=data.name,
-            account_name=data.name,
+            product_label=resolve_product_label("COMMERCE"),
             send_setup_email=data.send_setup_email,
         )
     except SupabaseAdminError as exc:
