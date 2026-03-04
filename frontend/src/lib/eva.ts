@@ -82,12 +82,13 @@ export function getEvaConfig(): EvaConfig {
   const targetPhone = asString(process.env.EVA_TARGET_PHONE) || DEFAULT_EVA_TARGET_PHONE;
   const targetGateway = asString(process.env.EVA_TARGET_GATEWAY) || DEFAULT_EVA_TARGET_GATEWAY;
   const targetPort = toNumber(process.env.EVA_TARGET_PORT, DEFAULT_EVA_TARGET_PORT);
+  const fallbackRedirect = targetAgentId ? `/employees/${targetAgentId}` : "/inbox";
   return {
     appBase,
     apiBase,
     email,
     password,
-    manualUrl: buildEvaManualUrl(appBase, "/inbox"),
+    manualUrl: buildEvaManualUrl(appBase, fallbackRedirect),
     hasCredentials: Boolean(email && password),
     targetAgentId,
     targetPhone,

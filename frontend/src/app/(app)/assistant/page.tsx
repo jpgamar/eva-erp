@@ -5,9 +5,11 @@ import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const EVA_SIDEBAR_WIDTH_PX = 72;
-const BOOTSTRAP_DELAY_MS = 1200;
-const FRAME_READY_FALLBACK_MS = 3000;
+const EVA_SIDEBAR_WIDTH_PX = 96;
+const BOOTSTRAP_TO_FINAL_DELAY_MS = 180;
+const BOOTSTRAP_MAX_WAIT_MS = 2400;
+const FINAL_FIRST_LOAD_SETTLE_MS = 1200;
+const FINAL_READY_FALLBACK_MS = 4500;
 
 interface EvaEmbedPayload {
   embedUrl: string | null;
@@ -34,17 +36,17 @@ export default function AssistantPage() {
   const [payload, setPayload] = useState<EvaEmbedPayload | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [phase, setPhase] = useState<"bootstrap" | "final" | null>(null);
-  const [frameSrc, setFrameSrc] = useState<string | null>(null);
-  const [frameReady, setFrameReady] = useState(false);
-  const [loadCount, setLoadCount] = useState(0);
+  const [bootstrapSrc, setBootstrapSrc] = useState<string | null>(null);
+  const [finalSrc, setFinalSrc] = useState<string | null>(null);
+  const [finalReady, setFinalReady] = useState(false);
+  const [finalLoadCount, setFinalLoadCount] = useState(0);
   const runIdRef = useRef(0);
 
   const resetFrameState = useCallback(() => {
-    setPhase(null);
-    setFrameSrc(null);
-    setFrameReady(false);
-    setLoadCount(0);
+    setBootstrapSrc(null);
+    setFinalSrc(null);
+    setFinalReady(false);
+    setFinalLoadCount(0);
   }, []);
 
   const fetchEmbed = useCallback(async () => {
@@ -66,9 +68,12 @@ export default function AssistantPage() {
         throw new Error(data.detail || data.error || "Failed to load EVA embed");
       }
 
-      if (data.embedUrl && data.bootstrapUrl) {
-        setPhase("bootstrap");
-        setFrameSrc(data.bootstrapUrl);
+      if (data.embedUrl) {
+        if (data.bootstrapUrl) {
+          setBootstrapSrc(data.bootstrapUrl);
+        } else {
+          setFinalSrc(data.embedUrl);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load EVA embed";
@@ -85,34 +90,53 @@ export default function AssistantPage() {
   }, [fetchEmbed]);
 
   useEffect(() => {
-    if (phase !== "bootstrap" || !payload?.embedUrl) return;
+    if (!payload?.embedUrl || finalSrc) return;
+    if (!bootstrapSrc) {
+      setFinalSrc(payload.embedUrl);
+      return;
+    }
     const timer = window.setTimeout(() => {
-      setPhase("final");
-      setFrameSrc(payload.embedUrl);
-    }, BOOTSTRAP_DELAY_MS);
+      setFinalSrc((current) => current || payload.embedUrl);
+    }, BOOTSTRAP_MAX_WAIT_MS);
     return () => window.clearTimeout(timer);
-  }, [phase, payload?.embedUrl]);
+  }, [bootstrapSrc, finalSrc, payload?.embedUrl]);
 
   useEffect(() => {
-    if (!frameSrc || frameReady) return;
+    if (!finalSrc || finalReady) return;
     const timer = window.setTimeout(() => {
-      setFrameReady(true);
-    }, FRAME_READY_FALLBACK_MS);
+      setFinalReady(true);
+    }, FINAL_READY_FALLBACK_MS);
     return () => window.clearTimeout(timer);
-  }, [frameSrc, frameReady, loadCount]);
+  }, [finalSrc, finalReady]);
 
-  const handleFrameLoad = useCallback(() => {
-    setLoadCount((current) => {
-      const next = current + 1;
-      if (next >= 2) {
-        setFrameReady(true);
-      }
-      return next;
-    });
+  useEffect(() => {
+    if (finalReady) return;
+    if (finalLoadCount >= 2) {
+      setFinalReady(true);
+      return;
+    }
+    if (finalLoadCount !== 1) return;
+    const timer = window.setTimeout(() => {
+      setFinalReady(true);
+    }, FINAL_FIRST_LOAD_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [finalLoadCount, finalReady]);
+
+  const handleBootstrapLoad = useCallback(() => {
+    if (!payload?.embedUrl) return;
+    window.setTimeout(() => {
+      setFinalSrc((current) => current || payload.embedUrl);
+    }, BOOTSTRAP_TO_FINAL_DELAY_MS);
+  }, [payload?.embedUrl]);
+
+  const handleFinalLoad = useCallback(() => {
+    setFinalLoadCount((count) => count + 1);
   }, []);
 
   const warning = payload?.warning || null;
-  const showStateCard = !isLoading && Boolean(errorMessage || warning || !frameSrc);
+  const waitingForFrames = Boolean(bootstrapSrc || finalSrc);
+  const showStateCard =
+    !isLoading && !waitingForFrames && Boolean(errorMessage || warning || !payload?.embedUrl);
   const manualUrl = payload?.manualUrl || "https://app.goeva.ai/auth/login?redirect=%2Finbox";
   const canRetry = !isLoading;
   const stateTitle = useMemo(() => {
@@ -121,9 +145,9 @@ export default function AssistantPage() {
     return "Preparing EVA workspace";
   }, [errorMessage, warning]);
 
-  if (isLoading && !frameSrc) {
+  if (isLoading && !waitingForFrames) {
     return (
-      <div className="relative h-[calc(100vh-8rem)] overflow-hidden rounded-xl border bg-white">
+      <div className="relative h-full w-full overflow-hidden bg-white">
         <LoadingOverlay />
       </div>
     );
@@ -171,16 +195,28 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="relative h-[calc(100vh-8rem)] overflow-hidden rounded-xl border bg-white">
-      {(!frameReady || isLoading) && <LoadingOverlay />}
-      <iframe
-        key={frameSrc}
-        src={frameSrc || undefined}
-        title="Eva Embedded Workspace"
-        onLoad={handleFrameLoad}
-        style={frameStyle}
-        allow="clipboard-read; clipboard-write"
-      />
+    <div className="relative h-full w-full overflow-hidden bg-white">
+      {bootstrapSrc && (
+        <iframe
+          src={bootstrapSrc}
+          title="Eva Bootstrap"
+          onLoad={handleBootstrapLoad}
+          aria-hidden="true"
+          tabIndex={-1}
+          className="pointer-events-none absolute -left-[9999px] top-0 h-px w-px opacity-0"
+        />
+      )}
+      {(!finalReady || isLoading) && <LoadingOverlay />}
+      {finalSrc && (
+        <iframe
+          key={finalSrc}
+          src={finalSrc}
+          title="Eva Embedded Workspace"
+          onLoad={handleFinalLoad}
+          style={frameStyle}
+          allow="clipboard-read; clipboard-write"
+        />
+      )}
     </div>
   );
 }

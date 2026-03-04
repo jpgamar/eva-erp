@@ -120,6 +120,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   const { title, subtitle } = getPageInfo(pathname);
   const isDashboard = pathname.startsWith("/dashboard");
+  const isAssistant = pathname.startsWith("/assistant");
 
   useEffect(() => {
     if (!loading && !user) {
@@ -143,7 +144,14 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       <div className={cn("transition-all duration-200", sidebarCollapsed ? "ml-16" : "ml-60")}>
         <Header title={title} subtitle={isDashboard ? undefined : subtitle} subtitleNode={isDashboard ? <DashboardPeriodNav /> : undefined} />
-        <main className="p-6 animate-erp-entrance">{children}</main>
+        <main
+          className={cn(
+            "animate-erp-entrance",
+            isAssistant ? "h-[calc(100vh-4rem)] overflow-hidden p-0" : "p-6",
+          )}
+        >
+          {children}
+        </main>
       </div>
       <CommandPalette />
     </div>

@@ -259,50 +259,53 @@ export async function GET(request: NextRequest) {
     }
 
     const login = await loginEvaSharedAccount(config);
-    const rawAgents = await evaGet<unknown>("/agents", {
-      accessToken: login.accessToken,
-      apiBase: config.apiBase,
-    });
-    const agents = toAgentList(rawAgents);
+    let agentId = config.targetAgentId;
 
-    const matchedAgent = findFixedTargetAgent(agents, {
-      targetAgentId: config.targetAgentId,
-      targetPhone: config.targetPhone,
-      targetGateway: config.targetGateway,
-      targetPort: config.targetPort,
-    });
-
-    if (!matchedAgent) {
-      return noStoreJson(
-        {
-          embedUrl: null,
-          bootstrapUrl: null,
-          manualUrl: config.manualUrl,
-          agentId: null,
-          detail: "Fixed target agent was not found in EVA /agents response",
-          target: {
-            targetAgentId: config.targetAgentId || null,
-            targetPhone: config.targetPhone || null,
-            targetGateway: config.targetGateway || null,
-            targetPort: config.targetPort || null,
-          },
-        },
-        { status: 404 },
-      );
-    }
-
-    const agentId = extractAgentId(matchedAgent);
     if (!agentId) {
-      return noStoreJson(
-        {
-          embedUrl: null,
-          bootstrapUrl: null,
-          manualUrl: config.manualUrl,
-          agentId: null,
-          detail: "Matched EVA agent has no id field",
-        },
-        { status: 502 },
-      );
+      const rawAgents = await evaGet<unknown>("/agents", {
+        accessToken: login.accessToken,
+        apiBase: config.apiBase,
+      });
+      const agents = toAgentList(rawAgents);
+      const matchedAgent = findFixedTargetAgent(agents, {
+        targetAgentId: config.targetAgentId,
+        targetPhone: config.targetPhone,
+        targetGateway: config.targetGateway,
+        targetPort: config.targetPort,
+      });
+
+      if (!matchedAgent) {
+        return noStoreJson(
+          {
+            embedUrl: null,
+            bootstrapUrl: null,
+            manualUrl: config.manualUrl,
+            agentId: null,
+            detail: "Fixed target agent was not found in EVA /agents response",
+            target: {
+              targetAgentId: config.targetAgentId || null,
+              targetPhone: config.targetPhone || null,
+              targetGateway: config.targetGateway || null,
+              targetPort: config.targetPort || null,
+            },
+          },
+          { status: 404 },
+        );
+      }
+
+      agentId = extractAgentId(matchedAgent);
+      if (!agentId) {
+        return noStoreJson(
+          {
+            embedUrl: null,
+            bootstrapUrl: null,
+            manualUrl: config.manualUrl,
+            agentId: null,
+            detail: "Matched EVA agent has no id field",
+          },
+          { status: 502 },
+        );
+      }
     }
 
     const bootstrapManualUrl = buildEvaManualUrl(config.appBase, "/inbox");
