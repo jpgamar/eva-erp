@@ -186,6 +186,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
     assert captured["json"]["tracking_settings"]["click_tracking"]["enable"] is False
     html = captured["json"]["content"][1]["value"]
-    assert "<svg" in html
+    assert "<img" not in html
     assert "Eva Commerce" in html
+    assert "Eva AI" in html
     assert "Completar configuracion" in html
