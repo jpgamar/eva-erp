@@ -608,7 +608,6 @@ export default function EvaCustomersPage() {
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Type</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Billing</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[240px]">Actions</TableHead>
                 </TableRow>
@@ -616,7 +615,7 @@ export default function EvaCustomersPage() {
               <TableBody>
                 {accounts.filter((a) => a.is_active).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted py-12">
+                    <TableCell colSpan={6} className="text-center text-muted py-12">
                       No active accounts found.
                     </TableCell>
                   </TableRow>
@@ -640,12 +639,6 @@ export default function EvaCustomersPage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatPricingLabel(pricingByAccount[a.id])}
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1.5 text-xs">
-                          <span className="h-2 w-2 rounded-full bg-green-500" />
-                          Active
-                        </span>
                       </TableCell>
                       <TableCell className="text-sm">
                         {new Date(a.created_at).toLocaleDateString()}
