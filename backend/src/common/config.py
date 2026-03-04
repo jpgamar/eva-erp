@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     sendgrid_api_key: str = ""
+    sendgrid_from_email: str = "no-reply@goeva.ai"
+    sendgrid_from_name: str = "Eva ERP"
+    sendgrid_reply_to: str = "hi@goeva.ai"
+    sendgrid_logo_url: str = "https://app.goeva.ai/favicon.ico"
 
     # Facturapi (CFDI electronic invoicing)
     facturapi_api_key: str = ""

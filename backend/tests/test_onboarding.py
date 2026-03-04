@@ -128,3 +128,65 @@ def test_build_account_onboarding_raises_when_setup_link_missing(monkeypatch):
                 send_setup_email=True,
             )
         )
+
+
+def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
+    class DummyResponse:
+        status_code = 202
+        text = ""
+
+    captured = {}
+
+    class DummyClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            captured["url"] = url
+            captured["headers"] = headers or {}
+            captured["json"] = json or {}
+            return DummyResponse()
+
+    monkeypatch.setattr(onboarding.httpx, "AsyncClient", DummyClient)
+
+    original_api_key = settings.sendgrid_api_key
+    original_from_email = settings.sendgrid_from_email
+    original_from_name = settings.sendgrid_from_name
+    original_reply_to = settings.sendgrid_reply_to
+    original_logo_url = settings.sendgrid_logo_url
+    settings.sendgrid_api_key = "SG.test"
+    settings.sendgrid_from_email = "no-reply@goeva.ai"
+    settings.sendgrid_from_name = "Eva ERP"
+    settings.sendgrid_reply_to = "hi@goeva.ai"
+    settings.sendgrid_logo_url = "https://app.goeva.ai/favicon.ico"
+    try:
+        ok, message = asyncio.run(
+            onboarding._send_setup_email(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                account_name="Acme",
+                onboarding_link="https://example.com/setup-link",
+            )
+        )
+    finally:
+        settings.sendgrid_api_key = original_api_key
+        settings.sendgrid_from_email = original_from_email
+        settings.sendgrid_from_name = original_from_name
+        settings.sendgrid_reply_to = original_reply_to
+        settings.sendgrid_logo_url = original_logo_url
+
+    assert ok is True
+    assert "successfully" in message.lower()
+    assert captured["url"] == "https://api.sendgrid.com/v3/mail/send"
+    assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
+    assert captured["json"]["from"]["name"] == "Eva ERP"
+    assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
+    html = captured["json"]["content"][1]["value"]
+    assert "https://app.goeva.ai/favicon.ico" in html
+    assert "Complete account setup" in html

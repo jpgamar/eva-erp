@@ -94,9 +94,10 @@ async def _send_setup_email(
             }
         ],
         "from": {
-            "email": "no-reply@goeva.ai",
-            "name": "Eva ERP",
+            "email": settings.sendgrid_from_email,
+            "name": settings.sendgrid_from_name,
         },
+        "reply_to": {"email": settings.sendgrid_reply_to},
         "content": [
             {
                 "type": "text/plain",
@@ -111,11 +112,38 @@ async def _send_setup_email(
             {
                 "type": "text/html",
                 "value": (
-                    f"<p>Hi {display_name},</p>"
-                    f"<p>Your account for <strong>{account_name}</strong> is ready.</p>"
-                    "<p>Use this secure link to set your password and finish setup:</p>"
-                    f"<p><a href=\"{onboarding_link}\">Complete account setup</a></p>"
-                    "<p>If the link expires, contact your administrator for a new one.</p>"
+                    "<div style=\"background:#f3f4f6;padding:24px 0;font-family:Arial,sans-serif;\">"
+                    "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\">"
+                    "<tr><td align=\"center\">"
+                    "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"560\" "
+                    "style=\"max-width:560px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;\">"
+                    "<tr><td style=\"padding:24px 24px 8px 24px;text-align:center;\">"
+                    f"<img src=\"{settings.sendgrid_logo_url}\" alt=\"Eva AI\" width=\"44\" height=\"44\" "
+                    "style=\"display:block;margin:0 auto 12px auto;border:0;outline:none;text-decoration:none;\"/>"
+                    f"<div style=\"font-size:22px;line-height:1.3;color:#111827;font-weight:700;\">Hi {display_name}</div>"
+                    "</td></tr>"
+                    "<tr><td style=\"padding:0 24px 8px 24px;\">"
+                    f"<p style=\"margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;\">"
+                    f"Your account for <strong>{account_name}</strong> is ready.</p>"
+                    "<p style=\"margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;\">"
+                    "Use this secure link to set your password and finish setup:</p>"
+                    "</td></tr>"
+                    "<tr><td style=\"padding:0 24px 8px 24px;text-align:center;\">"
+                    f"<a href=\"{onboarding_link}\" "
+                    "style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;"
+                    "font-weight:700;font-size:14px;padding:12px 18px;border-radius:8px;\">Complete account setup</a>"
+                    "</td></tr>"
+                    "<tr><td style=\"padding:8px 24px 20px 24px;\">"
+                    "<p style=\"margin:0;color:#6b7280;font-size:12px;line-height:1.6;\">"
+                    "If the button does not open, copy and paste this link into your browser:</p>"
+                    f"<p style=\"margin:6px 0 0 0;word-break:break-all;color:#1d4ed8;font-size:12px;\">{onboarding_link}</p>"
+                    "</td></tr>"
+                    "<tr><td style=\"padding:0 24px 24px 24px;\">"
+                    "<p style=\"margin:0;color:#6b7280;font-size:12px;line-height:1.6;\">"
+                    "If the link expires, contact your administrator for a new one.</p>"
+                    "</td></tr>"
+                    "</table>"
+                    "</td></tr></table></div>"
                 ),
             },
         ],
