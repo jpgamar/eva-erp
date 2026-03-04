@@ -107,7 +107,6 @@ def test_is_last_won_stage_delete_error_detects_raise_error_message() -> None:
 
 def test_cleanup_pipeline_stage_account_refs_updates_nullable_and_not_null_refs() -> None:
     account_id = uuid.uuid4()
-    fallback_id = uuid.uuid4()
     refs = [
         SimpleNamespace(
             qualified_table="public.pipeline_stages",
@@ -123,7 +122,6 @@ def test_cleanup_pipeline_stage_account_refs_updates_nullable_and_not_null_refs(
     session = _FakeSession(
         [
             _RowsResult(refs),
-            _ScalarResult(fallback_id),
             _ExecResult(2),
             _ExecResult(1),
         ]
@@ -132,9 +130,9 @@ def test_cleanup_pipeline_stage_account_refs_updates_nullable_and_not_null_refs(
     changed = asyncio.run(_cleanup_pipeline_stage_account_refs(session, account_id))
 
     assert changed is True
-    assert "SET account_id = NULL" in session.calls[2][0]
-    assert "SET owner_account_id = :fallback_account_id" in session.calls[3][0]
-    assert session.calls[3][1]["fallback_account_id"] == fallback_id
+    assert "SET account_id = NULL" in session.calls[1][0]
+    assert "DELETE FROM public.pipeline_stage_states" in session.calls[2][0]
+    assert "WHERE owner_account_id = :account_id" in session.calls[2][0]
 
 
 def test_cleanup_pipeline_stage_account_refs_returns_false_when_no_refs() -> None:
@@ -143,7 +141,7 @@ def test_cleanup_pipeline_stage_account_refs_returns_false_when_no_refs() -> Non
     assert changed is False
 
 
-def test_cleanup_pipeline_stage_account_refs_returns_false_without_fallback_for_not_null() -> None:
+def test_cleanup_pipeline_stage_account_refs_deletes_not_null_refs_without_fallback() -> None:
     refs = [
         SimpleNamespace(
             qualified_table="public.pipeline_stage_states",
@@ -151,6 +149,6 @@ def test_cleanup_pipeline_stage_account_refs_returns_false_without_fallback_for_
             is_nullable=False,
         ),
     ]
-    session = _FakeSession([_RowsResult(refs), _ScalarResult(None)])
+    session = _FakeSession([_RowsResult(refs), _ExecResult(1)])
     changed = asyncio.run(_cleanup_pipeline_stage_account_refs(session, uuid.uuid4()))
-    assert changed is False
+    assert changed is True

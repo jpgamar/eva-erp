@@ -141,7 +141,9 @@ def _map_permanent_delete_error(exc: Exception) -> HTTPException:
         detail = "Cannot permanently delete account because related records still exist"
         if table_name:
             detail = f"{detail} (blocking table: {table_name})"
-        reason = original.splitlines()[0][:180]
+        reason = original.splitlines()[0]
+        reason = re.sub(r"^<class '[^']+'>:\s*", "", reason).strip()
+        reason = reason[:180]
         if reason:
             detail = f"{detail}. Reason: {reason}"
         return HTTPException(status_code=409, detail=detail)
@@ -157,7 +159,7 @@ async def _cleanup_pipeline_stage_account_refs(
     eva_db: AsyncSession,
     account_id: uuid.UUID,
 ) -> bool:
-    """Detach pipeline/stage references so permanent account delete can proceed."""
+    """Detach/delete pipeline or stage records tied to account so delete can proceed."""
     refs_result = await eva_db.execute(
         text(
             """
@@ -190,24 +192,6 @@ async def _cleanup_pipeline_stage_account_refs(
     if not refs:
         return False
 
-    fallback_account_id = None
-    if any(not row.is_nullable for row in refs):
-        fallback_result = await eva_db.execute(
-            text(
-                """
-                SELECT id
-                FROM accounts
-                WHERE id <> :account_id
-                ORDER BY is_active DESC, created_at ASC
-                LIMIT 1
-                """
-            ),
-            {"account_id": account_id},
-        )
-        fallback_account_id = fallback_result.scalar_one_or_none()
-        if fallback_account_id is None:
-            return False
-
     changed_rows = 0
     for row in refs:
         table_name = row.qualified_table
@@ -220,16 +204,10 @@ async def _cleanup_pipeline_stage_account_refs(
             result = await eva_db.execute(stmt, {"account_id": account_id})
         else:
             stmt = text(
-                f"UPDATE {table_name} SET {column_name} = :fallback_account_id "
+                f"DELETE FROM {table_name} "
                 f"WHERE {column_name} = :account_id"
             )
-            result = await eva_db.execute(
-                stmt,
-                {
-                    "account_id": account_id,
-                    "fallback_account_id": fallback_account_id,
-                },
-            )
+            result = await eva_db.execute(stmt, {"account_id": account_id})
         if result.rowcount:
             changed_rows += int(result.rowcount)
 
