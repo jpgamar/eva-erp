@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
@@ -108,10 +108,18 @@ def _build_account_pricing_response(
     )
 
 
-def _map_permanent_delete_error(exc: IntegrityError) -> HTTPException:
+def _map_permanent_delete_error(exc: Exception) -> HTTPException:
     """Map DB integrity failures for permanent delete into actionable API errors."""
     original = str(getattr(exc, "orig", exc))
     lowered = original.lower()
+    if "cannot delete the last won stage in a pipeline" in lowered:
+        return HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot permanently delete account because it owns the last won stage "
+                "in at least one pipeline. Reassign or remove that stage first."
+            ),
+        )
     if "foreign key constraint" in lowered:
         table_matches = re.findall(r'on table "([^"]+)"', original, flags=re.IGNORECASE)
         table_name = table_matches[-1] if table_matches else None
@@ -601,7 +609,7 @@ async def permanently_delete_account(
         await eva_db.delete(account)
         # Force constraint checks here so we can map DB errors to a clear API response.
         await eva_db.flush()
-    except IntegrityError as exc:
+    except SQLAlchemyError as exc:
         raise _map_permanent_delete_error(exc) from exc
     return {"message": f"Account '{account.name}' permanently deleted"}
 
