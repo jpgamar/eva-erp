@@ -192,7 +192,8 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     html = captured["json"]["content"][1]["value"]
     assert "<img" not in html
     assert "Eva Commerce" in html
-    assert "viewBox=\"0 0 300 320\"" in html
+    assert "<svg" not in html
+    assert "EvaAI" in html
     assert "Completar configuracion" in html
     assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in html
     assert "Si el enlace expira" not in html
