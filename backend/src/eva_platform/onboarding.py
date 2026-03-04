@@ -68,25 +68,9 @@ async def _send_setup_email(
     product_label: str,
     onboarding_link: str,
 ) -> tuple[bool, str]:
-    redirect_to = (settings.eva_app_onboarding_redirect_url or "").strip() or None
-
-    async def _send_via_supabase_fallback(reason: str) -> tuple[bool, str]:
-        try:
-            await SupabaseAdminClient.send_recovery_email(owner_email, redirect_to=redirect_to)
-            logger.info("Setup email fallback sent via Supabase Auth for %s (%s)", owner_email, reason)
-            return True, "Setup email sent via Supabase fallback."
-        except SupabaseAdminError as exc:
-            logger.warning(
-                "Supabase fallback email failed for %s after reason=%s: %s",
-                owner_email,
-                reason,
-                exc,
-            )
-            return False, "Failed to send setup email. Share the setup link manually."
-
     api_key = (settings.sendgrid_api_key or "").strip()
     if not api_key:
-        return await _send_via_supabase_fallback("sendgrid_not_configured")
+        return False, "Failed to send setup email (SendGrid not configured). Share the setup link manually."
 
     display_name = owner_name.strip() or "there"
 
@@ -94,7 +78,7 @@ async def _send_setup_email(
         "personalizations": [
             {
                 "to": [{"email": owner_email}],
-                "subject": f"Configura tu acceso a {product_label}",
+                "subject": f"Configura tu contrasena para {product_label}",
             }
         ],
         "from": {
@@ -113,7 +97,7 @@ async def _send_setup_email(
                 "value": (
                     f"Hola {display_name},\n\n"
                     f"Tu cuenta de {product_label} esta lista.\n"
-                    "Completa tu configuracion con este enlace:\n"
+                    "Configura tu contrasena con este enlace:\n"
                     f"{onboarding_link}"
                 ),
             },
@@ -149,7 +133,7 @@ async def _send_setup_email(
                     "<tr><td style=\"padding:14px 28px 6px 28px;text-align:center;\">"
                     f"<a href=\"{onboarding_link}\" "
                     "style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;"
-                    "font-weight:700;font-size:15px;line-height:1;padding:14px 24px;border-radius:10px;border:1px solid #1d4ed8;\">Completar configuracion</a>"
+                    "font-weight:700;font-size:15px;line-height:1;padding:14px 24px;border-radius:10px;border:1px solid #1d4ed8;\">Configurar contrasena</a>"
                     "</td></tr>"
                     "<tr><td style=\"padding:12px 28px 16px 28px;\">"
                     "<div style=\"padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;\">"
@@ -179,7 +163,7 @@ async def _send_setup_email(
             )
     except Exception as exc:
         logger.warning("Failed to send onboarding email to %s: %s", owner_email, exc, exc_info=True)
-        return await _send_via_supabase_fallback("sendgrid_exception")
+        return False, "Failed to send setup email. Share the setup link manually."
 
     if 200 <= response.status_code < 300:
         return True, "Setup email sent successfully."
@@ -190,7 +174,4 @@ async def _send_setup_email(
         response.status_code,
         response.text[:300],
     )
-    sent, message = await _send_via_supabase_fallback(f"sendgrid_status_{response.status_code}")
-    if sent:
-        return True, message
     return False, f"Email provider returned {response.status_code}. Share the setup link manually."

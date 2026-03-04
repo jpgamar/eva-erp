@@ -65,5 +65,5 @@ SendGrid check for FMAccesorios hits the FM ERP health endpoint
 
 - EVA ERP account provisioning now generates an owner setup link and attempts setup-email delivery.
 - Email delivery uses `SENDGRID_API_KEY` from backend environment.
-- If SendGrid is missing/unavailable, account provisioning still succeeds and returns onboarding data with `email_status=failed`.
+- If SendGrid is missing/unavailable, account provisioning still succeeds and returns onboarding data with `email_status=failed` (no Supabase mail fallback).
 - Operators should copy/share the `onboarding_link` fallback shown in the ERP UI when email delivery fails.

@@ -42,14 +42,6 @@ def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
 
 def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypatch):
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
-    called = {"recovery": False}
-
-    async def _recovery_ok(email: str, redirect_to: str | None = None):
-        called["recovery"] = True
-        assert email == "owner@example.com"
-        assert redirect_to == settings.eva_app_onboarding_redirect_url
-
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _recovery_ok)
 
     original_key = settings.sendgrid_api_key
     settings.sendgrid_api_key = ""
@@ -65,24 +57,29 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypat
     finally:
         settings.sendgrid_api_key = original_key
 
-    assert called["recovery"] is True
-    assert result.email_status == "sent"
-    assert "supabase" in (result.email_message or "").lower()
+    assert result.email_status == "failed"
+    assert "sendgrid not configured" in (result.email_message or "").lower()
 
 
-def test_build_account_onboarding_returns_failed_when_fallback_also_fails(monkeypatch):
+def test_build_account_onboarding_returns_failed_when_sendgrid_raises(monkeypatch):
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
-    called = {"recovery": False}
+    class DummyClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
 
-    async def _recovery_fail(email: str, redirect_to: str | None = None):
-        called["recovery"] = True
-        assert redirect_to == settings.eva_app_onboarding_redirect_url
-        raise SupabaseAdminError("recover endpoint failed")
+        async def __aenter__(self):
+            return self
 
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _recovery_fail)
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            raise RuntimeError("network down")
+
+    monkeypatch.setattr(onboarding.httpx, "AsyncClient", DummyClient)
 
     original_key = settings.sendgrid_api_key
-    settings.sendgrid_api_key = ""
+    settings.sendgrid_api_key = "SG.test"
     try:
         result = asyncio.run(
             onboarding.build_account_onboarding(
@@ -95,7 +92,6 @@ def test_build_account_onboarding_returns_failed_when_fallback_also_fails(monkey
     finally:
         settings.sendgrid_api_key = original_key
 
-    assert called["recovery"] is True
     assert result.email_status == "failed"
     assert "share" in (result.email_message or "").lower()
 
@@ -219,7 +215,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
     assert captured["json"]["from"]["name"] == "Eva ERP"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
-    assert captured["json"]["personalizations"][0]["subject"] == "Configura tu acceso a Eva Commerce"
+    assert captured["json"]["personalizations"][0]["subject"] == "Configura tu contrasena para Eva Commerce"
     assert captured["json"]["tracking_settings"]["click_tracking"]["enable"] is False
     text = captured["json"]["content"][0]["value"]
     assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in text
@@ -229,6 +225,6 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert "Eva Commerce" in html
     assert "<svg" not in html
     assert "EvaAI" in html
-    assert "Completar configuracion" in html
+    assert "Configurar contrasena" in html
     assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in html
     assert "Si el enlace expira" not in html
