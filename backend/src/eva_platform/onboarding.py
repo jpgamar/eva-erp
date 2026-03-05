@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_ONBOARDING_REDIRECT_URL = "https://app.goeva.ai/auth/change-password"
 SENDGRID_MAX_ATTEMPTS = 3
 SENDGRID_RETRYABLE_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
+SENDGRID_SUPPRESSION_ENDPOINTS = (
+    ("blocks", "/v3/suppression/blocks/{email}"),
+    ("bounces", "/v3/suppression/bounces/{email}"),
+    ("spam_reports", "/v3/suppression/spam_reports/{email}"),
+    ("global_unsubscribe", "/v3/asm/suppressions/global/{email}"),
+)
 
 
 def _resolve_onboarding_redirect_url(raw_redirect_url: str | None) -> str:
@@ -177,6 +183,58 @@ async def _send_setup_email(
     product_label: str,
     onboarding_link: str,
 ) -> tuple[bool, str]:
+    async def _clear_sendgrid_suppressions(client: httpx.AsyncClient, *, email: str) -> None:
+        encoded_email = quote(email.strip().lower(), safe="")
+        for suppression_key, endpoint_template in SENDGRID_SUPPRESSION_ENDPOINTS:
+            endpoint = endpoint_template.format(email=encoded_email)
+            url = f"https://api.sendgrid.com{endpoint}"
+            try:
+                check_resp = await client.get(url, headers=headers)
+            except Exception as exc:
+                logger.warning(
+                    "SendGrid suppression check failed for %s (%s): %s",
+                    email,
+                    suppression_key,
+                    exc,
+                )
+                continue
+
+            if check_resp.status_code == 404:
+                continue
+
+            if check_resp.status_code not in {200, 204}:
+                logger.warning(
+                    "SendGrid suppression check unexpected response for %s (%s): status=%s body=%s",
+                    email,
+                    suppression_key,
+                    check_resp.status_code,
+                    check_resp.text[:200],
+                )
+                continue
+
+            try:
+                delete_resp = await client.delete(url, headers=headers)
+            except Exception as exc:
+                logger.warning(
+                    "SendGrid suppression clear failed for %s (%s): %s",
+                    email,
+                    suppression_key,
+                    exc,
+                )
+                continue
+
+            if delete_resp.status_code not in {200, 202, 204, 404}:
+                logger.warning(
+                    "SendGrid suppression clear rejected for %s (%s): status=%s body=%s",
+                    email,
+                    suppression_key,
+                    delete_resp.status_code,
+                    delete_resp.text[:200],
+                )
+                continue
+
+            logger.warning("Cleared SendGrid suppression for %s (%s)", email, suppression_key)
+
     api_key = (settings.sendgrid_api_key or "").strip()
     if not api_key:
         return False, "Failed to send setup email (SendGrid not configured). Share the setup link manually."
@@ -195,6 +253,9 @@ async def _send_setup_email(
             "name": settings.sendgrid_from_name,
         },
         "reply_to": {"email": settings.sendgrid_reply_to},
+        "mail_settings": {
+            "bypass_list_management": {"enable": True},
+        },
         "tracking_settings": {
             "click_tracking": {"enable": False, "enable_text": False},
             "open_tracking": {"enable": False},
@@ -264,6 +325,8 @@ async def _send_setup_email(
     for attempt in range(1, SENDGRID_MAX_ATTEMPTS + 1):
         try:
             async with httpx.AsyncClient(timeout=15) as client:
+                if attempt == 1:
+                    await _clear_sendgrid_suppressions(client, email=owner_email)
                 response = await client.post(
                     "https://api.sendgrid.com/v3/mail/send",
                     headers=headers,
@@ -284,7 +347,7 @@ async def _send_setup_email(
             return False, "Failed to send setup email. Share the setup link manually."
 
         if 200 <= response.status_code < 300:
-            return True, "Setup email sent successfully."
+            return True, "Setup email accepted by provider."
 
         should_retry = response.status_code in SENDGRID_RETRYABLE_STATUSES
         logger.warning(

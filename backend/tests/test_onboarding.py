@@ -85,6 +85,18 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_raises(monkeypatc
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
+        async def get(self, url, headers=None):
+            class DummyGetResponse:
+                status_code = 404
+                text = ""
+            return DummyGetResponse()
+
+        async def delete(self, url, headers=None):
+            class DummyDeleteResponse:
+                status_code = 204
+                text = ""
+            return DummyDeleteResponse()
+
         async def post(self, url, headers=None, json=None):
             raise RuntimeError("network down")
 
@@ -433,6 +445,18 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
+        async def get(self, url, headers=None):
+            class DummyGetResponse:
+                status_code = 404
+                text = ""
+            return DummyGetResponse()
+
+        async def delete(self, url, headers=None):
+            class DummyDeleteResponse:
+                status_code = 204
+                text = ""
+            return DummyDeleteResponse()
+
         async def post(self, url, headers=None, json=None):
             captured["url"] = url
             captured["headers"] = headers or {}
@@ -465,11 +489,12 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
         settings.sendgrid_reply_to = original_reply_to
 
     assert ok is True
-    assert "successfully" in message.lower()
+    assert "accepted by provider" in message.lower()
     assert captured["url"] == "https://api.sendgrid.com/v3/mail/send"
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
     assert captured["json"]["from"]["name"] == "Eva ERP"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
+    assert captured["json"]["mail_settings"]["bypass_list_management"]["enable"] is True
     assert captured["json"]["personalizations"][0]["subject"] == "Configura tu contrasena para Eva Commerce"
     assert captured["json"]["tracking_settings"]["click_tracking"]["enable"] is False
     text = captured["json"]["content"][0]["value"]
