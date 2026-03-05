@@ -432,6 +432,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     class DummyResponse:
         status_code = 202
         text = ""
+        headers = {"X-Message-Id": "sg-msg-123"}
 
     captured = {}
 
@@ -490,6 +491,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
 
     assert ok is True
     assert "accepted by provider" in message.lower()
+    assert "sg-msg-123" in message
     assert captured["url"] == "https://api.sendgrid.com/v3/mail/send"
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
     assert captured["json"]["from"]["name"] == "Eva ERP"
