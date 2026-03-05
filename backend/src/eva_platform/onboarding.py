@@ -234,6 +234,9 @@ async def _send_setup_email(
         "reply_to": {"email": settings.sendgrid_reply_to},
         "mail_settings": {
             "bypass_list_management": {"enable": True},
+            "bypass_spam_management": {"enable": True},
+            "bypass_bounce_management": {"enable": True},
+            "bypass_unsubscribe_management": {"enable": True},
         },
         "tracking_settings": {
             "click_tracking": {"enable": False, "enable_text": False},
