@@ -256,6 +256,80 @@ def test_build_account_onboarding_prefers_hashed_token_link(monkeypatch):
     assert result.onboarding_link == "https://app.goeva.ai/auth/change-password?token_hash=hashed-token-123&type=recovery"
 
 
+def test_build_account_onboarding_converts_action_link_token_to_direct_link(monkeypatch):
+    async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
+        assert email == "owner@example.com"
+        assert link_type == "recovery"
+        assert redirect_to == "https://app.goeva.ai/auth/change-password"
+        return {
+            "action_link": (
+                "https://xyzcompany.supabase.co/auth/v1/verify"
+                "?token=plain-token-456&type=recovery&redirect_to=https%3A%2F%2Fapp.goeva.ai%2Fauth%2Fchange-password"
+            ),
+            "hashed_token": "",
+        }
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _capture_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "ok"
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    original_redirect = settings.eva_app_onboarding_redirect_url
+    settings.eva_app_onboarding_redirect_url = "https://app.goeva.ai/auth/change-password"
+    try:
+        result = asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                send_setup_email=True,
+            )
+        )
+    finally:
+        settings.eva_app_onboarding_redirect_url = original_redirect
+
+    assert result.onboarding_link == "https://app.goeva.ai/auth/change-password?token=plain-token-456&type=recovery"
+
+
+def test_build_account_onboarding_converts_action_link_hash_to_direct_link(monkeypatch):
+    async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
+        assert email == "owner@example.com"
+        assert link_type == "recovery"
+        assert redirect_to == "https://app.goeva.ai/auth/change-password"
+        return {
+            "action_link": (
+                "https://xyzcompany.supabase.co/auth/v1/verify"
+                "?token_hash=hash-token-999&type=recovery&redirect_to=https%3A%2F%2Fapp.goeva.ai%2Fauth%2Fchange-password"
+            ),
+            "hashed_token": "",
+        }
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _capture_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "ok"
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    original_redirect = settings.eva_app_onboarding_redirect_url
+    settings.eva_app_onboarding_redirect_url = "https://app.goeva.ai/auth/change-password"
+    try:
+        result = asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                send_setup_email=True,
+            )
+        )
+    finally:
+        settings.eva_app_onboarding_redirect_url = original_redirect
+
+    assert result.onboarding_link == "https://app.goeva.ai/auth/change-password?token_hash=hash-token-999&type=recovery"
+
+
 def test_build_direct_recovery_link_preserves_existing_query_params():
     direct_link = onboarding._build_direct_recovery_link(
         redirect_to="https://app.goeva.ai/auth/change-password?lang=es&source=erp&type=invite",

@@ -41,14 +41,31 @@ def _resolve_onboarding_redirect_url(raw_redirect_url: str | None) -> str:
 
 
 def _build_direct_recovery_link(*, redirect_to: str, token_hash: str) -> str:
+    return _build_direct_otp_link(
+        redirect_to=redirect_to,
+        otp_type="recovery",
+        token_hash=token_hash,
+    )
+
+
+def _build_direct_otp_link(
+    *,
+    redirect_to: str,
+    otp_type: str,
+    token_hash: str | None = None,
+    token: str | None = None,
+) -> str:
     parsed = urlparse(redirect_to)
     params = [
         (key, value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
         if key not in {"token_hash", "token", "otp_token", "type", "otp_type"}
     ]
-    params.append(("token_hash", token_hash))
-    params.append(("type", "recovery"))
+    if token_hash:
+        params.append(("token_hash", token_hash))
+    elif token:
+        params.append(("token", token))
+    params.append(("type", otp_type))
     return urlunparse(parsed._replace(query=urlencode(params, doseq=True), fragment=""))
 
 
@@ -61,6 +78,36 @@ def _resolve_onboarding_link(
     hashed_token = (generated.get("hashed_token") or "").strip()
     if hashed_token:
         return _build_direct_recovery_link(redirect_to=redirect_to, token_hash=hashed_token)
+    if action_link:
+        parsed_action = urlparse(action_link)
+        action_params = dict(parse_qsl(parsed_action.query, keep_blank_values=True))
+        action_token_hash = (
+            (action_params.get("token_hash") or "").strip()
+            or (action_params.get("hashed_token") or "").strip()
+        )
+        action_token = (
+            (action_params.get("token") or "").strip()
+            or (action_params.get("otp_token") or "").strip()
+        )
+        action_type = (
+            (action_params.get("type") or action_params.get("otp_type") or "recovery")
+            .strip()
+            .lower()
+            or "recovery"
+        )
+        action_redirect = _resolve_onboarding_redirect_url(action_params.get("redirect_to") or redirect_to)
+        if action_token_hash:
+            return _build_direct_otp_link(
+                redirect_to=action_redirect,
+                otp_type=action_type,
+                token_hash=action_token_hash,
+            )
+        if action_token:
+            return _build_direct_otp_link(
+                redirect_to=action_redirect,
+                otp_type=action_type,
+                token=action_token,
+            )
     return action_link
 
 
