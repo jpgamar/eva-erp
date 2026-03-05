@@ -217,7 +217,12 @@ export default function EvaCustomersPage() {
       setAccountOnboarding(result.onboarding);
       setAccountForm({ ...INITIAL_ACCOUNT_FORM, name: accountForm.name.trim() });
       if (result.onboarding.email_status === "sent") {
-        toast.success("Account created and setup email sent");
+        const providerMessage = result.onboarding.email_message?.trim();
+        toast.success(
+          providerMessage
+            ? `Account created and setup email sent. ${providerMessage}`
+            : "Account created and setup email sent"
+        );
       } else {
         const reason = result.onboarding.email_message?.trim();
         toast.warning(
@@ -292,7 +297,12 @@ export default function EvaCustomersPage() {
     try {
       const onboarding = await evaPlatformApi.resendAccountOnboarding(account.id, { send_setup_email: true });
       if (onboarding.email_status === "sent") {
-        toast.success(`Setup email sent to ${onboarding.owner_email}`);
+        const providerMessage = onboarding.email_message?.trim();
+        toast.success(
+          providerMessage
+            ? `Setup email sent to ${onboarding.owner_email}. ${providerMessage}`
+            : `Setup email sent to ${onboarding.owner_email}`
+        );
       } else {
         try {
           await navigator.clipboard.writeText(onboarding.onboarding_link);
