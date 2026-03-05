@@ -234,9 +234,6 @@ async def _send_setup_email(
         "reply_to": {"email": settings.sendgrid_reply_to},
         "mail_settings": {
             "bypass_list_management": {"enable": True},
-            "bypass_spam_management": {"enable": True},
-            "bypass_bounce_management": {"enable": True},
-            "bypass_unsubscribe_management": {"enable": True},
         },
         "tracking_settings": {
             "click_tracking": {"enable": False, "enable_text": False},
@@ -323,4 +320,9 @@ async def _send_setup_email(
         break
 
     status = response.status_code if response is not None else "unknown"
-    return False, f"Email provider returned {status}. Share the setup link manually."
+    provider_error = ""
+    if response is not None:
+        raw = (response.text or "").strip().replace("\n", " ")
+        if raw:
+            provider_error = f" ({raw[:200]})"
+    return False, f"Email provider returned {status}{provider_error}. Share the setup link manually."

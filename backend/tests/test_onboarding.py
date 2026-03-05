@@ -497,9 +497,6 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert captured["json"]["from"]["name"] == "Eva ERP"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
     assert captured["json"]["mail_settings"]["bypass_list_management"]["enable"] is True
-    assert captured["json"]["mail_settings"]["bypass_spam_management"]["enable"] is True
-    assert captured["json"]["mail_settings"]["bypass_bounce_management"]["enable"] is True
-    assert captured["json"]["mail_settings"]["bypass_unsubscribe_management"]["enable"] is True
     assert captured["json"]["personalizations"][0]["subject"] == "Configura tu contrasena para Eva Commerce"
     assert captured["json"]["tracking_settings"]["click_tracking"]["enable"] is False
     text = captured["json"]["content"][0]["value"]
