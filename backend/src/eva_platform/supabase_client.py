@@ -9,13 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class SupabaseGenerateLinkResult(TypedDict):
+    action_link: str
+    hashed_token: str
 
 
 class SupabaseAdminError(Exception):
@@ -238,6 +243,21 @@ class SupabaseAdminClient:
 
         Returns the full action link URL.
         """
+        details = await cls.admin_generate_link_details(
+            email=email,
+            link_type=link_type,
+            redirect_to=redirect_to,
+        )
+        return details.get("action_link", "")
+
+    @classmethod
+    async def admin_generate_link_details(
+        cls,
+        email: str,
+        link_type: str = "magiclink",
+        redirect_to: str | None = None,
+    ) -> SupabaseGenerateLinkResult:
+        """Generate a link and return all callback primitives needed by callers."""
         normalized_email = email.strip().lower()
         payload = {
             "email": normalized_email,
@@ -258,7 +278,19 @@ class SupabaseAdminClient:
 
         if resp.status_code == 200:
             data = resp.json()
-            return data.get("action_link") or data.get("properties", {}).get("action_link", "")
+            properties = data.get("properties", {}) if isinstance(data, dict) else {}
+            action_link = data.get("action_link") if isinstance(data, dict) else ""
+            if not action_link:
+                action_link = properties.get("action_link", "")
+            hashed_token = ""
+            if isinstance(data, dict):
+                hashed_token = str(data.get("hashed_token") or "")
+            if not hashed_token and isinstance(properties, dict):
+                hashed_token = str(properties.get("hashed_token") or "")
+            return {
+                "action_link": str(action_link or ""),
+                "hashed_token": hashed_token,
+            }
 
         msg, _ = cls._extract_error(resp)
         logger.error("Supabase admin_generate_link failed: %s %s", resp.status_code, msg)

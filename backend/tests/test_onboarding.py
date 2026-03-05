@@ -12,15 +12,18 @@ async def _fake_generate_link(
     email: str,
     link_type: str = "recovery",
     redirect_to: str | None = None,
-) -> str:
+) -> dict[str, str]:
     assert email
     assert link_type
     assert redirect_to
-    return "https://example.com/setup-link"
+    return {
+        "action_link": "https://example.com/setup-link",
+        "hashed_token": "",
+    }
 
 
 def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
 
     async def _should_not_send(**kwargs):
         raise AssertionError("email sender should not be called when send_setup_email=False")
@@ -41,7 +44,7 @@ def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
 
 
 def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypatch):
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
 
     original_key = settings.sendgrid_api_key
     settings.sendgrid_api_key = ""
@@ -62,7 +65,7 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypat
 
 
 def test_build_account_onboarding_returns_failed_when_sendgrid_raises(monkeypatch):
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
     class DummyClient:
         def __init__(self, timeout):
             self.timeout = timeout
@@ -97,7 +100,7 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_raises(monkeypatc
 
 
 def test_build_account_onboarding_reports_sent_status(monkeypatch):
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _fake_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
 
     async def _send_success(**kwargs):
         return True, "Setup email sent successfully."
@@ -122,9 +125,12 @@ def test_build_account_onboarding_passes_redirect_to_supabase(monkeypatch):
 
     async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
         observed["redirect_to"] = redirect_to
-        return "https://example.com/setup-link"
+        return {
+            "action_link": "https://example.com/setup-link",
+            "hashed_token": "",
+        }
 
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _capture_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _capture_generate_link)
 
     async def _send_success(**kwargs):
         return True, "ok"
@@ -151,9 +157,12 @@ def test_build_account_onboarding_normalizes_login_redirect_to_change_password(m
 
     async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
         observed["redirect_to"] = redirect_to
-        return "https://example.com/setup-link"
+        return {
+            "action_link": "https://example.com/setup-link",
+            "hashed_token": "",
+        }
 
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _capture_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _capture_generate_link)
 
     async def _send_success(**kwargs):
         return True, "ok"
@@ -183,9 +192,12 @@ def test_build_account_onboarding_uses_change_password_default_when_redirect_mis
 
     async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
         observed["redirect_to"] = redirect_to
-        return "https://example.com/setup-link"
+        return {
+            "action_link": "https://example.com/setup-link",
+            "hashed_token": "",
+        }
 
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _capture_generate_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _capture_generate_link)
 
     async def _send_success(**kwargs):
         return True, "ok"
@@ -210,11 +222,57 @@ def test_build_account_onboarding_uses_change_password_default_when_redirect_mis
     assert observed["redirect_to"] == "https://app.goeva.ai/auth/change-password"
 
 
+def test_build_account_onboarding_prefers_hashed_token_link(monkeypatch):
+    async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
+        assert email == "owner@example.com"
+        assert link_type == "recovery"
+        assert redirect_to == "https://app.goeva.ai/auth/change-password"
+        return {
+            "action_link": "https://example.com/setup-link",
+            "hashed_token": "hashed-token-123",
+        }
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _capture_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "ok"
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    original_redirect = settings.eva_app_onboarding_redirect_url
+    settings.eva_app_onboarding_redirect_url = "https://app.goeva.ai/auth/change-password"
+    try:
+        result = asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                send_setup_email=True,
+            )
+        )
+    finally:
+        settings.eva_app_onboarding_redirect_url = original_redirect
+
+    assert result.onboarding_link == "https://app.goeva.ai/auth/change-password?token_hash=hashed-token-123&type=recovery"
+
+
+def test_build_direct_recovery_link_preserves_existing_query_params():
+    direct_link = onboarding._build_direct_recovery_link(
+        redirect_to="https://app.goeva.ai/auth/change-password?lang=es&source=erp&type=invite",
+        token_hash="hashed-token-abc",
+    )
+
+    assert (
+        direct_link
+        == "https://app.goeva.ai/auth/change-password?lang=es&source=erp&token_hash=hashed-token-abc&type=recovery"
+    )
+
+
 def test_build_account_onboarding_raises_when_setup_link_missing(monkeypatch):
     async def _empty_link(**kwargs):
-        return ""
+        return {"action_link": "", "hashed_token": ""}
 
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _empty_link)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _empty_link)
 
     with pytest.raises(SupabaseAdminError):
         asyncio.run(

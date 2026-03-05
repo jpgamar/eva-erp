@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 
 from src.common.config import settings
 from src.eva_platform.schemas import AccountOnboardingResponse
-from src.eva_platform.supabase_client import SupabaseAdminClient, SupabaseAdminError
+from src.eva_platform.supabase_client import (
+    SupabaseAdminClient,
+    SupabaseAdminError,
+    SupabaseGenerateLinkResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +40,30 @@ def _resolve_onboarding_redirect_url(raw_redirect_url: str | None) -> str:
     return configured
 
 
+def _build_direct_recovery_link(*, redirect_to: str, token_hash: str) -> str:
+    parsed = urlparse(redirect_to)
+    params = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in {"token_hash", "token", "otp_token", "type", "otp_type"}
+    ]
+    params.append(("token_hash", token_hash))
+    params.append(("type", "recovery"))
+    return urlunparse(parsed._replace(query=urlencode(params, doseq=True), fragment=""))
+
+
+def _resolve_onboarding_link(
+    *,
+    redirect_to: str,
+    generated: SupabaseGenerateLinkResult,
+) -> str:
+    action_link = (generated.get("action_link") or "").strip()
+    hashed_token = (generated.get("hashed_token") or "").strip()
+    if hashed_token:
+        return _build_direct_recovery_link(redirect_to=redirect_to, token_hash=hashed_token)
+    return action_link
+
+
 async def build_account_onboarding(
     *,
     owner_email: str,
@@ -50,10 +78,14 @@ async def build_account_onboarding(
     """
     redirect_to = _resolve_onboarding_redirect_url(settings.eva_app_onboarding_redirect_url)
     try:
-        onboarding_link = await SupabaseAdminClient.admin_generate_link(
+        generated_link = await SupabaseAdminClient.admin_generate_link_details(
             email=owner_email,
             link_type="recovery",
             redirect_to=redirect_to,
+        )
+        onboarding_link = _resolve_onboarding_link(
+            redirect_to=redirect_to,
+            generated=generated_link,
         )
     except SupabaseAdminError as exc:
         raise exc
