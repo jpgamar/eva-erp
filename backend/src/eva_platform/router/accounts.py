@@ -1,14 +1,12 @@
 """Eva Customers: real accounts (Eva DB) + draft accounts (ERP DB)."""
 
 import logging
-import re
 import secrets
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
@@ -147,187 +145,6 @@ def _build_account_pricing_response(
         created_at=profile.created_at if profile else None,
         updated_at=profile.updated_at if profile else None,
     )
-
-
-def _map_permanent_delete_error(exc: Exception) -> HTTPException:
-    """Map DB integrity failures for permanent delete into actionable API errors."""
-    original = str(getattr(exc, "orig", exc)).strip()
-    lowered = original.lower()
-    table_matches = re.findall(r'on table "([^"]+)"', original, flags=re.IGNORECASE)
-    table_name = table_matches[-1] if table_matches else None
-    if "cannot delete the last won stage in a pipeline" in lowered:
-        return HTTPException(
-            status_code=409,
-            detail=(
-                "Cannot permanently delete account because it owns the last won stage "
-                "in at least one pipeline. Reassign or remove that stage first."
-            ),
-        )
-    if "foreign key constraint" in lowered:
-        detail = "Cannot permanently delete account because related records still exist"
-        if table_name:
-            detail = f"{detail} (blocking table: {table_name})"
-        return HTTPException(status_code=409, detail=detail)
-    if any(
-        token in lowered
-        for token in (
-            "cannot delete",
-            "delete is blocked",
-            "is still referenced",
-            "dependent objects still exist",
-            "violates",
-            "constraint",
-        )
-    ):
-        detail = "Cannot permanently delete account because related records still exist"
-        if table_name:
-            detail = f"{detail} (blocking table: {table_name})"
-        reason = original.splitlines()[0]
-        reason = re.sub(r"^<class '[^']+'>:\s*", "", reason).strip()
-        reason = reason[:180]
-        if reason:
-            detail = f"{detail}. Reason: {reason}"
-        return HTTPException(status_code=409, detail=detail)
-    return HTTPException(status_code=500, detail="Failed to permanently delete account")
-
-
-def _is_last_won_stage_delete_error(exc: Exception) -> bool:
-    original = str(getattr(exc, "orig", exc))
-    return "cannot delete the last won stage in a pipeline" in original.lower()
-
-
-async def _cleanup_pipeline_stage_account_refs(
-    eva_db: AsyncSession,
-    account_id: uuid.UUID,
-) -> bool:
-    """Detach/reassign pipeline or stage records tied to account so delete can proceed."""
-    refs_result = await eva_db.execute(
-        text(
-            """
-            SELECT
-                format('%I.%I', n.nspname, c.relname) AS qualified_table,
-                quote_ident(a.attname) AS quoted_column,
-                NOT a.attnotnull AS is_nullable
-            FROM pg_constraint con
-            JOIN pg_class c ON c.oid = con.conrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            JOIN unnest(con.conkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
-            JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
-            JOIN pg_class refc ON refc.oid = con.confrelid
-            JOIN pg_namespace refn ON refn.oid = refc.relnamespace
-            WHERE con.contype = 'f'
-              AND refn.nspname = 'public'
-              AND refc.relname = 'accounts'
-              AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-              AND (
-                c.relname ILIKE '%pipeline%'
-                OR c.relname ILIKE '%stage%'
-                OR a.attname ILIKE '%pipeline%'
-                OR a.attname ILIKE '%stage%'
-              )
-            ORDER BY n.nspname, c.relname, k.ordinality
-            """
-        )
-    )
-    refs = refs_result.all()
-    if not refs:
-        return False
-
-    fallback_account_id = None
-    if any(not row.is_nullable for row in refs):
-        fallback_result = await eva_db.execute(
-            text(
-                """
-                SELECT id
-                FROM accounts
-                WHERE id <> :account_id
-                ORDER BY is_active DESC, created_at ASC
-                LIMIT 1
-                """
-            ),
-            {"account_id": account_id},
-        )
-        fallback_account_id = fallback_result.scalar_one_or_none()
-        if fallback_account_id is None:
-            return False
-
-    changed_rows = 0
-    for row in refs:
-        table_name = row.qualified_table
-        column_name = row.quoted_column
-        if row.is_nullable:
-            stmt = text(
-                f"UPDATE {table_name} SET {column_name} = NULL "
-                f"WHERE {column_name} = :account_id"
-            )
-            result = await eva_db.execute(stmt, {"account_id": account_id})
-        else:
-            schema_name, raw_table_name = table_name.split(".", 1)
-            has_name_column = await eva_db.execute(
-                text(
-                    """
-                    SELECT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = :schema_name
-                          AND table_name = :table_name
-                          AND column_name = 'name'
-                    )
-                    """
-                ),
-                {
-                    "schema_name": schema_name,
-                    "table_name": raw_table_name,
-                },
-            )
-            if has_name_column.scalar_one():
-                stmt = text(
-                    f"""
-                    UPDATE {table_name} AS src
-                    SET
-                      name = CASE
-                        WHEN EXISTS (
-                          SELECT 1
-                          FROM {table_name} AS dst
-                          WHERE dst.{column_name} = :fallback_account_id
-                            AND dst.name = src.name
-                        ) OR EXISTS (
-                          SELECT 1
-                          FROM {table_name} AS peer
-                          WHERE peer.{column_name} = :account_id
-                            AND peer.name = src.name
-                            AND peer.ctid <> src.ctid
-                        )
-                        THEN src.name || ' [archived-' || replace(src.ctid::text, ',', '_') || ']'
-                        ELSE src.name
-                      END,
-                      {column_name} = :fallback_account_id
-                    WHERE src.{column_name} = :account_id
-                    """
-                )
-                result = await eva_db.execute(
-                    stmt,
-                    {
-                        "account_id": account_id,
-                        "fallback_account_id": fallback_account_id,
-                    },
-                )
-            else:
-                stmt = text(
-                    f"UPDATE {table_name} SET {column_name} = :fallback_account_id "
-                    f"WHERE {column_name} = :account_id"
-                )
-                result = await eva_db.execute(
-                    stmt,
-                    {
-                        "account_id": account_id,
-                        "fallback_account_id": fallback_account_id,
-                    },
-                )
-        if result.rowcount:
-            changed_rows += int(result.rowcount)
-
-    return changed_rows > 0
 
 
 # ── Real Accounts (Eva DB) ───────────────────────────────
@@ -831,53 +648,23 @@ async def deactivate_account(
     return {"message": f"Account '{account.name}' deactivated"}
 
 
-@router.delete("/accounts/{account_id}/permanent")
-async def permanently_delete_account(
+@router.post("/accounts/{account_id}/reactivate")
+async def reactivate_account(
     account_id: uuid.UUID,
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
 ):
-    """Hard-delete: remove account and its users from the database."""
+    """Reactivate a previously deactivated account."""
     result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     if account.is_active:
-        raise HTTPException(status_code=400, detail="Deactivate the account before deleting permanently")
-    # Delete associated account_users first.
-    try:
-        await eva_db.execute(
-            EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
-        )
-        await eva_db.delete(account)
-        # Force constraint checks here so we can map DB errors to a clear API response.
-        await eva_db.flush()
-    except SQLAlchemyError as exc:
-        if _is_last_won_stage_delete_error(exc):
-            try:
-                await eva_db.rollback()
-                cleaned = await _cleanup_pipeline_stage_account_refs(eva_db, account_id)
-                if cleaned:
-                    retry_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
-                    retry_account = retry_result.scalar_one_or_none()
-                    if retry_account and not retry_account.is_active:
-                        try:
-                            await eva_db.execute(
-                                EvaAccountUser.__table__.delete().where(EvaAccountUser.account_id == account_id)
-                            )
-                            await eva_db.delete(retry_account)
-                            await eva_db.flush()
-                            return {"message": f"Account '{retry_account.name}' permanently deleted"}
-                        except SQLAlchemyError as retry_exc:
-                            raise _map_permanent_delete_error(retry_exc) from retry_exc
-            except SQLAlchemyError as cleanup_exc:
-                logger.exception(
-                    "Permanent delete cleanup failed for account_id=%s",
-                    account_id,
-                )
-                raise _map_permanent_delete_error(cleanup_exc) from cleanup_exc
-        raise _map_permanent_delete_error(exc) from exc
-    return {"message": f"Account '{account.name}' permanently deleted"}
+        raise HTTPException(status_code=400, detail="Account is already active")
+    account.is_active = True
+    account.updated_at = datetime.now(timezone.utc)
+    eva_db.add(account)
+    return {"message": f"Account '{account.name}' reactivated"}
 
 
 @router.delete("/drafts/{draft_id}")

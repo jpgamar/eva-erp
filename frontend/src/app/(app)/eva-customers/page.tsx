@@ -337,20 +337,20 @@ export default function EvaCustomersPage() {
     }
   };
 
-  const handlePermanentlyDeleteAccount = async (account: EvaAccount) => {
+  const handleReactivateAccount = async (account: EvaAccount) => {
     const confirmed = window.confirm(
-      `PERMANENTLY DELETE "${account.name}"? This will remove the account and all its users from the database. This cannot be undone.`
+      `Reactivate "${account.name}"? This will set the account back to active.`
     );
     if (!confirmed) return;
     setDeletingAccount(true);
     try {
-      await evaPlatformApi.permanentlyDeleteAccount(account.id);
-      toast.success(`Account "${account.name}" permanently deleted`);
+      await evaPlatformApi.reactivateAccount(account.id);
+      toast.success(`Account "${account.name}" reactivated`);
       setSheetOpen(false);
       setSelectedAccount(null);
       await fetchData();
     } catch (e: any) {
-      toast.error(getApiErrorMessage(e, "Failed to delete account"));
+      toast.error(getApiErrorMessage(e, "Failed to reactivate account"));
     } finally {
       setDeletingAccount(false);
     }
@@ -698,6 +698,15 @@ export default function EvaCustomersPage() {
                             <DollarSign className="h-3 w-3 mr-1" />
                             Set Price
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                            onClick={() => handleDeleteAccount(a)}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Deactivate
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -761,6 +770,15 @@ export default function EvaCustomersPage() {
                           >
                             <ExternalLink className="h-3 w-3 mr-1" />
                             Impersonate
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800"
+                            onClick={() => handleReactivateAccount(a)}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Reactivate
                           </Button>
                         </div>
                       </TableCell>
@@ -1023,12 +1041,12 @@ export default function EvaCustomersPage() {
                 ) : (
                   <Button
                     variant="outline"
-                    className="w-full rounded-lg border-red-300 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-900"
-                    onClick={() => handlePermanentlyDeleteAccount(selectedAccount)}
+                    className="w-full rounded-lg border-green-300 text-green-700 hover:bg-green-50 hover:text-green-800"
+                    onClick={() => handleReactivateAccount(selectedAccount)}
                     disabled={deletingAccount}
                   >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    {deletingAccount ? "Deleting..." : "Delete Permanently"}
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    {deletingAccount ? "Reactivating..." : "Reactivate Account"}
                   </Button>
                 )}
               </div>

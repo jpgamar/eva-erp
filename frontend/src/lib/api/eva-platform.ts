@@ -46,8 +46,8 @@ export const evaPlatformApi = {
     api.get("/eva-platform/account-pricing/coverage").then((r) => r.data),
   deleteAccount: (id: string): Promise<{ message: string }> =>
     api.delete(`/eva-platform/accounts/${id}`).then((r) => r.data),
-  permanentlyDeleteAccount: (id: string): Promise<{ message: string }> =>
-    api.delete(`/eva-platform/accounts/${id}/permanent`).then((r) => r.data),
+  reactivateAccount: (id: string): Promise<{ message: string }> =>
+    api.post(`/eva-platform/accounts/${id}/reactivate`).then((r) => r.data),
 
   // Drafts
   listDrafts: (params?: { status?: string }): Promise<AccountDraft[]> =>
