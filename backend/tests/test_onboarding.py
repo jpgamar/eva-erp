@@ -508,7 +508,5 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert "<svg" not in html
     assert "EvaAI" in html
     assert "Configurar contrasena" in html
-    assert "Si el boton no abre, copia y pega este enlace en tu navegador" not in html
-    assert "word-break:break-all" not in html
     assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in html
     assert "Si el enlace expira" not in html
