@@ -338,6 +338,7 @@ async def _send_setup_email(
     }
 
     response: httpx.Response | None = None
+    suppressions_seen: list[str] = []
     for attempt in range(1, SENDGRID_MAX_ATTEMPTS + 1):
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -362,18 +363,21 @@ async def _send_setup_email(
                             email=recipient_email,
                             headers=headers,
                         )
-                        if active_after:
-                            suppression_list = ", ".join(active_after)
-                            return (
-                                False,
-                                "Email provider is suppressing this recipient "
-                                f"({suppression_list}). Share the setup link manually.",
-                            )
                         if (permissions_unknown or permissions_unknown_after or permission_denied) and not cleared:
                             logger.warning(
                                 "Could not fully verify SendGrid suppressions for %s due to permission limits.",
                                 recipient_email,
                             )
+                        if active_after:
+                            suppressions_seen = active_after
+                            logger.warning(
+                                "Recipient %s remains in SendGrid suppressions (%s). "
+                                "Continuing with bypass_list_management for transactional setup email.",
+                                recipient_email,
+                                ", ".join(active_after),
+                            )
+                        elif active_before:
+                            suppressions_seen = active_before
                 response = await client.post(
                     "https://api.sendgrid.com/v3/mail/send",
                     headers=headers,
@@ -398,9 +402,15 @@ async def _send_setup_email(
                 (response.headers.get("X-Message-Id") or "").strip()
                 or (response.headers.get("x-message-id") or "").strip()
             )
+            suppression_note = ""
+            if suppressions_seen:
+                suppression_note = (
+                    " Recipient appears in SendGrid suppressions "
+                    f"({', '.join(suppressions_seen)}), but bypass_list_management was requested."
+                )
             if message_id:
-                return True, f"Setup email accepted by provider (message_id: {message_id})."
-            return True, "Setup email accepted by provider."
+                return True, f"Setup email accepted by provider (message_id: {message_id}).{suppression_note}"
+            return True, f"Setup email accepted by provider.{suppression_note}"
 
         should_retry = response.status_code in SENDGRID_RETRYABLE_STATUSES
         logger.warning(

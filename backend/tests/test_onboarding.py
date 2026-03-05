@@ -513,7 +513,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert "Si el enlace expira" not in html
 
 
-def test_send_setup_email_returns_failed_when_recipient_still_suppressed(monkeypatch):
+def test_send_setup_email_continues_when_recipient_still_suppressed(monkeypatch):
     class DummySuppressedResponse:
         status_code = 200
         text = '{"recipient_email":"owner@example.com"}'
@@ -545,7 +545,12 @@ def test_send_setup_email_returns_failed_when_recipient_still_suppressed(monkeyp
             return DummyDeleteResponse()
 
         async def post(self, url, headers=None, json=None):
-            raise AssertionError("mail send should not run when recipient remains suppressed")
+            class DummySendResponse:
+                status_code = 202
+                text = ""
+                headers = {"X-Message-Id": "sg-msg-suppressed"}
+
+            return DummySendResponse()
 
     monkeypatch.setattr(onboarding.httpx, "AsyncClient", DummyClient)
 
@@ -563,6 +568,8 @@ def test_send_setup_email_returns_failed_when_recipient_still_suppressed(monkeyp
     finally:
         settings.sendgrid_api_key = original_api_key
 
-    assert ok is False
-    assert "suppressing this recipient" in message.lower()
+    assert ok is True
+    assert "accepted by provider" in message.lower()
+    assert "sg-msg-suppressed" in message
+    assert "bypass_list_management was requested" in message
     assert "bounces" in message
