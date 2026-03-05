@@ -31,6 +31,57 @@ SENDGRID_SUPPRESSION_ENDPOINTS = (
 )
 
 
+async def _get_sendgrid_active_suppressions(
+    client: httpx.AsyncClient,
+    *,
+    email: str,
+    headers: dict[str, str],
+) -> tuple[list[str], bool]:
+    encoded_email = quote(email.strip().lower(), safe="")
+    active: list[str] = []
+    permissions_unknown = False
+    for suppression_key, endpoint_template in SENDGRID_SUPPRESSION_ENDPOINTS:
+        endpoint = endpoint_template.format(email=encoded_email)
+        url = f"https://api.sendgrid.com{endpoint}"
+        try:
+            get_resp = await client.get(url, headers=headers)
+        except Exception as exc:
+            permissions_unknown = True
+            logger.warning(
+                "SendGrid suppression read failed for %s (%s): %s",
+                email,
+                suppression_key,
+                exc,
+            )
+            continue
+
+        if get_resp.status_code == 200:
+            active.append(suppression_key)
+            continue
+        if get_resp.status_code == 404:
+            continue
+        if get_resp.status_code in {401, 403}:
+            permissions_unknown = True
+            logger.warning(
+                "SendGrid suppression read denied for %s (%s): status=%s body=%s",
+                email,
+                suppression_key,
+                get_resp.status_code,
+                get_resp.text[:200],
+            )
+            continue
+
+        logger.warning(
+            "SendGrid suppression read unexpected status for %s (%s): status=%s body=%s",
+            email,
+            suppression_key,
+            get_resp.status_code,
+            get_resp.text[:200],
+        )
+
+    return active, permissions_unknown
+
+
 def _resolve_onboarding_redirect_url(raw_redirect_url: str | None) -> str:
     configured = (raw_redirect_url or "").strip()
     if not configured:
@@ -185,8 +236,14 @@ async def _send_setup_email(
     product_label: str,
     onboarding_link: str,
 ) -> tuple[bool, str]:
-    async def _clear_sendgrid_suppressions(client: httpx.AsyncClient, *, email: str) -> None:
+    async def _clear_sendgrid_suppressions(
+        client: httpx.AsyncClient,
+        *,
+        email: str,
+    ) -> tuple[list[str], bool]:
         encoded_email = quote(email.strip().lower(), safe="")
+        cleared: list[str] = []
+        permission_denied = False
         for suppression_key, endpoint_template in SENDGRID_SUPPRESSION_ENDPOINTS:
             endpoint = endpoint_template.format(email=encoded_email)
             url = f"https://api.sendgrid.com{endpoint}"
@@ -202,6 +259,8 @@ async def _send_setup_email(
                 continue
 
             if delete_resp.status_code not in {200, 202, 204, 404}:
+                if delete_resp.status_code in {401, 403}:
+                    permission_denied = True
                 logger.warning(
                     "SendGrid suppression clear rejected for %s (%s): status=%s body=%s",
                     email,
@@ -212,18 +271,25 @@ async def _send_setup_email(
                 continue
 
             if delete_resp.status_code != 404:
+                cleared.append(suppression_key)
                 logger.warning("Cleared SendGrid suppression for %s (%s)", email, suppression_key)
+
+        return cleared, permission_denied
 
     api_key = (settings.sendgrid_api_key or "").strip()
     if not api_key:
         return False, "Failed to send setup email (SendGrid not configured). Share the setup link manually."
+
+    recipient_email = owner_email.strip().lower()
+    if not recipient_email:
+        return False, "Failed to send setup email (owner email is empty). Share the setup link manually."
 
     display_name = owner_name.strip() or "there"
 
     payload = {
         "personalizations": [
             {
-                "to": [{"email": owner_email}],
+                "to": [{"email": recipient_email}],
                 "subject": f"Configura tu contrasena para {product_label}",
             }
         ],
@@ -276,7 +342,38 @@ async def _send_setup_email(
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 if attempt == 1:
-                    await _clear_sendgrid_suppressions(client, email=owner_email)
+                    active_before, permissions_unknown = await _get_sendgrid_active_suppressions(
+                        client,
+                        email=recipient_email,
+                        headers=headers,
+                    )
+                    if permissions_unknown and not active_before:
+                        logger.warning(
+                            "Proceeding with setup email send for %s without full suppression visibility.",
+                            recipient_email,
+                        )
+                    if active_before:
+                        cleared, permission_denied = await _clear_sendgrid_suppressions(
+                            client,
+                            email=recipient_email,
+                        )
+                        active_after, permissions_unknown_after = await _get_sendgrid_active_suppressions(
+                            client,
+                            email=recipient_email,
+                            headers=headers,
+                        )
+                        if active_after:
+                            suppression_list = ", ".join(active_after)
+                            return (
+                                False,
+                                "Email provider is suppressing this recipient "
+                                f"({suppression_list}). Share the setup link manually.",
+                            )
+                        if (permissions_unknown or permissions_unknown_after or permission_denied) and not cleared:
+                            logger.warning(
+                                "Could not fully verify SendGrid suppressions for %s due to permission limits.",
+                                recipient_email,
+                            )
                 response = await client.post(
                     "https://api.sendgrid.com/v3/mail/send",
                     headers=headers,
@@ -285,7 +382,7 @@ async def _send_setup_email(
         except Exception as exc:
             logger.warning(
                 "Failed to send onboarding email to %s (attempt %s/%s): %s",
-                owner_email,
+                recipient_email,
                 attempt,
                 SENDGRID_MAX_ATTEMPTS,
                 exc,
@@ -308,7 +405,7 @@ async def _send_setup_email(
         should_retry = response.status_code in SENDGRID_RETRYABLE_STATUSES
         logger.warning(
             "Setup email provider rejected request for %s: status=%s attempt=%s/%s body=%s",
-            owner_email,
+            recipient_email,
             response.status_code,
             attempt,
             SENDGRID_MAX_ATTEMPTS,

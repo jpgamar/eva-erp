@@ -477,7 +477,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     try:
         ok, message = asyncio.run(
             onboarding._send_setup_email(
-                owner_email="owner@example.com",
+                owner_email=" Owner@Example.com ",
                 owner_name="Owner",
                 product_label="Eva Commerce",
                 onboarding_link="https://example.com/setup-link",
@@ -493,6 +493,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert "accepted by provider" in message.lower()
     assert "sg-msg-123" in message
     assert captured["url"] == "https://api.sendgrid.com/v3/mail/send"
+    assert captured["json"]["personalizations"][0]["to"][0]["email"] == "owner@example.com"
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
     assert captured["json"]["from"]["name"] == "Eva ERP"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
@@ -510,3 +511,58 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert "Configurar contrasena" in html
     assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in html
     assert "Si el enlace expira" not in html
+
+
+def test_send_setup_email_returns_failed_when_recipient_still_suppressed(monkeypatch):
+    class DummySuppressedResponse:
+        status_code = 200
+        text = '{"recipient_email":"owner@example.com"}'
+
+    class DummyNotFoundResponse:
+        status_code = 404
+        text = ""
+
+    class DummyDeleteResponse:
+        status_code = 202
+        text = ""
+
+    class DummyClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            if "/v3/suppression/bounces/" in url:
+                return DummySuppressedResponse()
+            return DummyNotFoundResponse()
+
+        async def delete(self, url, headers=None):
+            return DummyDeleteResponse()
+
+        async def post(self, url, headers=None, json=None):
+            raise AssertionError("mail send should not run when recipient remains suppressed")
+
+    monkeypatch.setattr(onboarding.httpx, "AsyncClient", DummyClient)
+
+    original_api_key = settings.sendgrid_api_key
+    settings.sendgrid_api_key = "SG.test"
+    try:
+        ok, message = asyncio.run(
+            onboarding._send_setup_email(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                onboarding_link="https://example.com/setup-link",
+            )
+        )
+    finally:
+        settings.sendgrid_api_key = original_api_key
+
+    assert ok is False
+    assert "suppressing this recipient" in message.lower()
+    assert "bounces" in message
