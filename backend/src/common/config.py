@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = "no-reply@goeva.ai"
-    sendgrid_from_name: str = "Eva ERP"
+    sendgrid_from_name: str = "EvaAI"
     sendgrid_reply_to: str = "hi@goeva.ai"
     sendgrid_logo_url: str = "https://app.goeva.ai/favicon.ico"
     eva_app_onboarding_redirect_url: str = "https://app.goeva.ai/auth/change-password"

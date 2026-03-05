@@ -19,6 +19,9 @@ from src.eva_platform.supabase_client import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_ONBOARDING_REDIRECT_URL = "https://app.goeva.ai/auth/change-password"
+DEFAULT_SENDGRID_FROM_EMAIL = "no-reply@goeva.ai"
+DEFAULT_SENDGRID_FROM_NAME = "EvaAI"
+DEFAULT_SENDGRID_REPLY_TO = "hi@goeva.ai"
 SENDGRID_MAX_ATTEMPTS = 3
 SENDGRID_RETRYABLE_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
 SENDGRID_SUPPRESSION_ENDPOINTS = (
@@ -284,6 +287,21 @@ async def _send_setup_email(
     if not recipient_email:
         return False, "Failed to send setup email (owner email is empty). Share the setup link manually."
 
+    configured_sender_email = (settings.sendgrid_from_email or "").strip().lower()
+    sender_email = DEFAULT_SENDGRID_FROM_EMAIL
+    if configured_sender_email and configured_sender_email != DEFAULT_SENDGRID_FROM_EMAIL:
+        logger.warning(
+            "Overriding SENDGRID_FROM_EMAIL=%s to enforced onboarding sender=%s",
+            configured_sender_email,
+            DEFAULT_SENDGRID_FROM_EMAIL,
+        )
+
+    configured_sender_name = (settings.sendgrid_from_name or "").strip()
+    sender_name = configured_sender_name or DEFAULT_SENDGRID_FROM_NAME
+    if sender_name.lower() == "eva erp":
+        sender_name = DEFAULT_SENDGRID_FROM_NAME
+
+    reply_to_email = (settings.sendgrid_reply_to or "").strip().lower() or DEFAULT_SENDGRID_REPLY_TO
     display_name = owner_name.strip() or "there"
 
     payload = {
@@ -294,10 +312,10 @@ async def _send_setup_email(
             }
         ],
         "from": {
-            "email": settings.sendgrid_from_email,
-            "name": settings.sendgrid_from_name,
+            "email": sender_email,
+            "name": sender_name,
         },
-        "reply_to": {"email": settings.sendgrid_reply_to},
+        "reply_to": {"email": reply_to_email},
         "mail_settings": {
             "bypass_list_management": {"enable": True},
         },

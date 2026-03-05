@@ -495,7 +495,7 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert captured["url"] == "https://api.sendgrid.com/v3/mail/send"
     assert captured["json"]["personalizations"][0]["to"][0]["email"] == "owner@example.com"
     assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
-    assert captured["json"]["from"]["name"] == "Eva ERP"
+    assert captured["json"]["from"]["name"] == "EvaAI"
     assert captured["json"]["reply_to"]["email"] == "hi@goeva.ai"
     assert captured["json"]["mail_settings"]["bypass_list_management"]["enable"] is True
     assert captured["json"]["personalizations"][0]["subject"] == "Configura tu contrasena para Eva Commerce"
@@ -511,6 +511,65 @@ def test_send_setup_email_uses_branding_and_reply_to(monkeypatch):
     assert "Configurar contrasena" in html
     assert "Usa este enlace seguro para definir tu contrasena y terminar la configuracion" not in html
     assert "Si el enlace expira" not in html
+
+
+def test_send_setup_email_enforces_no_reply_sender_email(monkeypatch):
+    class DummyResponse:
+        status_code = 202
+        text = ""
+        headers = {}
+
+    captured = {}
+
+    class DummyClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            class DummyGetResponse:
+                status_code = 404
+                text = ""
+
+            return DummyGetResponse()
+
+        async def delete(self, url, headers=None):
+            class DummyDeleteResponse:
+                status_code = 204
+                text = ""
+
+            return DummyDeleteResponse()
+
+        async def post(self, url, headers=None, json=None):
+            captured["json"] = json or {}
+            return DummyResponse()
+
+    monkeypatch.setattr(onboarding.httpx, "AsyncClient", DummyClient)
+
+    original_api_key = settings.sendgrid_api_key
+    original_from_email = settings.sendgrid_from_email
+    settings.sendgrid_api_key = "SG.test"
+    settings.sendgrid_from_email = "support@goeva.ai"
+    try:
+        ok, _message = asyncio.run(
+            onboarding._send_setup_email(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                onboarding_link="https://example.com/setup-link",
+            )
+        )
+    finally:
+        settings.sendgrid_api_key = original_api_key
+        settings.sendgrid_from_email = original_from_email
+
+    assert ok is True
+    assert captured["json"]["from"]["email"] == "no-reply@goeva.ai"
 
 
 def test_send_setup_email_continues_when_recipient_still_suppressed(monkeypatch):
