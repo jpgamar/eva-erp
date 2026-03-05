@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -18,6 +19,8 @@ from src.eva_platform.supabase_client import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_ONBOARDING_REDIRECT_URL = "https://app.goeva.ai/auth/change-password"
+SENDGRID_MAX_ATTEMPTS = 3
+SENDGRID_RETRYABLE_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
 
 
 def _resolve_onboarding_redirect_url(raw_redirect_url: str | None) -> str:
@@ -170,9 +173,28 @@ async def _send_setup_email(
     product_label: str,
     onboarding_link: str,
 ) -> tuple[bool, str]:
+    async def _send_via_supabase_fallback(reason: str) -> tuple[bool, str]:
+        redirect_to = _resolve_onboarding_redirect_url(settings.eva_app_onboarding_redirect_url)
+        try:
+            await SupabaseAdminClient.send_recovery_email(owner_email, redirect_to=redirect_to)
+            logger.info(
+                "Setup email fallback sent via Supabase for %s (reason=%s)",
+                owner_email,
+                reason,
+            )
+            return True, "Setup email sent successfully via fallback provider."
+        except SupabaseAdminError as exc:
+            logger.warning(
+                "Supabase fallback email failed for %s after reason=%s: %s",
+                owner_email,
+                reason,
+                exc,
+            )
+            return False, "Failed to send setup email. Share the setup link manually."
+
     api_key = (settings.sendgrid_api_key or "").strip()
     if not api_key:
-        return False, "Failed to send setup email (SendGrid not configured). Share the setup link manually."
+        return await _send_via_supabase_fallback("sendgrid_not_configured")
 
     display_name = owner_name.strip() or "there"
 
@@ -253,24 +275,48 @@ async def _send_setup_email(
         "Content-Type": "application/json",
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                "https://api.sendgrid.com/v3/mail/send",
-                headers=headers,
-                json=payload,
+    response: httpx.Response | None = None
+    for attempt in range(1, SENDGRID_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    "https://api.sendgrid.com/v3/mail/send",
+                    headers=headers,
+                    json=payload,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to send onboarding email to %s (attempt %s/%s): %s",
+                owner_email,
+                attempt,
+                SENDGRID_MAX_ATTEMPTS,
+                exc,
+                exc_info=True,
             )
-    except Exception as exc:
-        logger.warning("Failed to send onboarding email to %s: %s", owner_email, exc, exc_info=True)
-        return False, "Failed to send setup email. Share the setup link manually."
+            if attempt < SENDGRID_MAX_ATTEMPTS:
+                await asyncio.sleep(0.6 * attempt)
+                continue
+            return await _send_via_supabase_fallback("sendgrid_exception")
 
-    if 200 <= response.status_code < 300:
-        return True, "Setup email sent successfully."
+        if 200 <= response.status_code < 300:
+            return True, "Setup email sent successfully."
 
-    logger.warning(
-        "Setup email provider rejected request for %s: status=%s body=%s",
-        owner_email,
-        response.status_code,
-        response.text[:300],
-    )
-    return False, f"Email provider returned {response.status_code}. Share the setup link manually."
+        should_retry = response.status_code in SENDGRID_RETRYABLE_STATUSES
+        logger.warning(
+            "Setup email provider rejected request for %s: status=%s attempt=%s/%s body=%s",
+            owner_email,
+            response.status_code,
+            attempt,
+            SENDGRID_MAX_ATTEMPTS,
+            response.text[:300],
+        )
+        if should_retry and attempt < SENDGRID_MAX_ATTEMPTS:
+            await asyncio.sleep(0.6 * attempt)
+            continue
+        break
+
+    status = response.status_code if response is not None else "unknown"
+    sent_fallback, fallback_message = await _send_via_supabase_fallback(f"sendgrid_status_{status}")
+    if sent_fallback:
+        return True, f"{fallback_message} (SendGrid status: {status})"
+    return False, f"Email provider returned {status}. Share the setup link manually."

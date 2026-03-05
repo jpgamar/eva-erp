@@ -219,7 +219,12 @@ export default function EvaCustomersPage() {
       if (result.onboarding.email_status === "sent") {
         toast.success("Account created and setup email sent");
       } else {
-        toast.success("Account created. Share setup link manually.");
+        const reason = result.onboarding.email_message?.trim();
+        toast.warning(
+          reason
+            ? `Account created. Setup email not delivered: ${reason}`
+            : "Account created. Share setup link manually."
+        );
       }
       await fetchData();
     } catch (e: any) {
