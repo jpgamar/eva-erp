@@ -251,6 +251,42 @@ class SupabaseAdminClient:
         return details.get("action_link", "")
 
     @classmethod
+    async def admin_mark_password_change_required(
+        cls,
+        *,
+        email: str,
+        owner_name: str | None = None,
+    ) -> None:
+        """Ensure onboarding users are always forced to set a password on next login."""
+        normalized_email = email.strip().lower()
+        existing = await cls._lookup_user_by_email(normalized_email)
+        if not existing:
+            raise SupabaseAdminError("Failed to locate owner user for onboarding.")
+
+        user_id = cls._extract_user_id(existing)
+        metadata = existing.get("user_metadata")
+        next_metadata: dict[str, Any] = dict(metadata) if isinstance(metadata, dict) else {}
+        next_metadata["require_password_change"] = True
+        if owner_name and not next_metadata.get("name"):
+            next_metadata["name"] = owner_name.strip()
+        if not next_metadata.get("role"):
+            next_metadata["role"] = "account"
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await cls._request_with_retries(
+                client,
+                "PUT",
+                f"{cls._base_url()}/auth/v1/admin/users/{user_id}",
+                headers=cls._headers(),
+                json={"user_metadata": next_metadata},
+            )
+
+        if resp.status_code != 200:
+            msg, _ = cls._extract_error(resp)
+            logger.error("Supabase admin_mark_password_change_required failed: %s %s", resp.status_code, msg)
+            raise SupabaseAdminError("Failed to prepare onboarding user metadata.")
+
+    @classmethod
     async def admin_generate_link_details(
         cls,
         email: str,

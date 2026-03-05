@@ -22,6 +22,15 @@ async def _fake_generate_link(
     }
 
 
+@pytest.fixture(autouse=True)
+def _patch_password_change_requirement(monkeypatch):
+    async def _noop_mark_required(*, email: str, owner_name: str | None = None):
+        assert email
+        return None
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_mark_password_change_required", _noop_mark_required)
+
+
 def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
 
@@ -43,44 +52,8 @@ def test_build_account_onboarding_skips_email_when_disabled(monkeypatch):
     assert result.onboarding_link == "https://example.com/setup-link"
 
 
-def test_build_account_onboarding_uses_fallback_when_sendgrid_missing(monkeypatch):
+def test_build_account_onboarding_returns_failed_when_sendgrid_missing(monkeypatch):
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
-    observed = {"email": None, "redirect_to": None}
-
-    async def _fallback_send(email: str, redirect_to: str | None = None):
-        observed["email"] = email
-        observed["redirect_to"] = redirect_to
-        return None
-
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _fallback_send)
-
-    original_key = settings.sendgrid_api_key
-    settings.sendgrid_api_key = ""
-    try:
-        result = asyncio.run(
-            onboarding.build_account_onboarding(
-                owner_email="owner@example.com",
-                owner_name="Owner",
-                product_label="Eva Commerce",
-                send_setup_email=True,
-            )
-        )
-    finally:
-        settings.sendgrid_api_key = original_key
-
-    assert result.email_status == "sent"
-    assert "fallback provider" in (result.email_message or "").lower()
-    assert observed["email"] == "owner@example.com"
-    assert observed["redirect_to"] == "https://app.goeva.ai/auth/change-password"
-
-
-def test_build_account_onboarding_returns_failed_when_sendgrid_missing_and_fallback_fails(monkeypatch):
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
-
-    async def _fallback_failure(email: str, redirect_to: str | None = None):
-        raise SupabaseAdminError("fallback failed")
-
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _fallback_failure)
 
     original_key = settings.sendgrid_api_key
     settings.sendgrid_api_key = ""
@@ -97,16 +70,11 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_missing_and_fallb
         settings.sendgrid_api_key = original_key
 
     assert result.email_status == "failed"
-    assert "share the setup link manually" in (result.email_message or "").lower()
+    assert "sendgrid not configured" in (result.email_message or "").lower()
 
 
 def test_build_account_onboarding_returns_failed_when_sendgrid_raises(monkeypatch):
     monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
-    async def _fallback_send(email: str, redirect_to: str | None = None):
-        return None
-
-    monkeypatch.setattr(onboarding.SupabaseAdminClient, "send_recovery_email", _fallback_send)
-
     class DummyClient:
         def __init__(self, timeout):
             self.timeout = timeout
@@ -136,8 +104,8 @@ def test_build_account_onboarding_returns_failed_when_sendgrid_raises(monkeypatc
     finally:
         settings.sendgrid_api_key = original_key
 
-    assert result.email_status == "sent"
-    assert "fallback provider" in (result.email_message or "").lower()
+    assert result.email_status == "failed"
+    assert "share" in (result.email_message or "").lower()
 
 
 def test_build_account_onboarding_reports_sent_status(monkeypatch):
@@ -159,6 +127,54 @@ def test_build_account_onboarding_reports_sent_status(monkeypatch):
 
     assert result.email_status == "sent"
     assert result.email_message == "Setup email sent successfully."
+
+
+def test_build_account_onboarding_marks_password_change_required(monkeypatch):
+    observed = {"email": None, "owner_name": None}
+
+    async def _capture_mark_required(*, email: str, owner_name: str | None = None):
+        observed["email"] = email
+        observed["owner_name"] = owner_name
+        return None
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_mark_password_change_required", _capture_mark_required)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "Setup email sent successfully."
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    result = asyncio.run(
+        onboarding.build_account_onboarding(
+            owner_email="owner@example.com",
+            owner_name="Owner Name",
+            product_label="Eva Commerce",
+            send_setup_email=True,
+        )
+    )
+
+    assert result.email_status == "sent"
+    assert observed["email"] == "owner@example.com"
+    assert observed["owner_name"] == "Owner Name"
+
+
+def test_build_account_onboarding_raises_when_mark_required_fails(monkeypatch):
+    async def _mark_required_fail(*, email: str, owner_name: str | None = None):
+        raise SupabaseAdminError("metadata update failed")
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_mark_password_change_required", _mark_required_fail)
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link_details", _fake_generate_link)
+
+    with pytest.raises(SupabaseAdminError):
+        asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner Name",
+                product_label="Eva Commerce",
+                send_setup_email=True,
+            )
+        )
 
 
 def test_build_account_onboarding_passes_redirect_to_supabase(monkeypatch):

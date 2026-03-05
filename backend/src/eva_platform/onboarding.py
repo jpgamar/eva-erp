@@ -128,6 +128,10 @@ async def build_account_onboarding(
     """
     redirect_to = _resolve_onboarding_redirect_url(settings.eva_app_onboarding_redirect_url)
     try:
+        await SupabaseAdminClient.admin_mark_password_change_required(
+            email=owner_email,
+            owner_name=owner_name,
+        )
         generated_link = await SupabaseAdminClient.admin_generate_link_details(
             email=owner_email,
             link_type="recovery",
@@ -173,28 +177,9 @@ async def _send_setup_email(
     product_label: str,
     onboarding_link: str,
 ) -> tuple[bool, str]:
-    async def _send_via_supabase_fallback(reason: str) -> tuple[bool, str]:
-        redirect_to = _resolve_onboarding_redirect_url(settings.eva_app_onboarding_redirect_url)
-        try:
-            await SupabaseAdminClient.send_recovery_email(owner_email, redirect_to=redirect_to)
-            logger.info(
-                "Setup email fallback sent via Supabase for %s (reason=%s)",
-                owner_email,
-                reason,
-            )
-            return True, "Setup email sent successfully via fallback provider."
-        except SupabaseAdminError as exc:
-            logger.warning(
-                "Supabase fallback email failed for %s after reason=%s: %s",
-                owner_email,
-                reason,
-                exc,
-            )
-            return False, "Failed to send setup email. Share the setup link manually."
-
     api_key = (settings.sendgrid_api_key or "").strip()
     if not api_key:
-        return await _send_via_supabase_fallback("sendgrid_not_configured")
+        return False, "Failed to send setup email (SendGrid not configured). Share the setup link manually."
 
     display_name = owner_name.strip() or "there"
 
@@ -296,7 +281,7 @@ async def _send_setup_email(
             if attempt < SENDGRID_MAX_ATTEMPTS:
                 await asyncio.sleep(0.6 * attempt)
                 continue
-            return await _send_via_supabase_fallback("sendgrid_exception")
+            return False, "Failed to send setup email. Share the setup link manually."
 
         if 200 <= response.status_code < 300:
             return True, "Setup email sent successfully."
@@ -316,7 +301,4 @@ async def _send_setup_email(
         break
 
     status = response.status_code if response is not None else "unknown"
-    sent_fallback, fallback_message = await _send_via_supabase_fallback(f"sendgrid_status_{status}")
-    if sent_fallback:
-        return True, f"{fallback_message} (SendGrid status: {status})"
     return False, f"Email provider returned {status}. Share the setup link manually."
