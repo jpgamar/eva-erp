@@ -141,7 +141,73 @@ def test_build_account_onboarding_passes_redirect_to_supabase(monkeypatch):
     )
 
     assert result.onboarding_link == "https://example.com/setup-link"
-    assert observed["redirect_to"] == settings.eva_app_onboarding_redirect_url
+    assert observed["redirect_to"] == onboarding._resolve_onboarding_redirect_url(
+        settings.eva_app_onboarding_redirect_url
+    )
+
+
+def test_build_account_onboarding_normalizes_login_redirect_to_change_password(monkeypatch):
+    observed: dict[str, str | None] = {"redirect_to": None}
+
+    async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
+        observed["redirect_to"] = redirect_to
+        return "https://example.com/setup-link"
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _capture_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "ok"
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    original_redirect = settings.eva_app_onboarding_redirect_url
+    settings.eva_app_onboarding_redirect_url = "https://app.goeva.ai/login?redirect=%2Fdashboard"
+    try:
+        result = asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                send_setup_email=True,
+            )
+        )
+    finally:
+        settings.eva_app_onboarding_redirect_url = original_redirect
+
+    assert result.onboarding_link == "https://example.com/setup-link"
+    assert observed["redirect_to"] == "https://app.goeva.ai/auth/change-password"
+
+
+def test_build_account_onboarding_uses_change_password_default_when_redirect_missing(monkeypatch):
+    observed: dict[str, str | None] = {"redirect_to": None}
+
+    async def _capture_generate_link(*, email: str, link_type: str = "recovery", redirect_to: str | None = None):
+        observed["redirect_to"] = redirect_to
+        return "https://example.com/setup-link"
+
+    monkeypatch.setattr(onboarding.SupabaseAdminClient, "admin_generate_link", _capture_generate_link)
+
+    async def _send_success(**kwargs):
+        return True, "ok"
+
+    monkeypatch.setattr(onboarding, "_send_setup_email", _send_success)
+
+    original_redirect = settings.eva_app_onboarding_redirect_url
+    settings.eva_app_onboarding_redirect_url = ""
+    try:
+        result = asyncio.run(
+            onboarding.build_account_onboarding(
+                owner_email="owner@example.com",
+                owner_name="Owner",
+                product_label="Eva Commerce",
+                send_setup_email=True,
+            )
+        )
+    finally:
+        settings.eva_app_onboarding_redirect_url = original_redirect
+
+    assert result.onboarding_link == "https://example.com/setup-link"
+    assert observed["redirect_to"] == "https://app.goeva.ai/auth/change-password"
 
 
 def test_build_account_onboarding_raises_when_setup_link_missing(monkeypatch):

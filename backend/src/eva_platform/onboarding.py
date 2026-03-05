@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -11,6 +12,28 @@ from src.eva_platform.schemas import AccountOnboardingResponse
 from src.eva_platform.supabase_client import SupabaseAdminClient, SupabaseAdminError
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_ONBOARDING_REDIRECT_URL = "https://app.goeva.ai/auth/change-password"
+
+
+def _resolve_onboarding_redirect_url(raw_redirect_url: str | None) -> str:
+    configured = (raw_redirect_url or "").strip()
+    if not configured:
+        return DEFAULT_ONBOARDING_REDIRECT_URL
+
+    parsed = urlparse(configured)
+    path = (parsed.path or "").rstrip("/") or "/"
+    if path in {"/login", "/auth/login"}:
+        normalized = parsed._replace(path="/auth/change-password", query="", params="", fragment="")
+        resolved = urlunparse(normalized)
+        logger.warning(
+            "Normalizing onboarding redirect from login path to change-password: %s -> %s",
+            configured,
+            resolved,
+        )
+        return resolved
+
+    return configured
 
 
 async def build_account_onboarding(
@@ -25,7 +48,7 @@ async def build_account_onboarding(
     Setup link generation is required for a successful response. Email delivery
     is best-effort and falls back to manual sharing.
     """
-    redirect_to = (settings.eva_app_onboarding_redirect_url or "").strip() or None
+    redirect_to = _resolve_onboarding_redirect_url(settings.eva_app_onboarding_redirect_url)
     try:
         onboarding_link = await SupabaseAdminClient.admin_generate_link(
             email=owner_email,
