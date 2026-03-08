@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, User as UserIcon } from "lucide-react";
+import { LogOut, Menu, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -19,9 +19,10 @@ interface HeaderProps {
   title?: string;
   subtitle?: string;
   subtitleNode?: ReactNode;
+  onMenuClick?: () => void;
 }
 
-export function Header({ title, subtitle, subtitleNode }: HeaderProps) {
+export function Header({ title, subtitle, subtitleNode, onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
 
   const initials = user?.name
@@ -32,10 +33,17 @@ export function Header({ title, subtitle, subtitleNode }: HeaderProps) {
     .slice(0, 2) || "?";
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-white px-6">
-      <div>
-        {title && <h1 className="text-lg font-bold text-foreground">{title}</h1>}
-        {subtitleNode ? subtitleNode : subtitle && <p className="text-xs text-muted">{subtitle}</p>}
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-white px-4 md:px-6">
+      <div className="flex items-center gap-3">
+        {onMenuClick && (
+          <Button variant="ghost" size="icon" className="h-9 w-9 md:hidden" onClick={onMenuClick}>
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
+        <div>
+          {title && <h1 className="text-lg font-bold text-foreground">{title}</h1>}
+          {subtitleNode ? subtitleNode : subtitle && <p className="text-xs text-muted">{subtitle}</p>}
+        </div>
       </div>
 
       <div className="flex items-center gap-4">

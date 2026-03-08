@@ -117,10 +117,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { title, subtitle } = getPageInfo(pathname);
   const isDashboard = pathname.startsWith("/dashboard");
   const isAssistant = pathname.startsWith("/assistant");
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -141,13 +147,23 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <WelcomeOverlay userName={user.name} />
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className={cn("transition-all duration-200", sidebarCollapsed ? "ml-16" : "ml-60")}>
-        <Header title={title} subtitle={isDashboard ? undefined : subtitle} subtitleNode={isDashboard ? <DashboardPeriodNav /> : undefined} />
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={sidebarOpen}
+        onMobileClose={() => setSidebarOpen(false)}
+      />
+      <div className={cn("transition-all duration-200", sidebarCollapsed ? "md:ml-16" : "md:ml-60")}>
+        <Header
+          title={title}
+          subtitle={isDashboard ? undefined : subtitle}
+          subtitleNode={isDashboard ? <DashboardPeriodNav /> : undefined}
+          onMenuClick={() => setSidebarOpen(true)}
+        />
         <main
           className={cn(
             "animate-erp-entrance",
-            isAssistant ? "h-[calc(100vh-4rem)] overflow-hidden p-0" : "p-6",
+            isAssistant ? "h-[calc(100vh-4rem)] overflow-hidden p-0" : "p-4 md:p-6",
           )}
         >
           {children}
