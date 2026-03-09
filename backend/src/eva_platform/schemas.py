@@ -160,6 +160,83 @@ class AccountPricingCoverageResponse(BaseModel):
     coverage_pct: float
 
 
+class EvaBillingUsageSummary(BaseModel):
+    messages_used: int
+    messages_limit: int
+    agents_used: int
+    agents_limit: int
+    seats_used: int
+    seats_limit: int
+
+
+class EvaBillingAddonsSummary(BaseModel):
+    extra_agents: int
+    extra_seats: int
+    message_pack_credits: int
+
+
+class EvaBillingAccountStatus(BaseModel):
+    subscription_status: str | None
+    plan_tier: str | None
+    billing_interval: str | None
+    billing_currency: str
+    current_period_start: _dt.datetime | None = None
+    current_period_end: _dt.datetime | None = None
+    has_active_subscription: bool
+    billing_subscription_cfdi_enabled: bool
+    fiscal_profile_complete: bool
+    retencion_required: bool
+    erp_bridge_enabled_for_retention: bool
+    retencion_on_file: bool
+    usage: EvaBillingUsageSummary
+    addons: EvaBillingAddonsSummary
+
+
+class EvaBillingDocument(BaseModel):
+    id: str
+    document_type: str
+    status: str
+    status_detail: str | None = None
+    email_status: str | None = None
+    cfdi_uuid: str | None = None
+    pdf_url: str | None = None
+    xml_url: str | None = None
+    issued_at: _dt.datetime | None = None
+    created_at: _dt.datetime
+
+
+class EvaBillingAdminStatusResponse(BaseModel):
+    status: EvaBillingAccountStatus
+    documents: list[EvaBillingDocument]
+
+
+class EvaBillingCheckoutLinkRequest(BaseModel):
+    plan_tier: str | None = None
+    billing_interval: str | None = None
+    billing_subscription_cfdi_enabled: bool | None = None
+
+
+class EvaBillingCheckoutLinkResponse(BaseModel):
+    checkout_url: str
+
+
+class EvaBillingRetryResponse(BaseModel):
+    document_id: str
+    status: str
+
+
+class EvaBillingResendEmailRequest(BaseModel):
+    cfdi_uuid: str = Field(..., min_length=1)
+
+
+class EvaBillingResendEmailResponse(BaseModel):
+    status: str
+    email_status: str | None = None
+    cfdi_uuid: str | None = None
+    pdf_url: str | None = None
+    xml_url: str | None = None
+
+
 # ── Monitoring ───────────────────────────────────────────
 
 class MonitoringOverviewResponse(BaseModel):

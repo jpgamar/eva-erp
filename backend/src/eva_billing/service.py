@@ -289,6 +289,52 @@ class EvaBillingService:
             )
         return EvaBillingStatusResponse(account_id=account_id, items=items)
 
+    async def resend_invoice_email(self, db: AsyncSession, *, account_id, cfdi_uuid: str) -> EvaBillingStampResponse:
+        result = await db.execute(
+            select(EvaBillingRecord, Factura)
+            .join(Factura, EvaBillingRecord.factura_id == Factura.id)
+            .where(EvaBillingRecord.account_id == account_id)
+            .where(Factura.cfdi_uuid == cfdi_uuid)
+            .order_by(EvaBillingRecord.created_at.desc())
+        )
+        row = result.first()
+        if not row:
+            raise ValueError("Invoice record not found")
+        record, factura = row
+        if not record.recipient_email:
+            raise ValueError("Invoice recipient email is missing")
+        if not factura:
+            raise ValueError("Factura is missing")
+
+        email_status, email_error = await self._send_invoice_email(
+            recipient_email=record.recipient_email,
+            customer=EvaBillingCustomer(
+                legal_name=factura.customer_name,
+                tax_id=factura.customer_rfc,
+                tax_regime=factura.customer_tax_system or "",
+                postal_code=factura.customer_zip or "",
+                cfdi_use=factura.use or "",
+                person_type="persona_moral",
+            ),
+            factura=factura,
+            total=factura.total or Decimal("0.00"),
+        )
+        record.email_status = email_status
+        record.email_error = email_error
+        if email_status == "sent":
+            record.email_sent_at = datetime.now(timezone.utc)
+            record.status = "email_sent"
+        db.add(record)
+        await db.flush()
+        return EvaBillingStampResponse(
+            status=record.status,
+            factura_id=factura.id,
+            cfdi_uuid=factura.cfdi_uuid,
+            pdf_url=factura.pdf_url,
+            xml_url=factura.xml_url,
+            email_status=record.email_status,
+        )
+
     async def _find_existing_record(self, db: AsyncSession, payload: EvaBillingStampRequest) -> EvaBillingRecord | None:
         return await db.scalar(
             select(EvaBillingRecord)

@@ -13,6 +13,7 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db, get_eva_db
 from src.eva_platform.onboarding import build_account_onboarding
+from src.eva_platform.eva_billing_client import EvaBillingClient, EvaBillingClientError
 from src.eva_platform.models import EvaAccount, EvaAccountUser
 from src.eva_platform.drafts.models import AccountDraft
 from src.eva_platform.pricing_models import AccountPricingProfile
@@ -29,8 +30,15 @@ from src.eva_platform.schemas import (
     EvaAccountDetailResponse,
     EvaAccountProvisionResponse,
     EvaAccountResponse,
+    EvaBillingAdminStatusResponse,
+    EvaBillingCheckoutLinkRequest,
+    EvaBillingCheckoutLinkResponse,
+    EvaBillingResendEmailRequest,
+    EvaBillingResendEmailResponse,
+    EvaBillingRetryResponse,
     ResendAccountOnboardingRequest,
 )
+from src.eva_billing.service import EvaBillingService
 from src.eva_platform.provisioning_utils import (
     ensure_owner_user_is_available,
     map_provisioning_write_error,
@@ -145,6 +153,14 @@ def _build_account_pricing_response(
         created_at=profile.created_at if profile else None,
         updated_at=profile.updated_at if profile else None,
     )
+
+
+async def _get_eva_account_or_404(eva_db: AsyncSession, account_id: uuid.UUID) -> EvaAccount:
+    result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
 
 
 # ── Real Accounts (Eva DB) ───────────────────────────────
@@ -296,11 +312,86 @@ async def get_account(
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
 ):
-    result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
-    account = result.scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-    return account
+    return await _get_eva_account_or_404(eva_db, account_id)
+
+
+@router.get("/accounts/{account_id}/billing/status", response_model=EvaBillingAdminStatusResponse)
+async def get_account_billing_status(
+    account_id: uuid.UUID,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+):
+    await _get_eva_account_or_404(eva_db, account_id)
+    client = EvaBillingClient()
+    try:
+        payload = await client.get_status(account_id)
+        return EvaBillingAdminStatusResponse(**payload)
+    except EvaBillingClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post("/accounts/{account_id}/billing/checkout-link", response_model=EvaBillingCheckoutLinkResponse)
+async def create_account_checkout_link(
+    account_id: uuid.UUID,
+    data: EvaBillingCheckoutLinkRequest,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_eva_account_or_404(eva_db, account_id)
+    client = EvaBillingClient()
+    try:
+        payload = await client.create_checkout_link(
+            account_id=account.id,
+            plan_tier=data.plan_tier.lower() if data.plan_tier else None,
+            billing_interval=data.billing_interval.lower() if data.billing_interval else None,
+            billing_subscription_cfdi_enabled=data.billing_subscription_cfdi_enabled,
+        )
+        return EvaBillingCheckoutLinkResponse(**payload)
+    except EvaBillingClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post("/accounts/{account_id}/billing/documents/{document_id}/retry", response_model=EvaBillingRetryResponse)
+async def retry_account_billing_document(
+    account_id: uuid.UUID,
+    document_id: str,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+):
+    await _get_eva_account_or_404(eva_db, account_id)
+    client = EvaBillingClient()
+    try:
+        payload = await client.retry_document(account_id=account_id, document_id=document_id)
+        return EvaBillingRetryResponse(**payload)
+    except EvaBillingClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post("/accounts/{account_id}/billing/resend-email", response_model=EvaBillingResendEmailResponse)
+async def resend_account_billing_email(
+    account_id: uuid.UUID,
+    data: EvaBillingResendEmailRequest,
+    eva_db: AsyncSession = Depends(get_eva_db),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await _get_eva_account_or_404(eva_db, account_id)
+    service = EvaBillingService()
+    try:
+        response = await service.resend_invoice_email(
+            db,
+            account_id=account_id,
+            cfdi_uuid=data.cfdi_uuid,
+        )
+        return EvaBillingResendEmailResponse(
+            status=response.status,
+            email_status=response.email_status,
+            cfdi_uuid=response.cfdi_uuid,
+            pdf_url=response.pdf_url,
+            xml_url=response.xml_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/accounts/{account_id}/resend-onboarding", response_model=AccountOnboardingResponse)

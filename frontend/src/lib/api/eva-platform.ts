@@ -16,6 +16,10 @@ import type {
   PlatformDashboard,
   AccountPricing,
   AccountPricingCoverage,
+  EvaBillingAdminStatus,
+  EvaBillingCheckoutLinkResponse,
+  EvaBillingResendEmailResponse,
+  EvaBillingRetryResponse,
   RuntimeHost,
   RuntimeEmployee,
   RuntimeEmployeeDetail,
@@ -44,6 +48,17 @@ export const evaPlatformApi = {
     api.patch(`/eva-platform/account-pricing/${accountId}`, data).then((r) => r.data),
   pricingCoverage: (): Promise<AccountPricingCoverage> =>
     api.get("/eva-platform/account-pricing/coverage").then((r) => r.data),
+  getAccountBillingStatus: (accountId: string): Promise<EvaBillingAdminStatus> =>
+    api.get(`/eva-platform/accounts/${accountId}/billing/status`).then((r) => r.data),
+  createAccountCheckoutLink: (
+    accountId: string,
+    data: { plan_tier?: string | null; billing_interval?: string | null; billing_subscription_cfdi_enabled?: boolean | null },
+  ): Promise<EvaBillingCheckoutLinkResponse> =>
+    api.post(`/eva-platform/accounts/${accountId}/billing/checkout-link`, data).then((r) => r.data),
+  retryAccountBillingDocument: (accountId: string, documentId: string): Promise<EvaBillingRetryResponse> =>
+    api.post(`/eva-platform/accounts/${accountId}/billing/documents/${documentId}/retry`).then((r) => r.data),
+  resendAccountBillingEmail: (accountId: string, data: { cfdi_uuid: string }): Promise<EvaBillingResendEmailResponse> =>
+    api.post(`/eva-platform/accounts/${accountId}/billing/resend-email`, data).then((r) => r.data),
   deleteAccount: (id: string): Promise<{ message: string }> =>
     api.delete(`/eva-platform/accounts/${id}`).then((r) => r.data),
   reactivateAccount: (id: string): Promise<{ message: string }> =>

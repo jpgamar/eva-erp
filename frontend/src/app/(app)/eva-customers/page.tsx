@@ -16,6 +16,8 @@ import type {
   AccountPricing,
   AccountPricingCoverage,
   AccountOnboarding,
+  EvaBillingAdminStatus,
+  EvaBillingDocument,
 } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +49,18 @@ const PLAN_COLORS: Record<string, string> = {
   standard: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   pro: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
   custom: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
+};
+
+const BILLING_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  pending_stamp: "Pendiente de timbrado",
+  issued: "Emitida",
+  email_sent: "Enviada por email",
+  payment_action_required: "Accion requerida",
+  finalization_failed: "Finalizacion fallida",
+  refund_issued: "Egreso emitido",
+  canceled: "Cancelada",
+  not_requested: "Sin factura",
 };
 
 const INITIAL_ACCOUNT_FORM = {
@@ -136,6 +150,8 @@ export default function EvaCustomersPage() {
   const [metrics, setMetrics] = useState<DashboardData | null>(null);
   const [pricingCoverage, setPricingCoverage] = useState<AccountPricingCoverage | null>(null);
   const [pricingByAccount, setPricingByAccount] = useState<Record<string, AccountPricing>>({});
+  const [billingByAccount, setBillingByAccount] = useState<Record<string, EvaBillingAdminStatus>>({});
+  const [checkoutLinkByAccount, setCheckoutLinkByAccount] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("active");
@@ -163,6 +179,10 @@ export default function EvaCustomersPage() {
   const [savingPricing, setSavingPricing] = useState(false);
   const [accountOnboarding, setAccountOnboarding] = useState<AccountOnboarding | null>(null);
   const [resendingOnboardingFor, setResendingOnboardingFor] = useState<string | null>(null);
+  const [billingLoadingFor, setBillingLoadingFor] = useState<string | null>(null);
+  const [creatingCheckoutFor, setCreatingCheckoutFor] = useState<string | null>(null);
+  const [retryingDocumentFor, setRetryingDocumentFor] = useState<string | null>(null);
+  const [resendingInvoiceFor, setResendingInvoiceFor] = useState<string | null>(null);
 
   const copyOnboardingLink = async (link: string) => {
     try {
@@ -170,6 +190,15 @@ export default function EvaCustomersPage() {
       toast.success("Setup link copied");
     } catch {
       toast.error("Failed to copy setup link");
+    }
+  };
+
+  const copyCheckoutLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Checkout link copied");
+    } catch {
+      toast.error("Failed to copy checkout link");
     }
   };
 
@@ -202,6 +231,23 @@ export default function EvaCustomersPage() {
   useEffect(() => {
     fetchData();
   }, [search]);
+
+  const fetchBillingStatus = async (account: EvaAccount) => {
+    setBillingLoadingFor(account.id);
+    try {
+      const billing = await evaPlatformApi.getAccountBillingStatus(account.id);
+      setBillingByAccount((current) => ({ ...current, [account.id]: billing }));
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to load billing operations"));
+    } finally {
+      setBillingLoadingFor((current) => (current === account.id ? null : current));
+    }
+  };
+
+  useEffect(() => {
+    if (!sheetOpen || !selectedAccount) return;
+    void fetchBillingStatus(selectedAccount);
+  }, [sheetOpen, selectedAccount]);
 
   const handleCreateAccount = async () => {
     if (creatingAccount) return;
@@ -405,6 +451,56 @@ export default function EvaCustomersPage() {
     setSelectedAccount(account);
     setSheetOpen(true);
   };
+
+  const handleCreateCheckoutLink = async (account: EvaAccount) => {
+    setCreatingCheckoutFor(account.id);
+    try {
+      const result = await evaPlatformApi.createAccountCheckoutLink(account.id, {
+        plan_tier: account.plan_tier,
+        billing_interval: account.billing_interval,
+      });
+      setCheckoutLinkByAccount((current) => ({ ...current, [account.id]: result.checkout_url }));
+      toast.success("Checkout link created");
+      window.open(result.checkout_url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to create checkout link"));
+    } finally {
+      setCreatingCheckoutFor((current) => (current === account.id ? null : current));
+    }
+  };
+
+  const handleRetryBillingDocument = async (account: EvaAccount, document: EvaBillingDocument) => {
+    setRetryingDocumentFor(document.id);
+    try {
+      await evaPlatformApi.retryAccountBillingDocument(account.id, document.id);
+      toast.success("Billing retry queued");
+      await fetchBillingStatus(account);
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to retry billing document"));
+    } finally {
+      setRetryingDocumentFor((current) => (current === document.id ? null : current));
+    }
+  };
+
+  const handleResendBillingEmail = async (account: EvaAccount, document: EvaBillingDocument) => {
+    if (!document.cfdi_uuid) {
+      toast.error("This invoice does not have a CFDI UUID yet");
+      return;
+    }
+    setResendingInvoiceFor(document.id);
+    try {
+      await evaPlatformApi.resendAccountBillingEmail(account.id, { cfdi_uuid: document.cfdi_uuid });
+      toast.success("Invoice email re-sent");
+      await fetchBillingStatus(account);
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to resend invoice email"));
+    } finally {
+      setResendingInvoiceFor((current) => (current === document.id ? null : current));
+    }
+  };
+
+  const selectedBilling = selectedAccount ? billingByAccount[selectedAccount.id] : null;
+  const selectedCheckoutLink = selectedAccount ? checkoutLinkByAccount[selectedAccount.id] : null;
 
   if (loading) {
     return (
@@ -1005,6 +1101,162 @@ export default function EvaCustomersPage() {
                       </span>
                     </div>
                   )}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Billing Operations</p>
+                    <p className="text-xs text-muted-foreground">
+                      Create Checkout links, inspect CFDI status, and support invoice delivery.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => fetchBillingStatus(selectedAccount)}
+                    disabled={billingLoadingFor === selectedAccount.id}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    {billingLoadingFor === selectedAccount.id ? "Refreshing..." : "Refresh"}
+                  </Button>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card/60 p-4">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="rounded-lg bg-accent hover:bg-accent/90 text-white"
+                      onClick={() => handleCreateCheckoutLink(selectedAccount)}
+                      disabled={creatingCheckoutFor === selectedAccount.id}
+                    >
+                      <CreditCard className="mr-1.5 h-3.5 w-3.5" />
+                      {creatingCheckoutFor === selectedAccount.id ? "Creating..." : "Create Checkout Link"}
+                    </Button>
+                    {selectedCheckoutLink ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                          onClick={() => window.open(selectedCheckoutLink, "_blank", "noopener,noreferrer")}
+                        >
+                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                          Open Link
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                          onClick={() => copyCheckoutLink(selectedCheckoutLink)}
+                        >
+                          <Copy className="mr-1.5 h-3.5 w-3.5" />
+                          Copy Link
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {selectedBilling ? (
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-border/60 bg-background p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Current Status</p>
+                        <p className="mt-1 text-sm font-medium capitalize text-foreground">
+                          {selectedBilling.status.subscription_status || "none"}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Factura: {selectedBilling.status.billing_subscription_cfdi_enabled ? "enabled" : "disabled"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Fiscal profile: {selectedBilling.status.fiscal_profile_complete ? "complete" : "incomplete"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-background p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Usage Snapshot</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Messages: {selectedBilling.status.usage.messages_used} / {selectedBilling.status.usage.messages_limit}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Agents: {selectedBilling.status.usage.agents_used} / {selectedBilling.status.usage.agents_limit}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Seats: {selectedBilling.status.usage.seats_used} / {selectedBilling.status.usage.seats_limit}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      {billingLoadingFor === selectedAccount.id ? "Loading billing operations..." : "No billing data loaded yet."}
+                    </p>
+                  )}
+
+                  <div className="mt-4 space-y-3">
+                    {(selectedBilling?.documents || []).length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-border/70 p-3 text-sm text-muted-foreground">
+                        No billing documents yet.
+                      </div>
+                    ) : (
+                      selectedBilling?.documents.map((document) => (
+                        <div key={document.id} className="rounded-lg border border-border/70 bg-background p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-foreground">
+                                {document.document_type} · {BILLING_STATUS_LABELS[document.status] || document.status}
+                              </p>
+                              {document.cfdi_uuid ? (
+                                <p className="text-xs font-mono text-muted-foreground">{document.cfdi_uuid}</p>
+                              ) : null}
+                              {document.status_detail ? (
+                                <p className="text-xs text-muted-foreground">{document.status_detail}</p>
+                              ) : null}
+                              {document.email_status ? (
+                                <p className="text-xs text-muted-foreground">Email: {document.email_status}</p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {document.pdf_url ? (
+                                <Button asChild size="sm" variant="outline" className="rounded-lg">
+                                  <a href={document.pdf_url} target="_blank" rel="noopener noreferrer">PDF</a>
+                                </Button>
+                              ) : null}
+                              {document.xml_url ? (
+                                <Button asChild size="sm" variant="outline" className="rounded-lg">
+                                  <a href={document.xml_url} target="_blank" rel="noopener noreferrer">XML</a>
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg"
+                                onClick={() => handleRetryBillingDocument(selectedAccount, document)}
+                                disabled={
+                                  retryingDocumentFor === document.id ||
+                                  ["issued", "email_sent", "refund_issued", "canceled", "not_requested", "payment_action_required", "finalization_failed"].includes(document.status)
+                                }
+                              >
+                                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                {retryingDocumentFor === document.id ? "Retrying..." : "Retry"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg"
+                                onClick={() => handleResendBillingEmail(selectedAccount, document)}
+                                disabled={resendingInvoiceFor === document.id || !document.cfdi_uuid}
+                              >
+                                <Mail className="mr-1.5 h-3.5 w-3.5" />
+                                {resendingInvoiceFor === document.id ? "Sending..." : "Resend Email"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 
