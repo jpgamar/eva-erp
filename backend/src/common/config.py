@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     agent_api_actor_email: str = ""
     eva_billing_bridge_secret: str = ""
     eva_billing_bridge_skew_seconds: int = 300
+    eva_api_base_url: str = "https://api.goeva.ai"
 
     # CORS
     cors_origins: str = "http://localhost:3000"

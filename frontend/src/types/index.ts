@@ -565,6 +565,73 @@ export interface AccountPricingCoverage {
   coverage_pct: number;
 }
 
+export interface EvaBillingUsageSummary {
+  messages_used: number;
+  messages_limit: number;
+  agents_used: number;
+  agents_limit: number;
+  seats_used: number;
+  seats_limit: number;
+}
+
+export interface EvaBillingAddonsSummary {
+  extra_agents: number;
+  extra_seats: number;
+  message_pack_credits: number;
+}
+
+export interface EvaBillingAccountStatus {
+  subscription_status: string | null;
+  plan_tier: string | null;
+  billing_interval: string | null;
+  billing_currency: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  has_active_subscription: boolean;
+  billing_subscription_cfdi_enabled: boolean;
+  fiscal_profile_complete: boolean;
+  retencion_required: boolean;
+  erp_bridge_enabled_for_retention: boolean;
+  retencion_on_file: boolean;
+  usage: EvaBillingUsageSummary;
+  addons: EvaBillingAddonsSummary;
+}
+
+export interface EvaBillingDocument {
+  id: string;
+  document_type: string;
+  status: string;
+  status_detail: string | null;
+  email_status: string | null;
+  cfdi_uuid: string | null;
+  pdf_url: string | null;
+  xml_url: string | null;
+  issued_at: string | null;
+  created_at: string;
+}
+
+export interface EvaBillingAdminStatus {
+  status: EvaBillingAccountStatus;
+  documents: EvaBillingDocument[];
+}
+
+export interface EvaBillingCheckoutLinkResponse {
+  checkout_url: string;
+}
+
+export interface EvaBillingRetryResponse {
+  document_id: string;
+  status: string;
+}
+
+export interface EvaBillingResendEmailResponse {
+  status: string;
+  email_status: string | null;
+  cfdi_uuid: string | null;
+  pdf_url: string | null;
+  xml_url: string | null;
+}
+
 // Infrastructure
 export interface RuntimeHost {
   id: string;
