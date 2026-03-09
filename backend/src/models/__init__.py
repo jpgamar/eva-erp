@@ -23,3 +23,4 @@ from src.assistant.models import AssistantConversation  # noqa: F401
 from src.facturas.models import Factura  # noqa: F401
 from src.eva_platform.drafts.models import AccountDraft  # noqa: F401
 from src.eva_platform.pricing_models import AccountPricingProfile  # noqa: F401
+from src.eva_billing.models import EvaBillingRecord  # noqa: F401

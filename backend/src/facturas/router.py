@@ -19,44 +19,6 @@ from src.facturas import service as facturapi
 
 router = APIRouter(prefix="/facturas", tags=["facturas"])
 
-
-def _build_facturapi_payload(data: FacturaCreate) -> dict:
-    """Transform our schema into Facturapi's expected payload."""
-    items = []
-    for li in data.line_items:
-        taxes = [{"type": "IVA", "rate": float(li.tax_rate)}]
-        if li.isr_retention:
-            taxes.append({"type": "ISR", "rate": float(li.isr_retention), "withholding": True})
-        if li.iva_retention:
-            taxes.append({"type": "IVA", "rate": float(li.iva_retention), "withholding": True})
-        items.append({
-            "product": {
-                "description": li.description,
-                "product_key": li.product_key,
-                "price": float(li.unit_price),
-                "tax_included": False,
-                "taxes": taxes,
-            },
-            "quantity": li.quantity,
-        })
-
-    payload: dict = {
-        "customer": {
-            "legal_name": data.customer_name,
-            "tax_id": data.customer_rfc,
-            "tax_system": data.customer_tax_system,
-            "address": {"zip": data.customer_zip},
-        },
-        "items": items,
-        "use": data.use,
-        "payment_form": data.payment_form,
-        "payment_method": data.payment_method,
-    }
-    if data.notes:
-        payload["comments"] = data.notes
-    return payload
-
-
 @router.get("/api-status")
 async def facturapi_status(user: User = Depends(get_current_user)):
     """Check if FacturAPI key is configured and reachable."""
@@ -205,7 +167,7 @@ async def stamp_factura(
         notes=factura.notes,
     )
 
-    payload = _build_facturapi_payload(data)
+    payload = facturapi.build_facturapi_payload(data)
     api_result = await facturapi.create_invoice(payload)
 
     # Update factura with Facturapi response

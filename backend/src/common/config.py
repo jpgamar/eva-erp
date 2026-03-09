@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     agent_api_key: str = ""
     agent_api_actor_email: str = ""
+    eva_billing_bridge_secret: str = ""
+    eva_billing_bridge_skew_seconds: int = 300
 
     # CORS
     cors_origins: str = "http://localhost:3000"
@@ -37,6 +39,8 @@ class Settings(BaseSettings):
     sendgrid_from_name: str = "Eva ERP"
     sendgrid_reply_to: str = "hi@goeva.ai"
     sendgrid_logo_url: str = "https://app.goeva.ai/favicon.ico"
+    billing_invoice_from_email: str = "hi@goeva.ai"
+    billing_invoice_from_name: str = "EvaAI"
     eva_app_onboarding_redirect_url: str = "https://app.goeva.ai/auth/change-password"
 
     # Facturapi (CFDI electronic invoicing)
@@ -84,7 +88,7 @@ class Settings(BaseSettings):
     monitoring_facturapi_eva_erp_api_key: str = ""
     monitoring_facturapi_eva_app_api_key: str = ""
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @property
     def cors_origin_list(self) -> list[str]:

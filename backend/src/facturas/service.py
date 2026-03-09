@@ -2,6 +2,7 @@ import httpx
 from fastapi import HTTPException
 
 from src.common.config import settings
+from src.facturas.schemas import FacturaCreate
 
 FACTURAPI_BASE = "https://www.facturapi.io/v2"
 
@@ -11,6 +12,45 @@ def _headers() -> dict[str, str]:
         "Authorization": f"Bearer {settings.facturapi_api_key}",
         "Content-Type": "application/json",
     }
+
+
+def build_facturapi_payload(data: FacturaCreate) -> dict:
+    """Transform our schema into Facturapi's expected payload."""
+    items = []
+    for li in data.line_items:
+        taxes = [{"type": "IVA", "rate": float(li.tax_rate)}]
+        if li.isr_retention:
+            taxes.append({"type": "ISR", "rate": float(li.isr_retention), "withholding": True})
+        if li.iva_retention:
+            taxes.append({"type": "IVA", "rate": float(li.iva_retention), "withholding": True})
+        items.append(
+            {
+                "product": {
+                    "description": li.description,
+                    "product_key": li.product_key,
+                    "price": float(li.unit_price),
+                    "tax_included": False,
+                    "taxes": taxes,
+                },
+                "quantity": li.quantity,
+            }
+        )
+
+    payload: dict = {
+        "customer": {
+            "legal_name": data.customer_name,
+            "tax_id": data.customer_rfc,
+            "tax_system": data.customer_tax_system,
+            "address": {"zip": data.customer_zip},
+        },
+        "items": items,
+        "use": data.use,
+        "payment_form": data.payment_form,
+        "payment_method": data.payment_method,
+    }
+    if data.notes:
+        payload["comments"] = data.notes
+    return payload
 
 
 def _check_key():
@@ -23,6 +63,21 @@ def _check_key():
 
 async def create_invoice(payload: dict) -> dict:
     """POST /v2/invoices — create and stamp a CFDI."""
+    _check_key()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{FACTURAPI_BASE}/invoices",
+            json=payload,
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+            raise HTTPException(status_code=502, detail={"facturapi_error": detail})
+        return resp.json()
+
+
+async def create_egreso_invoice(payload: dict) -> dict:
+    """POST /v2/invoices — create and stamp an egreso CFDI."""
     _check_key()
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
