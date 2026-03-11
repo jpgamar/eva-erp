@@ -76,6 +76,12 @@ def test_compute_hmac_signature_is_stable() -> None:
     assert signature == compute_hmac_signature("secret", "1700000000", body)
 
 
+def test_resolve_recipient_emails_falls_back_to_owner() -> None:
+    service = EvaBillingService()
+
+    assert service._resolve_recipient_emails("owner@example.com", []) == ["owner@example.com"]
+
+
 @pytest.mark.asyncio
 async def test_send_invoice_email_uses_billing_sender(monkeypatch) -> None:
     service = EvaBillingService()
@@ -107,7 +113,7 @@ async def test_send_invoice_email_uses_billing_sender(monkeypatch) -> None:
     monkeypatch.setattr("src.eva_billing.service.settings.sendgrid_reply_to", "hi@goeva.ai")
 
     status, error = await service._send_invoice_email(
-        recipient_email="owner@example.com",
+        recipient_emails=["finance@example.com", "ap@example.com"],
         customer=EvaBillingCustomer(
             legal_name="Cliente Demo SA de CV",
             tax_id="ABC123456T89",
@@ -154,6 +160,10 @@ async def test_send_invoice_email_uses_billing_sender(monkeypatch) -> None:
     assert payload["from"]["email"] == "hi@goeva.ai"
     assert payload["from"]["name"] == "EvaAI"
     assert payload["reply_to"]["email"] == "hi@goeva.ai"
+    assert payload["personalizations"] == [
+        {"to": [{"email": "finance@example.com"}]},
+        {"to": [{"email": "ap@example.com"}]},
+    ]
 
 
 @pytest.mark.asyncio

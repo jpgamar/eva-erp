@@ -79,6 +79,21 @@ def _compute_quote(base_subtotal_minor: int, *, retention_applicable: bool) -> E
 
 
 class EvaBillingService:
+    @staticmethod
+    def _resolve_recipient_emails(owner_email: str, recipient_emails: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for email in recipient_emails or []:
+            normalized_email = email.strip().lower()
+            if not normalized_email or normalized_email in seen:
+                continue
+            seen.add(normalized_email)
+            normalized.append(normalized_email)
+        fallback = owner_email.strip().lower()
+        if not normalized and fallback:
+            normalized.append(fallback)
+        return normalized
+
     def quote(self, payload: EvaBillingQuoteRequest) -> EvaBillingQuoteResponse:
         retention_applicable = payload.customer.person_type == "persona_moral"
         return _compute_quote(payload.charge.base_subtotal_minor, retention_applicable=retention_applicable)
@@ -100,6 +115,7 @@ class EvaBillingService:
         quote = _compute_quote(payload.charge.base_subtotal_minor, retention_applicable=payload.charge.retention_applicable)
         if quote.payable_total_minor != payload.charge.payable_total_minor:
             raise ValueError("Quote total does not match Stripe payable amount")
+        recipient_emails = self._resolve_recipient_emails(payload.owner_email, payload.recipient_emails)
 
         line_items = [
             FacturaLineItem(
@@ -138,7 +154,7 @@ class EvaBillingService:
         record.stripe_charge_id = payload.source.stripe_charge_id
         record.factura_id = factura.id
         record.status = "issued"
-        record.recipient_email = payload.owner_email
+        record.recipient_email = recipient_emails[0] if recipient_emails else None
         record.currency = payload.charge.currency.upper()
         record.subtotal = _minor_to_major(quote.base_subtotal_minor)
         record.tax = _minor_to_major(quote.iva_minor)
@@ -148,11 +164,12 @@ class EvaBillingService:
         record.metadata_json = {
             "description": payload.charge.description,
             "retention_applicable": payload.charge.retention_applicable,
+            "recipient_emails": recipient_emails,
         }
         db.add(record)
         await db.flush()
         record.email_status, record.email_error = await self._send_invoice_email(
-            recipient_email=payload.owner_email,
+            recipient_emails=recipient_emails,
             customer=payload.customer,
             factura=factura,
             total=_minor_to_major(quote.payable_total_minor),
@@ -305,9 +322,12 @@ class EvaBillingService:
             raise ValueError("Invoice recipient email is missing")
         if not factura:
             raise ValueError("Factura is missing")
+        recipient_emails = record.metadata_json.get("recipient_emails") if isinstance(record.metadata_json, dict) else None
+        if not isinstance(recipient_emails, list):
+            recipient_emails = [record.recipient_email]
 
         email_status, email_error = await self._send_invoice_email(
-            recipient_email=record.recipient_email,
+            recipient_emails=[email for email in recipient_emails if isinstance(email, str)],
             customer=EvaBillingCustomer(
                 legal_name=factura.customer_name,
                 tax_id=factura.customer_rfc,
@@ -419,7 +439,7 @@ class EvaBillingService:
     async def _send_invoice_email(
         self,
         *,
-        recipient_email: str,
+        recipient_emails: list[str],
         customer: EvaBillingCustomer,
         factura: Factura,
         total: Decimal,
@@ -427,6 +447,8 @@ class EvaBillingService:
         api_key = (settings.sendgrid_api_key or "").strip()
         if not api_key:
             return "failed", "SendGrid not configured"
+        if not recipient_emails:
+            return "failed", "Invoice recipient email is missing"
         html = (
             f"<p>Hola,</p>"
             f"<p>Tu factura de EvaAI ya fue emitida.</p>"
@@ -438,7 +460,7 @@ class EvaBillingService:
             f"<p><a href='{factura.pdf_url or '#'}'>PDF</a> · <a href='{factura.xml_url or '#'}'>XML</a></p>"
         )
         payload = {
-            "personalizations": [{"to": [{"email": recipient_email}]}],
+            "personalizations": [{"to": [{"email": email}]} for email in recipient_emails],
             "from": {
                 "email": settings.billing_invoice_from_email,
                 "name": settings.billing_invoice_from_name,

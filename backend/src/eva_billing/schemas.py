@@ -4,7 +4,7 @@ import uuid
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 PersonType = Literal["persona_fisica", "persona_moral"]
@@ -35,6 +35,7 @@ class EvaBillingQuoteRequest(BaseModel):
     account_id: uuid.UUID
     currency: str = "MXN"
     owner_email: EmailStr
+    recipient_emails: list[EmailStr] = Field(default_factory=list)
     customer: EvaBillingCustomer
     charge: EvaBillingChargeQuote
 
@@ -77,6 +78,7 @@ class EvaBillingStampCharge(BaseModel):
 class EvaBillingStampRequest(BaseModel):
     account_id: uuid.UUID
     owner_email: EmailStr
+    recipient_emails: list[EmailStr] = Field(default_factory=list)
     idempotency_key: str
     source: EvaBillingStampSource
     customer: EvaBillingCustomer
@@ -95,6 +97,7 @@ class EvaBillingStampResponse(BaseModel):
 class EvaBillingRefundRequest(BaseModel):
     account_id: uuid.UUID
     owner_email: EmailStr
+    recipient_emails: list[EmailStr] = Field(default_factory=list)
     idempotency_key: str
     stripe_invoice_id: str | None = None
     stripe_payment_intent_id: str | None = None
