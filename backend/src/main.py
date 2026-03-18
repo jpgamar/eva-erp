@@ -83,10 +83,6 @@ from src.eva_platform.router import router as eva_platform_router
 from src.customers.router import router as customers_router
 from src.agent.router import router as agent_router
 from src.eva_billing.router import router as eva_billing_router
-from src.proveedores.router import router as proveedores_router
-from src.pagos.router import router as pagos_router
-from src.facturas_proveedor.router import router as facturas_proveedor_router
-from src.facturas_proveedor.router import diferencias_router as diferencias_cambiarias_router
 
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -107,10 +103,6 @@ api_router.include_router(eva_platform_router)
 api_router.include_router(customers_router)
 api_router.include_router(agent_router)
 api_router.include_router(eva_billing_router)
-api_router.include_router(proveedores_router)
-api_router.include_router(pagos_router)
-api_router.include_router(facturas_proveedor_router)
-api_router.include_router(diferencias_cambiarias_router)
 
 app.include_router(api_router)
 
