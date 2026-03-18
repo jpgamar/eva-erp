@@ -1,7 +1,7 @@
 """add proveedores, pagos_proveedor, facturas_proveedor, diferencias_cambiarias
 
-Revision ID: l1m2n3o4p5q6
-Revises: k0l1m2n3o4p5
+Revision ID: m2n3o4p5q6r7
+Revises: l1m2n3o4p5q6
 Create Date: 2026-03-17
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "l1m2n3o4p5q6"
-down_revision = "k0l1m2n3o4p5"
+revision = "m2n3o4p5q6r7"
+down_revision = "l1m2n3o4p5q6"
 branch_labels = None
 depends_on = None
 
