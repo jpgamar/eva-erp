@@ -27,6 +27,7 @@ class ExchangeRate(Base):
     to_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     rate: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    rate_type: Mapped[str] = mapped_column(String(20), default="FIX")  # FIX / SPOT / MANUAL
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual / api
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

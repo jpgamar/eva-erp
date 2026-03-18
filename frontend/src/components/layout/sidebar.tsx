@@ -21,6 +21,10 @@ import {
   Handshake,
   Server,
   X,
+  Truck,
+  Wallet,
+  FileInput,
+  ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -56,6 +60,10 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Finances", icon: DollarSign, href: "/finances", phase: 3 },
       { label: "Facturas", icon: FileText, href: "/facturas", phase: 7 },
+      { label: "Proveedores", icon: Truck, href: "/proveedores", phase: 8 },
+      { label: "Pagos", icon: Wallet, href: "/pagos", phase: 8 },
+      { label: "Facturas Prov.", icon: FileInput, href: "/facturas-proveedor", phase: 8 },
+      { label: "Dif. Cambiarias", icon: ArrowUpDown, href: "/diferencias-cambiarias", phase: 8 },
     ],
   },
   {
