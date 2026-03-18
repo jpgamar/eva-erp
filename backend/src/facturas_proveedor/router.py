@@ -191,6 +191,22 @@ async def cancel_factura_proveedor(
     db.add(fp)
 
 
+@router.delete("/{factura_id}/hard", status_code=204)
+async def hard_delete_factura_proveedor(
+    factura_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Permanently delete a cancelled factura. Only works on cancelada status."""
+    result = await db.execute(select(FacturaProveedor).where(FacturaProveedor.id == factura_id))
+    fp = result.scalar_one_or_none()
+    if not fp:
+        raise HTTPException(status_code=404, detail="Factura proveedor not found")
+    if fp.status != "cancelada":
+        raise HTTPException(status_code=400, detail="Only cancelled facturas can be permanently deleted")
+    await db.delete(fp)
+
+
 # --- Diferencias Cambiarias ---
 
 @diferencias_router.get("", response_model=list[DiferenciaCambiariaResponse])

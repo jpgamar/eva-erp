@@ -19,6 +19,7 @@ export const facturasProveedorApi = {
   create: (data: any) => api.post("/facturas-proveedor", data).then(r => r.data),
   update: (id: string, data: any) => api.patch(`/facturas-proveedor/${id}`, data).then(r => r.data),
   cancel: (id: string) => api.delete(`/facturas-proveedor/${id}`).then(r => r.data),
+  hardDelete: (id: string) => api.delete(`/facturas-proveedor/${id}/hard`).then(r => r.data),
 };
 
 export const diferenciasCambiariasApi = {

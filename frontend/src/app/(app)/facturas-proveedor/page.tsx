@@ -90,6 +90,15 @@ export default function FacturasProveedorPage() {
     } catch (e: any) { toast.error(e?.response?.data?.detail || "Error"); }
   };
 
+  const handleHardDelete = async (f: FacturaProveedor) => {
+    if (!window.confirm(`Eliminar permanentemente factura #${f.invoice_number}? Esta accion no se puede deshacer.`)) return;
+    try {
+      await facturasProveedorApi.hardDelete(f.id);
+      toast.success("Factura eliminada");
+      await fetchAll();
+    } catch (e: any) { toast.error(e?.response?.data?.detail || "Error"); }
+  };
+
   // Totals
   const totals = facturas.reduce((acc, f) => {
     if (f.status === "cancelada") return acc;
@@ -171,6 +180,9 @@ export default function FacturasProveedorPage() {
               <TableCell>
                 {f.status !== "cancelada" && f.status !== "pagada" && (
                   <Button variant="ghost" size="sm" onClick={() => handleCancel(f)} className="text-destructive">Cancelar</Button>
+                )}
+                {f.status === "cancelada" && (
+                  <Button variant="ghost" size="sm" onClick={() => handleHardDelete(f)} className="text-destructive">Eliminar</Button>
                 )}
               </TableCell>
             </TableRow>
