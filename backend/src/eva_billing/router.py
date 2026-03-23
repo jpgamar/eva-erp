@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from uuid import UUID
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +69,11 @@ async def stamp(
         return response
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error in stamp endpoint: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/refund", response_model=EvaBillingStampResponse, dependencies=[Depends(require_eva_billing_auth)])

@@ -366,6 +366,7 @@ class EvaBillingService:
                 )
             )
             .order_by(EvaBillingRecord.created_at.desc())
+            .limit(1)
         )
 
     async def _create_and_stamp_factura(self, db: AsyncSession, data: FacturaCreate) -> Factura:
