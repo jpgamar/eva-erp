@@ -531,6 +531,149 @@ class RuntimeEmployeeDetailResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OpenclawRuntimeMonitoringEventResponse(BaseModel):
+    id: uuid.UUID
+    source: str
+    event_type: str
+    severity: str
+    reason_code: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    openclaw_agent_id: uuid.UUID | None = None
+    runtime_host_id: uuid.UUID | None = None
+    created_at: _dt.datetime
+
+
+class OpenclawRuntimeMonitoringAllocationResponse(BaseModel):
+    id: uuid.UUID
+    openclaw_agent_id: uuid.UUID
+    employee_label: str
+    employee_status: str
+    readiness_state: str = "preparing"
+    runtime_bootstrapped: bool = False
+    chat_ready: bool = False
+    user_status_message: str | None = None
+    state: str
+    tenant_class: str
+    runtime_host_id: uuid.UUID | None = None
+    cpu_reservation_mcpu: int
+    ram_reservation_mb: int
+    restart_lock_until: _dt.datetime | None = None
+    reconnect_risk: str
+    queued_reason: str | None = None
+    runtime_image_digest: str | None = None
+    runtime_template_version: str | None = None
+    runtime_release_drift: bool = False
+    provisioning_completed_at: _dt.datetime | None = None
+    last_manual_intervention_at: _dt.datetime | None = None
+
+
+class OpenclawRuntimeMonitoringOverviewResponse(BaseModel):
+    slots_available: int
+    active_hosts: int
+    warning_hosts: int
+    critical_hosts: int
+    queue_depth: int
+    locked_tenants: int
+    release_parity_status: str
+    release_parity: dict[str, Any] = Field(default_factory=dict)
+    release_drift_count: int = 0
+    readiness_drift_count: int = 0
+    manual_interventions_24h: int = 0
+    hosts: list[RuntimeHostResponse] = Field(default_factory=list)
+    allocations: list[OpenclawRuntimeMonitoringAllocationResponse] = Field(default_factory=list)
+    incidents: list[OpenclawRuntimeMonitoringEventResponse] = Field(default_factory=list)
+
+
+class OpenclawRuntimeMonitoringAgentResponse(BaseModel):
+    openclaw_agent_id: uuid.UUID
+    employee_label: str
+    employee_status: str
+    readiness_state: str = "preparing"
+    runtime_bootstrapped: bool = False
+    chat_ready: bool = False
+    user_status_message: str | None = None
+    allocation_state: str
+    tenant_class: str
+    runtime_host_id: uuid.UUID | None = None
+    runtime_host_name: str | None = None
+    runtime_host_state: str | None = None
+    restart_lock_until: _dt.datetime | None = None
+    reconnect_risk: str
+    queued_reason: str | None = None
+    runtime_image_digest: str | None = None
+    runtime_template_version: str | None = None
+    runtime_release_drift: bool = False
+    provisioning_completed_at: _dt.datetime | None = None
+    last_manual_intervention_at: _dt.datetime | None = None
+    incidents: list[OpenclawRuntimeMonitoringEventResponse] = Field(default_factory=list)
+
+
+class OpenclawRuntimeFleetAuditEmployeeResponse(BaseModel):
+    openclaw_agent_id: uuid.UUID
+    employee_label: str
+    employee_status: str
+    readiness_state: str = "preparing"
+    runtime_bootstrapped: bool = False
+    chat_ready: bool = False
+    runtime_release_drift: bool = False
+    db_runtime_image_digest: str | None = None
+    db_runtime_template_version: str | None = None
+    actual_runtime_image_ref: str | None = None
+    actual_runtime_openclaw_version: str | None = None
+    actual_runtime_release_drift: bool = False
+    token_state: str = "unknown"
+    reprovision_recommended: bool = False
+    recommended_action: str | None = None
+    last_manual_intervention_at: _dt.datetime | None = None
+
+
+class OpenclawRuntimeFleetAuditResponse(BaseModel):
+    checked_at: _dt.datetime
+    total_employees: int
+    reprovision_recommended_count: int = 0
+    release_drift_count: int = 0
+    readiness_drift_count: int = 0
+    token_drift_count: int = 0
+    employees: list[OpenclawRuntimeFleetAuditEmployeeResponse] = Field(default_factory=list)
+
+
+class OpenclawRuntimeOverviewResponse(BaseModel):
+    monitoring: OpenclawRuntimeMonitoringOverviewResponse
+    fleet_audit: OpenclawRuntimeFleetAuditResponse
+
+
+class OpenclawRuntimeOperatorActionResponse(BaseModel):
+    accepted: bool
+    message: str
+
+
+class OpenclawRuntimeReprovisionCampaignResponse(BaseModel):
+    accepted: bool
+    campaign_id: str
+    queued_count: int = 0
+    message: str | None = None
+
+
+class OpenclawRuntimeReprovisionCampaignStatusResponse(BaseModel):
+    campaign_id: str
+    state: str
+    checked_at: _dt.datetime
+    total_employees: int = 0
+    queued_count: int = 0
+    provisioning_count: int = 0
+    ready_count: int = 0
+    error_count: int = 0
+    employee_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class OpenclawRuntimeEmployeeReprovisionRequest(BaseModel):
+    force: bool = True
+
+
+class OpenclawRuntimeFleetReprovisionRequest(BaseModel):
+    force: bool = True
+
+
 class DockerContainerResponse(BaseModel):
     name: str
     state: str

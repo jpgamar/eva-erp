@@ -684,6 +684,141 @@ export interface RuntimeEmployeeDetail extends RuntimeEmployee {
   recent_events: RuntimeEvent[];
 }
 
+export interface OpenclawRuntimeMonitoringEvent {
+  id: string;
+  source: string;
+  event_type: string;
+  severity: string;
+  reason_code: string | null;
+  payload: Record<string, unknown>;
+  openclaw_agent_id: string | null;
+  runtime_host_id: string | null;
+  created_at: string;
+}
+
+export interface OpenclawRuntimeMonitoringAllocation {
+  id: string;
+  openclaw_agent_id: string;
+  employee_label: string;
+  employee_status: string;
+  readiness_state: string;
+  runtime_bootstrapped: boolean;
+  chat_ready: boolean;
+  user_status_message: string | null;
+  state: string;
+  tenant_class: string;
+  runtime_host_id: string | null;
+  cpu_reservation_mcpu: number;
+  ram_reservation_mb: number;
+  restart_lock_until: string | null;
+  reconnect_risk: string;
+  queued_reason: string | null;
+  runtime_image_digest: string | null;
+  runtime_template_version: string | null;
+  runtime_release_drift: boolean;
+  provisioning_completed_at: string | null;
+  last_manual_intervention_at: string | null;
+}
+
+export interface OpenclawRuntimeMonitoringOverview {
+  slots_available: number;
+  active_hosts: number;
+  warning_hosts: number;
+  critical_hosts: number;
+  queue_depth: number;
+  locked_tenants: number;
+  release_parity_status: string;
+  release_parity: Record<string, unknown>;
+  release_drift_count: number;
+  readiness_drift_count: number;
+  manual_interventions_24h: number;
+  hosts: RuntimeHost[];
+  allocations: OpenclawRuntimeMonitoringAllocation[];
+  incidents: OpenclawRuntimeMonitoringEvent[];
+}
+
+export interface OpenclawRuntimeMonitoringAgent {
+  openclaw_agent_id: string;
+  employee_label: string;
+  employee_status: string;
+  readiness_state: string;
+  runtime_bootstrapped: boolean;
+  chat_ready: boolean;
+  user_status_message: string | null;
+  allocation_state: string | null;
+  tenant_class: string | null;
+  runtime_host_id: string | null;
+  runtime_host_name: string | null;
+  runtime_host_state: string | null;
+  restart_lock_until: string | null;
+  reconnect_risk: string | null;
+  queued_reason: string | null;
+  runtime_image_digest: string | null;
+  runtime_template_version: string | null;
+  runtime_release_drift: boolean;
+  provisioning_completed_at: string | null;
+  last_manual_intervention_at: string | null;
+  incidents: OpenclawRuntimeMonitoringEvent[];
+}
+
+export interface OpenclawRuntimeFleetAuditEmployee {
+  openclaw_agent_id: string;
+  employee_label: string;
+  employee_status: string;
+  readiness_state: string;
+  runtime_bootstrapped: boolean;
+  chat_ready: boolean;
+  runtime_release_drift: boolean;
+  db_runtime_image_digest: string | null;
+  db_runtime_template_version: string | null;
+  actual_runtime_image_ref: string | null;
+  actual_runtime_openclaw_version: string | null;
+  actual_runtime_release_drift: boolean;
+  token_state: string;
+  reprovision_recommended: boolean;
+  recommended_action: string | null;
+  last_manual_intervention_at: string | null;
+}
+
+export interface OpenclawRuntimeFleetAudit {
+  checked_at: string;
+  total_employees: number;
+  reprovision_recommended_count: number;
+  release_drift_count: number;
+  readiness_drift_count: number;
+  token_drift_count: number;
+  employees: OpenclawRuntimeFleetAuditEmployee[];
+}
+
+export interface OpenclawRuntimeOverview {
+  monitoring: OpenclawRuntimeMonitoringOverview;
+  fleet_audit: OpenclawRuntimeFleetAudit;
+}
+
+export interface OpenclawRuntimeOperatorAction {
+  accepted: boolean;
+  message: string;
+}
+
+export interface OpenclawRuntimeReprovisionCampaign {
+  accepted: boolean;
+  campaign_id: string;
+  queued_count: number;
+  message: string | null;
+}
+
+export interface OpenclawRuntimeReprovisionCampaignStatus {
+  campaign_id: string;
+  state: string;
+  checked_at: string;
+  total_employees: number;
+  queued_count: number;
+  provisioning_count: number;
+  ready_count: number;
+  error_count: number;
+  employee_ids: string[];
+}
+
 export interface RuntimeEvent {
   id: string;
   source: string;

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     eva_billing_bridge_secret: str = ""
     eva_billing_bridge_skew_seconds: int = 300
     eva_api_base_url: str = "https://api.goeva.ai"
+    eva_admin_api_key: str = "874c7c7b567e6ce1c260c65688b9a75a6641b6dcab2ebe15f7cfb0da7080317d"
+    eva_api_timeout_seconds: float = 20.0
 
     # CORS
     cors_origins: str = "http://localhost:3000"

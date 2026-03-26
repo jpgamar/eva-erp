@@ -27,6 +27,11 @@ import type {
   DockerLogs,
   FileEntry,
   FileContent,
+  OpenclawRuntimeOverview,
+  OpenclawRuntimeMonitoringAgent,
+  OpenclawRuntimeOperatorAction,
+  OpenclawRuntimeReprovisionCampaign,
+  OpenclawRuntimeReprovisionCampaignStatus,
 } from "@/types";
 
 export const evaPlatformApi = {
@@ -145,4 +150,23 @@ export const evaPlatformApi = {
     api.get(`/eva-platform/infrastructure/hosts/${hostIp}/files`, { params: { path } }).then((r) => r.data),
   getFileContent: (hostIp: string, path: string): Promise<FileContent> =>
     api.get(`/eva-platform/infrastructure/hosts/${hostIp}/files/content`, { params: { path } }).then((r) => r.data),
+  getOpenclawOverview: (): Promise<OpenclawRuntimeOverview> =>
+    api.get("/eva-platform/infrastructure/openclaw/overview").then((r) => r.data),
+  getOpenclawEmployeeHealth: (agentId: string): Promise<OpenclawRuntimeMonitoringAgent> =>
+    api.get(`/eva-platform/infrastructure/openclaw/employees/${agentId}`).then((r) => r.data),
+  reprovisionOpenclawEmployee: (
+    agentId: string,
+    data: { force?: boolean } = { force: true },
+  ): Promise<OpenclawRuntimeOperatorAction> =>
+    api.post(`/eva-platform/infrastructure/openclaw/employees/${agentId}/reprovision`, data).then((r) => r.data),
+  repairOpenclawEmployeeToken: (agentId: string): Promise<OpenclawRuntimeOperatorAction> =>
+    api.post(`/eva-platform/infrastructure/openclaw/employees/${agentId}/repair-token`).then((r) => r.data),
+  reprovisionAllOpenclawEmployees: (
+    data: { force?: boolean } = { force: true },
+  ): Promise<OpenclawRuntimeReprovisionCampaign> =>
+    api.post("/eva-platform/infrastructure/openclaw/reprovision-campaigns", data).then((r) => r.data),
+  getOpenclawReprovisionCampaignStatus: (
+    campaignId: string,
+  ): Promise<OpenclawRuntimeReprovisionCampaignStatus> =>
+    api.get(`/eva-platform/infrastructure/openclaw/reprovision-campaigns/${campaignId}`).then((r) => r.data),
 };

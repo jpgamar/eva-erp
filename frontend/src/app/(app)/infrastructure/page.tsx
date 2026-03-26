@@ -19,6 +19,10 @@ import {
   Info,
   Wifi,
   WifiOff,
+  Rocket,
+  ShieldAlert,
+  ShieldCheck,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +47,10 @@ import type {
   DockerContainer,
   FileEntry,
   FileContent,
+  OpenclawRuntimeOverview,
+  OpenclawRuntimeMonitoringAgent,
+  OpenclawRuntimeFleetAuditEmployee,
+  OpenclawRuntimeReprovisionCampaignStatus,
 } from "@/types";
 
 // ── Helpers ─────────────────────────────────────────────
@@ -84,9 +92,39 @@ const SEVERITY_COLORS: Record<string, string> = {
   debug: "text-gray-500",
 };
 
-function fileExtension(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+const READINESS_COLORS: Record<string, string> = {
+  ready: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  almost_ready: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  preparing: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
+function labelForRecommendedAction(action: string | null): string {
+  switch (action) {
+    case "reprovision":
+      return "Reprovision recommended";
+    case "repair_token":
+      return "Token repair recommended";
+    case "verify_readiness":
+      return "Readiness check recommended";
+    default:
+      return "Healthy";
+  }
+}
+
+function labelForTokenState(tokenState: string): string {
+  switch (tokenState) {
+    case "present":
+      return "Token verified";
+    case "missing":
+      return "Token missing";
+    case "invalid":
+      return "Token invalid";
+    case "unreadable":
+      return "Token unreadable";
+    default:
+      return "Token unknown";
+  }
 }
 
 // ── Host Card ───────────────────────────────────────────
@@ -537,38 +575,95 @@ function EmployeeDetailSheet({
   onClose: () => void;
 }) {
   const [detail, setDetail] = useState<RuntimeEmployeeDetail | null>(null);
+  const [health, setHealth] = useState<OpenclawRuntimeMonitoringAgent | null>(null);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<"reprovision" | "repair-token" | null>(null);
   const [activeTab, setActiveTab] = useState("info");
 
   useEffect(() => {
     if (!employee || !open) {
       setDetail(null);
+      setHealth(null);
       setActiveTab("info");
       return;
     }
     setLoading(true);
-    evaPlatformApi
-      .getEmployeeDetail(employee.id)
-      .then(setDetail)
+    Promise.all([
+      evaPlatformApi.getEmployeeDetail(employee.id),
+      evaPlatformApi.getOpenclawEmployeeHealth(employee.id),
+    ])
+      .then(([detailResponse, healthResponse]) => {
+        setDetail(detailResponse);
+        setHealth(healthResponse);
+      })
       .catch(() => toast.error("Failed to load employee details"))
       .finally(() => setLoading(false));
   }, [employee, open]);
+
+  const runEmployeeAction = async (action: "reprovision" | "repair-token") => {
+    if (!employee) return;
+    setActionLoading(action);
+    try {
+      const response = action === "reprovision"
+        ? await evaPlatformApi.reprovisionOpenclawEmployee(employee.id)
+        : await evaPlatformApi.repairOpenclawEmployeeToken(employee.id);
+      toast.success(response.message);
+      const [detailResponse, healthResponse] = await Promise.all([
+        evaPlatformApi.getEmployeeDetail(employee.id),
+        evaPlatformApi.getOpenclawEmployeeHealth(employee.id),
+      ]);
+      setDetail(detailResponse);
+      setHealth(healthResponse);
+    } catch {
+      toast.error(action === "reprovision" ? "Failed to queue reprovision" : "Failed to repair token");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent className="w-[600px] sm:max-w-[600px] p-0 flex flex-col">
         <SheetHeader className="px-6 py-4 border-b shrink-0">
-          <div className="flex items-center gap-3">
-            <SheetTitle className="text-base">{employee?.label || "Employee"}</SheetTitle>
-            {employee && (
-              <Badge variant="outline" className={cn("text-[10px]", STATE_COLORS[employee.allocation_state || employee.status])}>
-                {employee.allocation_state || employee.status}
-              </Badge>
-            )}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-3">
+                <SheetTitle className="text-base">{employee?.label || "Employee"}</SheetTitle>
+                {employee && (
+                  <Badge variant="outline" className={cn("text-[10px]", STATE_COLORS[employee.allocation_state || employee.status])}>
+                    {employee.allocation_state || employee.status}
+                  </Badge>
+                )}
+                {health && (
+                  <Badge variant="outline" className={cn("text-[10px]", READINESS_COLORS[health.readiness_state] || READINESS_COLORS.preparing)}>
+                    {health.readiness_state.replace("_", " ")}
+                  </Badge>
+                )}
+              </div>
+              {employee?.account_name && (
+                <p className="text-xs text-muted-foreground">{employee.account_name}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={actionLoading !== null}
+                onClick={() => { void runEmployeeAction("repair-token"); }}
+              >
+                <Wrench className="h-3.5 w-3.5 mr-1.5" />
+                {actionLoading === "repair-token" ? "Repairing..." : "Repair token"}
+              </Button>
+              <Button
+                size="sm"
+                disabled={actionLoading !== null}
+                onClick={() => { void runEmployeeAction("reprovision"); }}
+              >
+                <Rocket className="h-3.5 w-3.5 mr-1.5" />
+                {actionLoading === "reprovision" ? "Queueing..." : "Reprovision"}
+              </Button>
+            </div>
           </div>
-          {employee?.account_name && (
-            <p className="text-xs text-muted-foreground">{employee.account_name}</p>
-          )}
         </SheetHeader>
 
         {loading ? (
@@ -597,7 +692,7 @@ function EmployeeDetailSheet({
             </TabsList>
 
             <TabsContent value="info" className="flex-1 overflow-auto mt-0 px-6 py-4">
-              {detail && <InfoTabContent detail={detail} />}
+              {detail && <InfoTabContent detail={detail} health={health} />}
             </TabsContent>
 
             <TabsContent value="docker" className="flex-1 overflow-auto mt-0">
@@ -623,7 +718,13 @@ function EmployeeDetailSheet({
 
 // ── Info Tab Content ────────────────────────────────────
 
-function InfoTabContent({ detail }: { detail: RuntimeEmployeeDetail }) {
+function InfoTabContent({
+  detail,
+  health,
+}: {
+  detail: RuntimeEmployeeDetail;
+  health: OpenclawRuntimeMonitoringAgent | null;
+}) {
   return (
     <div className="space-y-5">
       {/* Status */}
@@ -632,8 +733,21 @@ function InfoTabContent({ detail }: { detail: RuntimeEmployeeDetail }) {
         <div className="grid grid-cols-2 gap-3 text-sm">
           <InfoField label="Status" value={detail.status} />
           <InfoField label="Allocation" value={detail.allocation_state || "none"} />
+          {health && (
+            <>
+              <InfoField label="Readiness" value={health.readiness_state.replace("_", " ")} />
+              <InfoField label="Chat Ready" value={health.chat_ready ? "Yes" : "No"} />
+            </>
+          )}
           {detail.status_detail && (
             <InfoField label="Detail" value={detail.status_detail} className="col-span-2" />
+          )}
+          {health?.user_status_message && (
+            <InfoField
+              label="Operator Summary"
+              value={health.user_status_message}
+              className="col-span-2"
+            />
           )}
           {detail.error && (
             <div className="col-span-2 rounded-lg bg-red-50 dark:bg-red-900/10 p-3 text-xs text-red-700 dark:text-red-400">
@@ -679,6 +793,18 @@ function InfoTabContent({ detail }: { detail: RuntimeEmployeeDetail }) {
           <InfoField label="Port" value={detail.gateway_port?.toString() || "none"} mono />
           <InfoField label="Host" value={detail.host_name || "none"} mono />
           <InfoField label="Host IP" value={detail.host_ip || "none"} mono />
+          {health && (
+            <>
+              <InfoField
+                label="Release Drift"
+                value={health.runtime_release_drift ? "Detected" : "No drift"}
+              />
+              <InfoField
+                label="Last Manual Change"
+                value={health.last_manual_intervention_at ? new Date(health.last_manual_intervention_at).toLocaleString() : "none"}
+              />
+            </>
+          )}
           {detail.cpu_reservation_mcpu && (
             <InfoField label="CPU" value={`${detail.cpu_reservation_mcpu} mCPU`} />
           )}
@@ -724,15 +850,15 @@ function InfoTabContent({ detail }: { detail: RuntimeEmployeeDetail }) {
       </section>
 
       {/* Recent Events */}
-      {detail.recent_events.length > 0 && (
+      {(health?.incidents.length || detail.recent_events.length) > 0 && (
         <>
           <Separator />
           <section>
             <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">
-              Recent Events ({detail.recent_events.length})
+              Recent Events ({health?.incidents.length ?? detail.recent_events.length})
             </h4>
             <div className="space-y-2">
-              {detail.recent_events.map((evt) => (
+              {(health?.incidents.length ? health.incidents : detail.recent_events).map((evt) => (
                 <div key={evt.id} className="rounded border p-2 text-xs">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -775,16 +901,218 @@ function InfoField({
   );
 }
 
+function OpenclawAuditRow({
+  employee,
+  onInspect,
+}: {
+  employee: OpenclawRuntimeFleetAuditEmployee;
+  onInspect: (agentId: string) => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-lg border p-3 cursor-pointer transition-colors hover:bg-muted/50"
+      onClick={() => onInspect(employee.openclaw_agent_id)}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-medium">{employee.employee_label}</p>
+          <Badge variant="outline" className={cn("text-[10px]", READINESS_COLORS[employee.readiness_state] || READINESS_COLORS.preparing)}>
+            {employee.readiness_state.replace("_", " ")}
+          </Badge>
+          {employee.runtime_release_drift || employee.actual_runtime_release_drift ? (
+            <Badge variant="outline" className="text-[10px] bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+              drift
+            </Badge>
+          ) : null}
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {labelForRecommendedAction(employee.recommended_action)}
+        </p>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="text-right">
+          <p className="text-xs font-medium">{labelForTokenState(employee.token_state)}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {employee.actual_runtime_openclaw_version || "runtime version unknown"}
+          </p>
+        </div>
+        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+      </div>
+    </div>
+  );
+}
+
+function OpenclawHealthTab({
+  overview,
+  loading,
+  campaignStatus,
+  onRefresh,
+  onReprovisionAll,
+  onInspectEmployee,
+}: {
+  overview: OpenclawRuntimeOverview | null;
+  loading: boolean;
+  campaignStatus: OpenclawRuntimeReprovisionCampaignStatus | null;
+  onRefresh: () => void;
+  onReprovisionAll: () => void;
+  onInspectEmployee: (agentId: string) => void;
+}) {
+  if (loading && !overview) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full" />)}
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!overview) {
+    return (
+      <Card className="p-8 text-center">
+        <ShieldAlert className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">OpenClaw health data is unavailable right now.</p>
+      </Card>
+    );
+  }
+
+  const parityOk = overview.monitoring.release_parity_status === "ok";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold">OpenClaw health</h3>
+          <p className="text-xs text-muted-foreground">
+            Release parity, fleet drift, reprovision campaign progress, and recent interventions.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Re-run checks
+          </Button>
+          <Button size="sm" onClick={onReprovisionAll}>
+            <Rocket className="h-3.5 w-3.5 mr-1.5" />
+            Reprovision all
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        <SummaryCard
+          label="Release Parity"
+          value={parityOk ? "OK" : "Mismatch"}
+          icon={parityOk ? <ShieldCheck className="h-5 w-5" /> : <ShieldAlert className="h-5 w-5" />}
+          color={parityOk ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+        />
+        <SummaryCard
+          label="Need Reprovision"
+          value={overview.fleet_audit.reprovision_recommended_count}
+          icon={<Rocket className="h-5 w-5" />}
+          color="text-amber-600 dark:text-amber-400"
+        />
+        <SummaryCard
+          label="Token Drift"
+          value={overview.fleet_audit.token_drift_count}
+          icon={<Wrench className="h-5 w-5" />}
+          color="text-blue-600 dark:text-blue-400"
+        />
+        <SummaryCard
+          label="Manual Changes 24h"
+          value={overview.monitoring.manual_interventions_24h}
+          icon={<AlertCircle className="h-5 w-5" />}
+          color="text-purple-600 dark:text-purple-400"
+        />
+      </div>
+
+      {campaignStatus ? (
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Current reprovision campaign</p>
+              <p className="text-xs text-muted-foreground">
+                {campaignStatus.campaign_id} · {campaignStatus.state}
+              </p>
+            </div>
+            <Badge variant="outline" className={cn("text-[10px]", STATE_COLORS[campaignStatus.state] || STATE_COLORS.provisioning)}>
+              {campaignStatus.ready_count}/{campaignStatus.total_employees} ready
+            </Badge>
+          </div>
+        </Card>
+      ) : null}
+
+      <div className="grid grid-cols-[1.4fr_1fr] gap-6">
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold">Employees needing attention</h4>
+            <Badge variant="outline" className="text-[10px]">
+              {overview.fleet_audit.total_employees} total
+            </Badge>
+          </div>
+          <div className="space-y-2">
+            {overview.fleet_audit.employees.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No OpenClaw employees found.</p>
+            ) : (
+              overview.fleet_audit.employees.map((employee) => (
+                <OpenclawAuditRow
+                  key={employee.openclaw_agent_id}
+                  employee={employee}
+                  onInspect={onInspectEmployee}
+                />
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold">Recent incidents</h4>
+            <Badge variant="outline" className="text-[10px]">
+              {overview.monitoring.incidents.length}
+            </Badge>
+          </div>
+          <div className="space-y-2">
+            {overview.monitoring.incidents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No recent incidents.</p>
+            ) : (
+              overview.monitoring.incidents.slice(0, 8).map((incident) => (
+                <div key={incident.id} className="rounded border p-3 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn("font-medium", SEVERITY_COLORS[incident.severity] || "text-muted-foreground")}>
+                      {incident.severity}
+                    </span>
+                    <span className="text-muted-foreground">{timeAgo(incident.created_at)}</span>
+                  </div>
+                  <p className="mt-1 font-mono">{incident.event_type}</p>
+                  {incident.reason_code ? (
+                    <p className="mt-1 text-muted-foreground">{incident.reason_code}</p>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ───────────────────────────────────────────
 
 export default function InfrastructurePage() {
+  const [activeView, setActiveView] = useState("hosts");
   const [hosts, setHosts] = useState<RuntimeHost[]>([]);
   const [selectedHost, setSelectedHost] = useState<RuntimeHost | null>(null);
   const [employees, setEmployees] = useState<RuntimeEmployee[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<RuntimeEmployee | null>(null);
+  const [openclawOverview, setOpenclawOverview] = useState<OpenclawRuntimeOverview | null>(null);
+  const [openclawCampaignStatus, setOpenclawCampaignStatus] = useState<OpenclawRuntimeReprovisionCampaignStatus | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [loadingOpenclaw, setLoadingOpenclaw] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasSelectedRef = useRef(false);
 
@@ -816,14 +1144,34 @@ export default function InfrastructurePage() {
     }
   }, []);
 
+  const fetchOpenclawOverview = useCallback(async () => {
+    setLoadingOpenclaw(true);
+    try {
+      const data = await evaPlatformApi.getOpenclawOverview();
+      setOpenclawOverview(data);
+      if (openclawCampaignStatus?.campaign_id) {
+        const campaign = await evaPlatformApi.getOpenclawReprovisionCampaignStatus(openclawCampaignStatus.campaign_id);
+        setOpenclawCampaignStatus(campaign);
+      }
+    } catch {
+      toast.error("Failed to load OpenClaw health");
+    } finally {
+      setLoadingOpenclaw(false);
+    }
+  }, [openclawCampaignStatus?.campaign_id]);
+
   // Initial load + auto-refresh every 30s
   useEffect(() => {
     fetchHosts();
-    intervalRef.current = setInterval(fetchHosts, 30000);
+    void fetchOpenclawOverview();
+    intervalRef.current = setInterval(() => {
+      void fetchHosts();
+      void fetchOpenclawOverview();
+    }, 30000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [fetchHosts]);
+  }, [fetchHosts, fetchOpenclawOverview]);
 
   // Load employees when host changes
   useEffect(() => {
@@ -837,121 +1185,184 @@ export default function InfrastructurePage() {
   const totalSlots = hosts.reduce((sum, h) => sum + h.max_tenants, 0);
   const usedSlots = hosts.reduce((sum, h) => sum + h.tenant_count, 0);
 
+  const openEmployeeSheet = (agentId: string, label?: string) => {
+    const existing =
+      employees.find((employee) => employee.id === agentId)
+      || (selectedEmployee?.id === agentId ? selectedEmployee : null);
+    if (existing) {
+      setSelectedEmployee(existing);
+      setSheetOpen(true);
+      return;
+    }
+    setSelectedEmployee({
+      id: agentId,
+      agent_id: agentId,
+      account_id: "",
+      account_name: null,
+      label: label || "Employee",
+      status: "active",
+      phone_number: null,
+      allocation_state: null,
+      container_name: null,
+      gateway_port: null,
+      cpu_reservation_mcpu: null,
+      ram_reservation_mb: null,
+      reconnect_risk: null,
+      whatsapp_connected: false,
+      telegram_connected: false,
+      vps_ip: null,
+    });
+    setSheetOpen(true);
+  };
+
+  const handleReprovisionAll = async () => {
+    try {
+      const campaign = await evaPlatformApi.reprovisionAllOpenclawEmployees({ force: true });
+      toast.success(campaign.message || "Full-fleet reprovision queued.");
+      const status = await evaPlatformApi.getOpenclawReprovisionCampaignStatus(campaign.campaign_id);
+      setOpenclawCampaignStatus(status);
+      await fetchOpenclawOverview();
+    } catch {
+      toast.error("Failed to queue full-fleet reprovision");
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Summary cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <SummaryCard
-          label="Active Hosts"
-          value={hosts.filter((h) => h.state === "active").length}
-          icon={<Server className="h-5 w-5" />}
-          color="text-blue-600 dark:text-blue-400"
-        />
-        <SummaryCard
-          label="Total Employees"
-          value={usedSlots}
-          icon={<Cpu className="h-5 w-5" />}
-          color="text-green-600 dark:text-green-400"
-        />
-        <SummaryCard
-          label="Slots Available"
-          value={totalSlots - usedSlots}
-          icon={<HardDrive className="h-5 w-5" />}
-          color="text-amber-600 dark:text-amber-400"
-        />
-        <SummaryCard
-          label="Total Capacity"
-          value={`${usedSlots}/${totalSlots}`}
-          icon={<Server className="h-5 w-5" />}
-          color="text-purple-600 dark:text-purple-400"
-        />
-      </div>
+      <Tabs value={activeView} onValueChange={setActiveView} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="hosts">Host inventory</TabsTrigger>
+          <TabsTrigger value="openclaw">OpenClaw health</TabsTrigger>
+        </TabsList>
 
-      {/* Two-panel layout */}
-      <div className="flex gap-6 min-h-[600px]">
-        {/* Left: Host list */}
-        <div className="w-80 shrink-0 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Hosts</h3>
-            <Button variant="ghost" size="sm" onClick={fetchHosts}>
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+        <TabsContent value="hosts" className="space-y-6 mt-0">
+          <div className="grid grid-cols-4 gap-4">
+            <SummaryCard
+              label="Active Hosts"
+              value={hosts.filter((h) => h.state === "active").length}
+              icon={<Server className="h-5 w-5" />}
+              color="text-blue-600 dark:text-blue-400"
+            />
+            <SummaryCard
+              label="Total Employees"
+              value={usedSlots}
+              icon={<Cpu className="h-5 w-5" />}
+              color="text-green-600 dark:text-green-400"
+            />
+            <SummaryCard
+              label="Slots Available"
+              value={totalSlots - usedSlots}
+              icon={<HardDrive className="h-5 w-5" />}
+              color="text-amber-600 dark:text-amber-400"
+            />
+            <SummaryCard
+              label="Total Capacity"
+              value={`${usedSlots}/${totalSlots}`}
+              icon={<Server className="h-5 w-5" />}
+              color="text-purple-600 dark:text-purple-400"
+            />
           </div>
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
-            </div>
-          ) : hosts.length === 0 ? (
-            <Card className="p-8 text-center">
-              <Server className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No active hosts</p>
-            </Card>
-          ) : (
-            <ScrollArea className="h-[calc(100vh-320px)]">
-              <div className="space-y-3 pr-3">
-                {hosts.map((host) => (
-                  <HostCard
-                    key={host.id}
-                    host={host}
-                    selected={selectedHost?.id === host.id}
-                    onClick={() => setSelectedHost(host)}
-                  />
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-        </div>
 
-        {/* Right: Employee list */}
-        <div className="flex-1 min-w-0">
-          {selectedHost ? (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h3 className="text-sm font-semibold">
-                    Employees on {selectedHost.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedHost.public_ip} &middot;{" "}
-                    {selectedHost.tenant_count}/{selectedHost.max_tenants} slots used &middot;{" "}
-                    {selectedHost.max_tenants - selectedHost.tenant_count} available
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => fetchEmployees(selectedHost.id)}>
+          <div className="flex gap-6 min-h-[600px]">
+            <div className="w-80 shrink-0 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Hosts</h3>
+                <Button variant="ghost" size="sm" onClick={fetchHosts}>
                   <RefreshCw className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              {loadingEmployees ? (
+              {loading ? (
                 <div className="space-y-3">
-                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+                  {[1, 2].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
                 </div>
-              ) : employees.length === 0 ? (
+              ) : hosts.length === 0 ? (
                 <Card className="p-8 text-center">
-                  <Cpu className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">No employees on this host</p>
+                  <Server className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">No active hosts</p>
                 </Card>
               ) : (
-                <div className="space-y-2">
-                  {employees.map((emp) => (
-                    <EmployeeRow
-                      key={emp.id}
-                      employee={emp}
-                      onClick={() => {
-                        setSelectedEmployee(emp);
-                        setSheetOpen(true);
-                      }}
-                    />
-                  ))}
+                <ScrollArea className="h-[calc(100vh-320px)]">
+                  <div className="space-y-3 pr-3">
+                    {hosts.map((host) => (
+                      <HostCard
+                        key={host.id}
+                        host={host}
+                        selected={selectedHost?.id === host.id}
+                        onClick={() => setSelectedHost(host)}
+                      />
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              {selectedHost ? (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">
+                        Employees on {selectedHost.name}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedHost.public_ip} &middot;{" "}
+                        {selectedHost.tenant_count}/{selectedHost.max_tenants} slots used &middot;{" "}
+                        {selectedHost.max_tenants - selectedHost.tenant_count} available
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => fetchEmployees(selectedHost.id)}>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {loadingEmployees ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+                    </div>
+                  ) : employees.length === 0 ? (
+                    <Card className="p-8 text-center">
+                      <Cpu className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">No employees on this host</p>
+                    </Card>
+                  ) : (
+                    <div className="space-y-2">
+                      {employees.map((emp) => (
+                        <EmployeeRow
+                          key={emp.id}
+                          employee={emp}
+                          onClick={() => {
+                            setSelectedEmployee(emp);
+                            setSheetOpen(true);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-sm text-muted-foreground">Select a host to view employees</p>
                 </div>
               )}
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm text-muted-foreground">Select a host to view employees</p>
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="openclaw" className="mt-0">
+          <OpenclawHealthTab
+            overview={openclawOverview}
+            loading={loadingOpenclaw}
+            campaignStatus={openclawCampaignStatus}
+            onRefresh={() => { void fetchOpenclawOverview(); }}
+            onReprovisionAll={() => { void handleReprovisionAll(); }}
+            onInspectEmployee={(agentId) => {
+              const auditEmployee = openclawOverview?.fleet_audit.employees.find(
+                (employee) => employee.openclaw_agent_id === agentId,
+              );
+              openEmployeeSheet(agentId, auditEmployee?.employee_label);
+            }}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Detail sheet */}
       <EmployeeDetailSheet

@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.common.database import get_eva_db
+from src.eva_platform.eva_api_client import eva_admin_api_client
 from src.eva_platform.models import (
     EvaAccount,
     EvaOpenclawAgent,
@@ -23,6 +25,14 @@ from src.eva_platform.schemas import (
     DockerLogsResponse,
     FileContentResponse,
     FileEntryResponse,
+    OpenclawRuntimeEmployeeReprovisionRequest,
+    OpenclawRuntimeFleetAuditResponse,
+    OpenclawRuntimeFleetReprovisionRequest,
+    OpenclawRuntimeMonitoringAgentResponse,
+    OpenclawRuntimeOverviewResponse,
+    OpenclawRuntimeOperatorActionResponse,
+    OpenclawRuntimeReprovisionCampaignResponse,
+    OpenclawRuntimeReprovisionCampaignStatusResponse,
     RuntimeEmployeeDetailResponse,
     RuntimeEmployeeResponse,
     RuntimeEventResponse,
@@ -50,6 +60,19 @@ async def _validate_host_ip(ip: str, eva_db: AsyncSession) -> None:
     )
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="No active host with that IP")
+
+
+def _proxy_api_error(exc: httpx.HTTPStatusError) -> HTTPException:
+    detail: str | dict[str, object]
+    try:
+        data = exc.response.json()
+    except ValueError:
+        data = None
+    if isinstance(data, dict) and data.get("detail"):
+        detail = data["detail"]
+    else:
+        detail = exc.response.text or "Eva API request failed"
+    return HTTPException(status_code=exc.response.status_code, detail=detail)
 
 
 # ── Endpoints ────────────────────────────────────────────
@@ -238,6 +261,152 @@ async def get_employee_detail(
         started_at=alloc.started_at if alloc else None,
         recent_events=events,
     )
+
+
+@router.get("/openclaw/overview", response_model=OpenclawRuntimeOverviewResponse)
+async def get_openclaw_runtime_overview(
+    _user=Depends(get_current_user),
+):
+    try:
+        monitoring = await eva_admin_api_client.request(
+            "GET",
+            "/openclaw/admin/runtime/monitoring/overview",
+        )
+        fleet_audit = await eva_admin_api_client.request(
+            "GET",
+            "/openclaw/admin/runtime/fleet-audit",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin overview proxy failed: %s", exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return OpenclawRuntimeOverviewResponse(
+        monitoring=monitoring,
+        fleet_audit=fleet_audit,
+    )
+
+
+@router.get("/openclaw/employees/{openclaw_agent_id}", response_model=OpenclawRuntimeMonitoringAgentResponse)
+async def get_openclaw_runtime_employee_health(
+    openclaw_agent_id: uuid.UUID,
+    _user=Depends(get_current_user),
+):
+    try:
+        data = await eva_admin_api_client.request(
+            "GET",
+            f"/openclaw/admin/runtime/monitoring/employees/{openclaw_agent_id}",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin employee health proxy failed for %s: %s", openclaw_agent_id, exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return OpenclawRuntimeMonitoringAgentResponse(**data)
+
+
+@router.post(
+    "/openclaw/employees/{openclaw_agent_id}/reprovision",
+    response_model=OpenclawRuntimeOperatorActionResponse,
+)
+async def reprovision_openclaw_employee(
+    openclaw_agent_id: uuid.UUID,
+    payload: OpenclawRuntimeEmployeeReprovisionRequest,
+    _user=Depends(get_current_user),
+):
+    try:
+        data = await eva_admin_api_client.request(
+            "POST",
+            f"/openclaw/admin/runtime/employees/{openclaw_agent_id}/reprovision",
+            json=payload.model_dump(),
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin employee reprovision proxy failed for %s: %s", openclaw_agent_id, exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return OpenclawRuntimeOperatorActionResponse(
+        accepted=True,
+        message=str(data.get("detail") or "Employee reprovision queued."),
+    )
+
+
+@router.post(
+    "/openclaw/employees/{openclaw_agent_id}/repair-token",
+    response_model=OpenclawRuntimeOperatorActionResponse,
+)
+async def repair_openclaw_employee_token(
+    openclaw_agent_id: uuid.UUID,
+    _user=Depends(get_current_user),
+):
+    try:
+        data = await eva_admin_api_client.request(
+            "POST",
+            f"/openclaw/admin/runtime/employees/{openclaw_agent_id}/repair-token",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin token repair proxy failed for %s: %s", openclaw_agent_id, exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return OpenclawRuntimeOperatorActionResponse(**data)
+
+
+@router.post(
+    "/openclaw/reprovision-campaigns",
+    response_model=OpenclawRuntimeReprovisionCampaignResponse,
+)
+async def trigger_openclaw_reprovision_campaign(
+    payload: OpenclawRuntimeFleetReprovisionRequest,
+    _user=Depends(get_current_user),
+):
+    try:
+        data = await eva_admin_api_client.request(
+            "POST",
+            "/openclaw/admin/runtime/reprovision/campaigns",
+            json=payload.model_dump(),
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin reprovision campaign proxy failed: %s", exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return OpenclawRuntimeReprovisionCampaignResponse(**data)
+
+
+@router.get(
+    "/openclaw/reprovision-campaigns/{campaign_id}",
+    response_model=OpenclawRuntimeReprovisionCampaignStatusResponse,
+)
+async def get_openclaw_reprovision_campaign_status(
+    campaign_id: str,
+    _user=Depends(get_current_user),
+):
+    try:
+        data = await eva_admin_api_client.request(
+            "GET",
+            f"/openclaw/admin/runtime/reprovision/campaigns/{campaign_id}",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin reprovision campaign status proxy failed for %s: %s", campaign_id, exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return OpenclawRuntimeReprovisionCampaignStatusResponse(**data)
 
 
 @router.get(
