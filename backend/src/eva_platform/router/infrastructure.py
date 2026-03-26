@@ -311,6 +311,29 @@ async def get_openclaw_runtime_employee_health(
 
 
 @router.post(
+    "/openclaw/employees/{openclaw_agent_id}/run-checks",
+    response_model=OpenclawRuntimeOperatorActionResponse,
+)
+async def run_openclaw_employee_checks(
+    openclaw_agent_id: uuid.UUID,
+    _user=Depends(get_current_user),
+):
+    try:
+        data = await eva_admin_api_client.request(
+            "POST",
+            f"/openclaw/admin/runtime/employees/{openclaw_agent_id}/run-checks",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise _proxy_api_error(exc) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Eva admin run-checks proxy failed for %s: %s", openclaw_agent_id, exc)
+        raise HTTPException(status_code=502, detail="OpenClaw admin API is unreachable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return OpenclawRuntimeOperatorActionResponse(**data)
+
+
+@router.post(
     "/openclaw/employees/{openclaw_agent_id}/reprovision",
     response_model=OpenclawRuntimeOperatorActionResponse,
 )

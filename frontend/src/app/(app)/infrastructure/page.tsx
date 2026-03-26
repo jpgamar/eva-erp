@@ -33,6 +33,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -99,7 +100,7 @@ const READINESS_COLORS: Record<string, string> = {
   error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
-function labelForRecommendedAction(action: string | null): string {
+export function labelForRecommendedAction(action: string | null): string {
   switch (action) {
     case "reprovision":
       return "Reprovision recommended";
@@ -112,7 +113,20 @@ function labelForRecommendedAction(action: string | null): string {
   }
 }
 
-function labelForTokenState(tokenState: string): string {
+export function labelForUntrackedChange(reason: string | null): string {
+  switch (reason) {
+    case "runtime_and_token_drift_without_recorded_intervention":
+      return "Untracked runtime and token change suspected";
+    case "runtime_drift_without_recorded_intervention":
+      return "Untracked runtime change suspected";
+    case "token_drift_without_recorded_intervention":
+      return "Untracked token change suspected";
+    default:
+      return "Untracked change suspected";
+  }
+}
+
+export function labelForTokenState(tokenState: string): string {
   switch (tokenState) {
     case "present":
       return "Token verified";
@@ -124,6 +138,23 @@ function labelForTokenState(tokenState: string): string {
       return "Token unreadable";
     default:
       return "Token unknown";
+  }
+}
+
+function labelForOperationStatus(status: string | null | undefined): string {
+  switch ((status ?? "").trim().toLowerCase()) {
+    case "queued":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "retrying":
+      return "Retrying automatically";
+    case "failed":
+      return "Failed";
+    case "done":
+      return "Completed";
+    default:
+      return "Operation state unknown";
   }
 }
 
@@ -565,7 +596,7 @@ function FilesTab({ hostIp }: { hostIp: string | null }) {
 
 // ── Employee Detail Sheet ───────────────────────────────
 
-function EmployeeDetailSheet({
+export function EmployeeDetailSheet({
   employee,
   open,
   onClose,
@@ -577,7 +608,7 @@ function EmployeeDetailSheet({
   const [detail, setDetail] = useState<RuntimeEmployeeDetail | null>(null);
   const [health, setHealth] = useState<OpenclawRuntimeMonitoringAgent | null>(null);
   const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<"reprovision" | "repair-token" | null>(null);
+  const [actionLoading, setActionLoading] = useState<"run-checks" | "reprovision" | "repair-token" | null>(null);
   const [activeTab, setActiveTab] = useState("info");
 
   useEffect(() => {
@@ -600,13 +631,15 @@ function EmployeeDetailSheet({
       .finally(() => setLoading(false));
   }, [employee, open]);
 
-  const runEmployeeAction = async (action: "reprovision" | "repair-token") => {
+  const runEmployeeAction = async (action: "run-checks" | "reprovision" | "repair-token") => {
     if (!employee) return;
     setActionLoading(action);
     try {
-      const response = action === "reprovision"
-        ? await evaPlatformApi.reprovisionOpenclawEmployee(employee.id)
-        : await evaPlatformApi.repairOpenclawEmployeeToken(employee.id);
+      const response = action === "run-checks"
+        ? await evaPlatformApi.runOpenclawEmployeeChecks(employee.id)
+        : action === "reprovision"
+          ? await evaPlatformApi.reprovisionOpenclawEmployee(employee.id)
+          : await evaPlatformApi.repairOpenclawEmployeeToken(employee.id);
       toast.success(response.message);
       const [detailResponse, healthResponse] = await Promise.all([
         evaPlatformApi.getEmployeeDetail(employee.id),
@@ -615,7 +648,13 @@ function EmployeeDetailSheet({
       setDetail(detailResponse);
       setHealth(healthResponse);
     } catch {
-      toast.error(action === "reprovision" ? "Failed to queue reprovision" : "Failed to repair token");
+      toast.error(
+        action === "run-checks"
+          ? "Failed to run readiness checks"
+          : action === "reprovision"
+            ? "Failed to queue reprovision"
+            : "Failed to repair token"
+      );
     } finally {
       setActionLoading(null);
     }
@@ -643,8 +682,20 @@ function EmployeeDetailSheet({
               {employee?.account_name && (
                 <p className="text-xs text-muted-foreground">{employee.account_name}</p>
               )}
+              <SheetDescription className="sr-only">
+                Review runtime health, recent incidents, logs, files, and operator actions for this employee.
+              </SheetDescription>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={actionLoading !== null}
+                onClick={() => { void runEmployeeAction("run-checks"); }}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+                {actionLoading === "run-checks" ? "Checking..." : "Run checks"}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -803,6 +854,25 @@ function InfoTabContent({
                 label="Last Manual Change"
                 value={health.last_manual_intervention_at ? new Date(health.last_manual_intervention_at).toLocaleString() : "none"}
               />
+              {health.latest_operation && (
+                <>
+                  <InfoField
+                    label="Latest Operation"
+                    value={`${labelForOperationStatus(health.latest_operation.status)} · ${health.latest_operation.operation_type}`}
+                  />
+                  <InfoField
+                    label="Operation Updated"
+                    value={new Date(health.latest_operation.updated_at).toLocaleString()}
+                  />
+                  {health.latest_operation.next_retry_at && (
+                    <InfoField
+                      label="Next Retry"
+                      value={new Date(health.latest_operation.next_retry_at).toLocaleString()}
+                      className="col-span-2"
+                    />
+                  )}
+                </>
+              )}
             </>
           )}
           {detail.cpu_reservation_mcpu && (
@@ -901,7 +971,7 @@ function InfoField({
   );
 }
 
-function OpenclawAuditRow({
+export function OpenclawAuditRow({
   employee,
   onInspect,
 }: {
@@ -924,9 +994,16 @@ function OpenclawAuditRow({
               drift
             </Badge>
           ) : null}
+          {employee.suspected_untracked_change ? (
+            <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              untracked
+            </Badge>
+          ) : null}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          {labelForRecommendedAction(employee.recommended_action)}
+          {employee.suspected_untracked_change
+            ? labelForUntrackedChange(employee.suspected_untracked_change_reason)
+            : labelForRecommendedAction(employee.recommended_action)}
         </p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
@@ -935,6 +1012,11 @@ function OpenclawAuditRow({
           <p className="text-[11px] text-muted-foreground">
             {employee.actual_runtime_openclaw_version || "runtime version unknown"}
           </p>
+          {employee.latest_operation && (
+            <p className="text-[11px] text-muted-foreground">
+              {labelForOperationStatus(employee.latest_operation.status)}
+            </p>
+          )}
         </div>
         <ChevronRight className="h-4 w-4 text-muted-foreground" />
       </div>
@@ -942,7 +1024,7 @@ function OpenclawAuditRow({
   );
 }
 
-function OpenclawHealthTab({
+export function OpenclawHealthTab({
   overview,
   loading,
   campaignStatus,
@@ -1000,7 +1082,7 @@ function OpenclawHealthTab({
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <SummaryCard
           label="Release Parity"
           value={parityOk ? "OK" : "Mismatch"}
@@ -1024,6 +1106,12 @@ function OpenclawHealthTab({
           value={overview.monitoring.manual_interventions_24h}
           icon={<AlertCircle className="h-5 w-5" />}
           color="text-purple-600 dark:text-purple-400"
+        />
+        <SummaryCard
+          label="Untracked Changes"
+          value={overview.fleet_audit.suspected_untracked_change_count}
+          icon={<ShieldAlert className="h-5 w-5" />}
+          color="text-amber-600 dark:text-amber-400"
         />
       </div>
 

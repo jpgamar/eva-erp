@@ -543,6 +543,16 @@ class OpenclawRuntimeMonitoringEventResponse(BaseModel):
     created_at: _dt.datetime
 
 
+class OpenclawRuntimeOperationSnapshotResponse(BaseModel):
+    id: uuid.UUID
+    operation_type: str
+    status: str
+    updated_at: _dt.datetime
+    next_retry_at: _dt.datetime | None = None
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+
+
 class OpenclawRuntimeMonitoringAllocationResponse(BaseModel):
     id: uuid.UUID
     openclaw_agent_id: uuid.UUID
@@ -565,6 +575,7 @@ class OpenclawRuntimeMonitoringAllocationResponse(BaseModel):
     runtime_release_drift: bool = False
     provisioning_completed_at: _dt.datetime | None = None
     last_manual_intervention_at: _dt.datetime | None = None
+    latest_operation: OpenclawRuntimeOperationSnapshotResponse | None = None
 
 
 class OpenclawRuntimeMonitoringOverviewResponse(BaseModel):
@@ -605,6 +616,7 @@ class OpenclawRuntimeMonitoringAgentResponse(BaseModel):
     runtime_release_drift: bool = False
     provisioning_completed_at: _dt.datetime | None = None
     last_manual_intervention_at: _dt.datetime | None = None
+    latest_operation: OpenclawRuntimeOperationSnapshotResponse | None = None
     incidents: list[OpenclawRuntimeMonitoringEventResponse] = Field(default_factory=list)
 
 
@@ -624,7 +636,10 @@ class OpenclawRuntimeFleetAuditEmployeeResponse(BaseModel):
     token_state: str = "unknown"
     reprovision_recommended: bool = False
     recommended_action: str | None = None
+    suspected_untracked_change: bool = False
+    suspected_untracked_change_reason: str | None = None
     last_manual_intervention_at: _dt.datetime | None = None
+    latest_operation: OpenclawRuntimeOperationSnapshotResponse | None = None
 
 
 class OpenclawRuntimeFleetAuditResponse(BaseModel):
@@ -634,6 +649,7 @@ class OpenclawRuntimeFleetAuditResponse(BaseModel):
     release_drift_count: int = 0
     readiness_drift_count: int = 0
     token_drift_count: int = 0
+    suspected_untracked_change_count: int = 0
     employees: list[OpenclawRuntimeFleetAuditEmployeeResponse] = Field(default_factory=list)
 
 

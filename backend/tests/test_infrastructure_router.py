@@ -67,6 +67,7 @@ def test_openclaw_overview_proxy_returns_monitoring_and_fleet_audit(monkeypatch)
                 "release_drift_count": 1,
                 "readiness_drift_count": 0,
                 "token_drift_count": 0,
+                "suspected_untracked_change_count": 1,
                 "employees": [],
             }
         raise AssertionError(f"Unexpected proxy call: {method} {path}")
@@ -80,6 +81,7 @@ def test_openclaw_overview_proxy_returns_monitoring_and_fleet_audit(monkeypatch)
     payload = response.json()
     assert payload["monitoring"]["release_parity_status"] == "ok"
     assert payload["fleet_audit"]["reprovision_recommended_count"] == 1
+    assert payload["fleet_audit"]["suspected_untracked_change_count"] == 1
 
 
 def test_openclaw_employee_actions_proxy_to_eva(monkeypatch):
@@ -88,6 +90,11 @@ def test_openclaw_employee_actions_proxy_to_eva(monkeypatch):
 
     async def fake_request(method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
         calls.append((method, path, kwargs))
+        if path.endswith("/run-checks"):
+            return {
+                "accepted": True,
+                "message": "Readiness checks passed and the employee is ready to chat.",
+            }
         if path.endswith("/reprovision"):
             return {"status": "provisioning", "detail": "Provisioning queued"}
         if path.endswith("/repair-token"):
@@ -99,6 +106,10 @@ def test_openclaw_employee_actions_proxy_to_eva(monkeypatch):
 
     monkeypatch.setattr(eva_admin_api_client, "request", fake_request)
     client = _build_client()
+
+    checks_response = client.post(f"/infrastructure/openclaw/employees/{employee_id}/run-checks")
+    assert checks_response.status_code == 200, checks_response.text
+    assert checks_response.json()["accepted"] is True
 
     reprovision_response = client.post(
         f"/infrastructure/openclaw/employees/{employee_id}/reprovision",
@@ -112,8 +123,9 @@ def test_openclaw_employee_actions_proxy_to_eva(monkeypatch):
     assert repair_response.json()["accepted"] is True
 
     assert calls[0][0] == "POST"
-    assert calls[0][1] == f"/openclaw/admin/runtime/employees/{employee_id}/reprovision"
-    assert calls[1][1] == f"/openclaw/admin/runtime/employees/{employee_id}/repair-token"
+    assert calls[0][1] == f"/openclaw/admin/runtime/employees/{employee_id}/run-checks"
+    assert calls[1][1] == f"/openclaw/admin/runtime/employees/{employee_id}/reprovision"
+    assert calls[2][1] == f"/openclaw/admin/runtime/employees/{employee_id}/repair-token"
 
 
 def test_openclaw_reprovision_campaign_proxy(monkeypatch):

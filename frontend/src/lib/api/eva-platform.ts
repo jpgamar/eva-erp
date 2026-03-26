@@ -154,6 +154,8 @@ export const evaPlatformApi = {
     api.get("/eva-platform/infrastructure/openclaw/overview").then((r) => r.data),
   getOpenclawEmployeeHealth: (agentId: string): Promise<OpenclawRuntimeMonitoringAgent> =>
     api.get(`/eva-platform/infrastructure/openclaw/employees/${agentId}`).then((r) => r.data),
+  runOpenclawEmployeeChecks: (agentId: string): Promise<OpenclawRuntimeOperatorAction> =>
+    api.post(`/eva-platform/infrastructure/openclaw/employees/${agentId}/run-checks`).then((r) => r.data),
   reprovisionOpenclawEmployee: (
     agentId: string,
     data: { force?: boolean } = { force: true },

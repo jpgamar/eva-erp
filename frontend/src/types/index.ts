@@ -696,6 +696,16 @@ export interface OpenclawRuntimeMonitoringEvent {
   created_at: string;
 }
 
+export interface OpenclawRuntimeOperationSnapshot {
+  id: string;
+  operation_type: string;
+  status: string;
+  updated_at: string;
+  next_retry_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+}
+
 export interface OpenclawRuntimeMonitoringAllocation {
   id: string;
   openclaw_agent_id: string;
@@ -718,6 +728,7 @@ export interface OpenclawRuntimeMonitoringAllocation {
   runtime_release_drift: boolean;
   provisioning_completed_at: string | null;
   last_manual_intervention_at: string | null;
+  latest_operation: OpenclawRuntimeOperationSnapshot | null;
 }
 
 export interface OpenclawRuntimeMonitoringOverview {
@@ -758,6 +769,7 @@ export interface OpenclawRuntimeMonitoringAgent {
   runtime_release_drift: boolean;
   provisioning_completed_at: string | null;
   last_manual_intervention_at: string | null;
+  latest_operation: OpenclawRuntimeOperationSnapshot | null;
   incidents: OpenclawRuntimeMonitoringEvent[];
 }
 
@@ -777,7 +789,10 @@ export interface OpenclawRuntimeFleetAuditEmployee {
   token_state: string;
   reprovision_recommended: boolean;
   recommended_action: string | null;
+  suspected_untracked_change: boolean;
+  suspected_untracked_change_reason: string | null;
   last_manual_intervention_at: string | null;
+  latest_operation: OpenclawRuntimeOperationSnapshot | null;
 }
 
 export interface OpenclawRuntimeFleetAudit {
@@ -787,6 +802,7 @@ export interface OpenclawRuntimeFleetAudit {
   release_drift_count: number;
   readiness_drift_count: number;
   token_drift_count: number;
+  suspected_untracked_change_count: number;
   employees: OpenclawRuntimeFleetAuditEmployee[];
 }
 
