@@ -17,6 +17,7 @@ import {
   UsersRound,
   FileText,
   Activity,
+  Briefcase,
   Building2,
   Handshake,
   Server,
@@ -68,6 +69,7 @@ const navGroups: NavGroup[] = [
   {
     group: "Growth",
     items: [
+      { label: "Empresas", icon: Briefcase, href: "/empresas", phase: 8 },
       { label: "Prospects", icon: Target, href: "/prospects", phase: 5 },
       { label: "Meetings", icon: Calendar, href: "/meetings", phase: 5 },
       { label: "Documents", icon: FolderOpen, href: "/documents", phase: 5 },
