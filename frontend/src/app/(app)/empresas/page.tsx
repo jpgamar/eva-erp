@@ -685,6 +685,12 @@ export default function EmpresasPage() {
 
 function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: string; size?: "lg" | "sm" }) {
   const [failed, setFailed] = useState(false);
+  const prevUrl = useRef(url);
+  if (prevUrl.current !== url) {
+    prevUrl.current = url;
+    setFailed(false);
+  }
+
   const dim = size === "lg" ? "h-20 w-20" : "h-10 w-10";
   const iconDim = size === "lg" ? "h-9 w-9" : "h-5 w-5";
   const radius = size === "lg" ? "rounded-2xl" : "rounded-xl";
