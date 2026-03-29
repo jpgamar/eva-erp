@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  ArrowLeft,
+  ArrowRight,
   Building2,
+  Check,
   ChevronDown,
-  ChevronRight,
   ImagePlus,
   MoreHorizontal,
   Plus,
@@ -40,37 +42,36 @@ import {
   empresasApi,
   type Empresa,
   type EmpresaCreate,
-  type EmpresaItem,
-  type EmpresaItemCreate,
+  type EmpresaHistory,
   type EmpresaListItem,
 } from "@/lib/api/empresas";
 
-// ── Labels ──────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<string, string> = {
-  open: "Abierto",
-  in_progress: "En progreso",
-  done: "Hecho",
+const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  operativo: { label: "Operativo", className: "bg-emerald-100 text-emerald-700" },
+  en_implementacion: { label: "En implementación", className: "bg-amber-100 text-amber-700" },
+  requiere_atencion: { label: "Requiere atención", className: "bg-red-100 text-red-700" },
 };
 
-const STATUS_DOT: Record<string, string> = {
-  open: "bg-neutral-400",
-  in_progress: "bg-neutral-600",
-  done: "bg-neutral-800",
+const BALL_ON_CONFIG: Record<string, { label: string; icon: typeof ArrowLeft }> = {
+  nosotros: { label: "Nosotros", icon: ArrowLeft },
+  cliente: { label: "Cliente", icon: ArrowRight },
 };
 
-const PRIORITY_LABELS: Record<string, string> = {
-  low: "Baja",
-  medium: "Media",
-  high: "Alta",
+const FIELD_LABELS: Record<string, string> = {
+  status: "Status",
+  ball_on: "Responsable",
+  summary_note: "Nota de seguimiento",
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  need: "Necesidad",
-  task: "Tarea",
+const VALUE_LABELS: Record<string, string> = {
+  operativo: "Operativo",
+  en_implementacion: "En implementación",
+  requiere_atencion: "Requiere atención",
+  nosotros: "Nosotros",
+  cliente: "Cliente",
 };
-
-// ── Initial form states ─────────────────────────────────────────────
 
 const EMPTY_EMPRESA: EmpresaCreate = {
   name: "",
@@ -82,37 +83,41 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   rfc: null,
   razon_social: null,
   regimen_fiscal: null,
+  status: "operativo",
+  ball_on: null,
+  summary_note: null,
 };
 
-const EMPTY_ITEM: EmpresaItemCreate = {
-  type: "need",
-  title: "",
-  description: null,
-  status: "open",
-  priority: null,
-  due_date: null,
-};
-
-// ── Page ────────────────────────────────────────────────────────────
+// ── Page ───────────────────────────────────────────────────────────
 
 export default function EmpresasPage() {
   const [empresas, setEmpresas] = useState<EmpresaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  const [expandedCards, setExpandedCards] = useState<Record<string, Empresa>>({});
-  const [detailsOpenIds, setDetailsOpenIds] = useState<Set<string>>(new Set());
-
+  // Empresa modal
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
   const [empresaForm, setEmpresaForm] = useState<EmpresaCreate>(EMPTY_EMPRESA);
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
 
-  const [itemModalOpen, setItemModalOpen] = useState(false);
-  const [itemForm, setItemForm] = useState<EmpresaItemCreate>(EMPTY_ITEM);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [itemEmpresaId, setItemEmpresaId] = useState<string | null>(null);
+  // History modal
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyEmpresaName, setHistoryEmpresaName] = useState("");
+  const [historyEntries, setHistoryEntries] = useState<EmpresaHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  // ── Data loading ──────────────────────────────────────────────────
+  // Inline add item
+  const [addingItemFor, setAddingItemFor] = useState<string | null>(null);
+  const [newItemTitle, setNewItemTitle] = useState("");
+  const addItemInputRef = useRef<HTMLInputElement>(null);
+
+  // Items expanded (show all)
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  // Toggling items (for optimistic UI + disable)
+  const [togglingItems, setTogglingItems] = useState<Set<string>>(new Set());
+
+  // ── Data loading ────────────────────────────────────────────────
 
   const loadEmpresas = async () => {
     try {
@@ -129,42 +134,7 @@ export default function EmpresasPage() {
     loadEmpresas();
   }, [search]);
 
-  const loadCard = async (id: string) => {
-    try {
-      const data = await empresasApi.get(id);
-      setExpandedCards((prev) => ({ ...prev, [id]: data }));
-    } catch {
-      toast.error("Error al cargar empresa");
-    }
-  };
-
-  const toggleCard = (id: string) => {
-    if (expandedCards[id]) {
-      setExpandedCards((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setDetailsOpenIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    } else {
-      loadCard(id);
-    }
-  };
-
-  const toggleDetails = (id: string) => {
-    setDetailsOpenIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // ── Empresa CRUD ──────────────────────────────────────────────────
+  // ── Empresa CRUD ────────────────────────────────────────────────
 
   const openCreateEmpresa = () => {
     setEmpresaForm(EMPTY_EMPRESA);
@@ -172,20 +142,28 @@ export default function EmpresasPage() {
     setEmpresaModalOpen(true);
   };
 
-  const openEditEmpresa = (e: Empresa) => {
-    setEmpresaForm({
-      name: e.name,
-      logo_url: e.logo_url,
-      industry: e.industry,
-      email: e.email,
-      phone: e.phone,
-      address: e.address,
-      rfc: e.rfc,
-      razon_social: e.razon_social,
-      regimen_fiscal: e.regimen_fiscal,
-    });
-    setEditingEmpresaId(e.id);
-    setEmpresaModalOpen(true);
+  const openEditEmpresa = async (emp: EmpresaListItem) => {
+    try {
+      const full = await empresasApi.get(emp.id);
+      setEmpresaForm({
+        name: full.name,
+        logo_url: full.logo_url,
+        industry: full.industry,
+        email: full.email,
+        phone: full.phone,
+        address: full.address,
+        rfc: full.rfc,
+        razon_social: full.razon_social,
+        regimen_fiscal: full.regimen_fiscal,
+        status: full.status,
+        ball_on: full.ball_on,
+        summary_note: full.summary_note,
+      });
+      setEditingEmpresaId(full.id);
+      setEmpresaModalOpen(true);
+    } catch {
+      toast.error("Error al cargar empresa");
+    }
   };
 
   const saveEmpresa = async () => {
@@ -197,7 +175,6 @@ export default function EmpresasPage() {
       if (editingEmpresaId) {
         await empresasApi.update(editingEmpresaId, empresaForm);
         toast.success("Empresa actualizada");
-        if (expandedCards[editingEmpresaId]) loadCard(editingEmpresaId);
       } else {
         await empresasApi.create(empresaForm);
         toast.success("Empresa creada");
@@ -213,74 +190,81 @@ export default function EmpresasPage() {
     try {
       await empresasApi.delete(id);
       toast.success("Empresa eliminada");
-      setExpandedCards((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
       loadEmpresas();
     } catch {
       toast.error("Error al eliminar empresa");
     }
   };
 
-  // ── Item CRUD ─────────────────────────────────────────────────────
+  // ── Items ───────────────────────────────────────────────────────
 
-  const openCreateItem = (empresaId: string) => {
-    setItemForm(EMPTY_ITEM);
-    setEditingItemId(null);
-    setItemEmpresaId(empresaId);
-    setItemModalOpen(true);
-  };
+  const toggleItem = async (itemId: string, empresaId: string) => {
+    if (togglingItems.has(itemId)) return;
+    setTogglingItems((prev) => new Set(prev).add(itemId));
 
-  const openEditItem = (item: EmpresaItem) => {
-    setItemForm({
-      type: item.type,
-      title: item.title,
-      description: item.description,
-      status: item.status,
-      priority: item.priority,
-      due_date: item.due_date,
-    });
-    setEditingItemId(item.id);
-    setItemEmpresaId(item.empresa_id);
-    setItemModalOpen(true);
-  };
+    // Optimistic: remove from pending list
+    setEmpresas((prev) =>
+      prev.map((emp) =>
+        emp.id === empresaId
+          ? {
+              ...emp,
+              pending_items: emp.pending_items.filter((i) => i.id !== itemId),
+              pending_count: emp.pending_count - 1,
+            }
+          : emp
+      )
+    );
 
-  const saveItem = async () => {
-    if (!itemForm.title.trim()) {
-      toast.error("El título es requerido");
-      return;
-    }
     try {
-      if (editingItemId) {
-        const { type, ...updateData } = itemForm;
-        await empresasApi.updateItem(editingItemId, updateData);
-        toast.success("Elemento actualizado");
-      } else if (itemEmpresaId) {
-        await empresasApi.createItem(itemEmpresaId, itemForm);
-        toast.success("Elemento creado");
-      }
-      setItemModalOpen(false);
-      if (itemEmpresaId) loadCard(itemEmpresaId);
+      await empresasApi.toggleItem(itemId);
+    } catch {
+      toast.error("Error al actualizar");
+      loadEmpresas(); // revert
+    } finally {
+      setTogglingItems((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  };
+
+  const addItem = async (empresaId: string) => {
+    if (!newItemTitle.trim()) return;
+    try {
+      await empresasApi.createItem(empresaId, { title: newItemTitle.trim() });
+      setNewItemTitle("");
+      setAddingItemFor(null);
       loadEmpresas();
     } catch {
-      toast.error("Error al guardar elemento");
+      toast.error("Error al agregar pendiente");
     }
   };
 
-  const deleteItem = async (itemId: string, empresaId: string) => {
+  const startAddingItem = (empresaId: string) => {
+    setAddingItemFor(empresaId);
+    setNewItemTitle("");
+    setTimeout(() => addItemInputRef.current?.focus(), 50);
+  };
+
+  // ── History ─────────────────────────────────────────────────────
+
+  const openHistory = async (empresaId: string, empresaName: string) => {
+    setHistoryEmpresaName(empresaName);
+    setHistoryEntries([]);
+    setHistoryLoading(true);
+    setHistoryModalOpen(true);
     try {
-      await empresasApi.deleteItem(itemId);
-      toast.success("Elemento eliminado");
-      loadCard(empresaId);
-      loadEmpresas();
+      const data = await empresasApi.getHistory(empresaId);
+      setHistoryEntries(data);
     } catch {
-      toast.error("Error al eliminar elemento");
+      toast.error("Error al cargar historial");
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -314,163 +298,163 @@ export default function EmpresasPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {empresas.map((emp) => {
-            const expanded = expandedCards[emp.id];
-            const showDetails = detailsOpenIds.has(emp.id);
+            const statusCfg = STATUS_CONFIG[emp.status] || STATUS_CONFIG.operativo;
+            const ballCfg = emp.ball_on ? BALL_ON_CONFIG[emp.ball_on] : null;
+            const isExpanded = expandedItems.has(emp.id);
+            const visibleItems = isExpanded ? emp.pending_items : emp.pending_items.slice(0, 3);
+            const overflowCount = emp.pending_items.length - 3;
 
             return (
               <div
                 key={emp.id}
                 className="rounded-xl border bg-card shadow-sm flex flex-col overflow-hidden"
               >
-                {/* Logo + Name header */}
-                <button
-                  onClick={() => toggleCard(emp.id)}
-                  className="flex flex-col items-center gap-3 px-5 pt-6 pb-4 hover:bg-muted/40 transition-colors cursor-pointer"
-                >
+                {/* Header: logo + name + status */}
+                <div className="flex flex-col items-center gap-2 px-5 pt-5 pb-3">
                   <LogoAvatar url={emp.logo_url} name={emp.name} />
-                  <div className="text-center">
-                    <h3 className="font-semibold text-base truncate max-w-[200px]">
-                      {emp.name}
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {emp.item_count} {emp.item_count === 1 ? "elemento" : "elementos"}
-                    </p>
-                  </div>
-                  {expanded ? (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </button>
+                  <h3 className="font-semibold text-base truncate max-w-[200px] text-center">
+                    {emp.name}
+                  </h3>
 
-                {/* Expanded content */}
-                {expanded && (
-                  <div className="border-t px-4 pb-4 pt-3 space-y-3 flex-1">
-                    {/* Top bar: + button left, ... menu right */}
-                    <div className="flex items-center justify-between">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs text-muted-foreground"
-                        onClick={() => openCreateItem(emp.id)}
-                      >
-                        <Plus className="mr-1 h-3 w-3" />
-                        Agregar
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditEmpresa(expanded)}>
-                            Editar empresa
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => deleteEmpresa(emp.id)}
-                          >
-                            Eliminar empresa
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-
-                    {/* Items list */}
-                    {expanded.items.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-3 text-center">
-                        Sin elementos
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {expanded.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="group flex items-start justify-between gap-2 rounded-lg px-2.5 py-2 hover:bg-muted/50 transition-colors"
-                          >
-                            <div className="min-w-0 space-y-0.5">
-                              <p className="text-sm font-medium leading-tight">
-                                {item.title}
-                              </p>
-                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                <span>{TYPE_LABELS[item.type]}</span>
-                                <span className="text-muted-foreground/40">·</span>
-                                <span className="flex items-center gap-1">
-                                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[item.status]}`} />
-                                  {STATUS_LABELS[item.status]}
-                                </span>
-                                {item.type === "need" && item.priority && (
-                                  <>
-                                    <span className="text-muted-foreground/40">·</span>
-                                    <span>{PRIORITY_LABELS[item.priority]}</span>
-                                  </>
-                                )}
-                                {item.due_date && (
-                                  <>
-                                    <span className="text-muted-foreground/40">·</span>
-                                    <span>{item.due_date}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => openEditItem(item)}>
-                                  Editar
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => deleteItem(item.id, emp.id)}
-                                >
-                                  Eliminar
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Details toggle */}
-                    <button
-                      onClick={() => toggleDetails(emp.id)}
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full pt-1"
-                    >
-                      {showDetails ? (
-                        <ChevronDown className="h-3 w-3" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3" />
-                      )}
-                      {showDetails ? "Ocultar detalles" : "Ver detalles"}
-                    </button>
-
-                    {showDetails && (
-                      <div className="grid grid-cols-2 gap-2 text-xs rounded-lg border bg-muted/30 p-3">
-                        <Detail label="Industria" value={expanded.industry} />
-                        <Detail label="Email" value={expanded.email} />
-                        <Detail label="Teléfono" value={expanded.phone} />
-                        <Detail label="RFC" value={expanded.rfc} />
-                        <Detail label="Razón Social" value={expanded.razon_social} />
-                        <Detail label="Régimen Fiscal" value={expanded.regimen_fiscal} />
-                        {expanded.address && (
-                          <div className="col-span-2">
-                            <Detail label="Dirección" value={expanded.address} />
-                          </div>
-                        )}
-                      </div>
+                  {/* Status + ball */}
+                  <div className="flex items-center gap-2 flex-wrap justify-center">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusCfg.className}`}>
+                      {statusCfg.label}
+                    </span>
+                    {ballCfg && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <ballCfg.icon className="h-3 w-3" />
+                        {ballCfg.label}
+                      </span>
                     )}
                   </div>
+                </div>
+
+                {/* Summary note */}
+                {emp.summary_note && (
+                  <p className="px-5 text-xs text-muted-foreground italic line-clamp-2 text-center">
+                    {emp.summary_note}
+                  </p>
                 )}
+
+                {/* Pending items */}
+                <div className="px-4 pt-3 pb-2 flex-1 space-y-1">
+                  {emp.pending_count === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">Sin pendientes</p>
+                  ) : (
+                    <>
+                      {visibleItems.map((item) => (
+                        <label
+                          key={item.id}
+                          className="flex items-start gap-2 group cursor-pointer rounded px-1.5 py-1 hover:bg-muted/50 transition-colors"
+                        >
+                          <button
+                            type="button"
+                            disabled={togglingItems.has(item.id)}
+                            onClick={() => toggleItem(item.id, emp.id)}
+                            className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-muted-foreground/30 transition-colors hover:border-foreground hover:bg-muted disabled:opacity-50"
+                          >
+                            {togglingItems.has(item.id) && (
+                              <Check className="h-3 w-3 text-muted-foreground animate-pulse" />
+                            )}
+                          </button>
+                          <span className="text-xs leading-tight truncate">{item.title}</span>
+                        </label>
+                      ))}
+                      {!isExpanded && overflowCount > 0 && (
+                        <button
+                          onClick={() => setExpandedItems((prev) => new Set(prev).add(emp.id))}
+                          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors pl-1.5 pt-0.5"
+                        >
+                          +{overflowCount} más
+                        </button>
+                      )}
+                      {isExpanded && overflowCount > 0 && (
+                        <button
+                          onClick={() => {
+                            setExpandedItems((prev) => {
+                              const next = new Set(prev);
+                              next.delete(emp.id);
+                              return next;
+                            });
+                          }}
+                          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors pl-1.5 pt-0.5"
+                        >
+                          Mostrar menos
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Inline add item */}
+                {addingItemFor === emp.id ? (
+                  <div className="px-4 pb-2">
+                    <div className="flex gap-1.5">
+                      <Input
+                        ref={addItemInputRef}
+                        value={newItemTitle}
+                        onChange={(e) => setNewItemTitle(e.target.value)}
+                        placeholder="Nuevo pendiente..."
+                        className="h-7 text-xs"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") addItem(emp.id);
+                          if (e.key === "Escape") setAddingItemFor(null);
+                        }}
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => addItem(emp.id)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => setAddingItemFor(null)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Footer: add + menu */}
+                <div className="border-t px-3 py-2 flex items-center justify-between">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs text-muted-foreground"
+                    onClick={() => startAddingItem(emp.id)}
+                  >
+                    <Plus className="mr-1 h-3 w-3" />
+                    Agregar
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-7 w-7">
+                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEditEmpresa(emp)}>
+                        Editar empresa
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => openHistory(emp.id, emp.name)}>
+                        Historial
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => deleteEmpresa(emp.id)}
+                      >
+                        Eliminar empresa
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
             );
           })}
@@ -479,13 +463,14 @@ export default function EmpresasPage() {
 
       {/* ── Empresa Modal ──────────────────────────────────────────── */}
       <Dialog open={empresaModalOpen} onOpenChange={setEmpresaModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingEmpresaId ? "Editar Empresa" : "Nueva Empresa"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Name */}
             <div>
               <label className="text-sm font-medium">Nombre *</label>
               <Input
@@ -494,6 +479,8 @@ export default function EmpresasPage() {
                 placeholder="Nombre de la empresa"
               />
             </div>
+
+            {/* Logo */}
             <div>
               <label className="text-sm font-medium">Logo</label>
               <LogoPicker
@@ -501,74 +488,144 @@ export default function EmpresasPage() {
                 onChange={(url) => setEmpresaForm({ ...empresaForm, logo_url: url })}
               />
             </div>
+
+            {/* Status + Ball */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium">Industria</label>
-                <Input
-                  value={empresaForm.industry ?? ""}
-                  onChange={(e) =>
-                    setEmpresaForm({ ...empresaForm, industry: e.target.value || null })
-                  }
-                />
+                <label className="text-sm font-medium">Status</label>
+                <Select
+                  value={empresaForm.status || "operativo"}
+                  onValueChange={(v) => setEmpresaForm({ ...empresaForm, status: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="operativo">Operativo</SelectItem>
+                    <SelectItem value="en_implementacion">En implementación</SelectItem>
+                    <SelectItem value="requiere_atencion">Requiere atención</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">Email</label>
-                <Input
-                  value={empresaForm.email ?? ""}
-                  onChange={(e) =>
-                    setEmpresaForm({ ...empresaForm, email: e.target.value || null })
-                  }
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Teléfono</label>
-                <Input
-                  value={empresaForm.phone ?? ""}
-                  onChange={(e) =>
-                    setEmpresaForm({ ...empresaForm, phone: e.target.value || null })
-                  }
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">RFC</label>
-                <Input
-                  value={empresaForm.rfc ?? ""}
-                  onChange={(e) =>
-                    setEmpresaForm({ ...empresaForm, rfc: e.target.value || null })
-                  }
-                  maxLength={13}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Razón Social</label>
-                <Input
-                  value={empresaForm.razon_social ?? ""}
-                  onChange={(e) =>
-                    setEmpresaForm({ ...empresaForm, razon_social: e.target.value || null })
-                  }
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Régimen Fiscal</label>
-                <Input
-                  value={empresaForm.regimen_fiscal ?? ""}
-                  onChange={(e) =>
-                    setEmpresaForm({ ...empresaForm, regimen_fiscal: e.target.value || null })
-                  }
-                />
+                <label className="text-sm font-medium">Responsable</label>
+                <Select
+                  value={empresaForm.ball_on || "_none"}
+                  onValueChange={(v) => setEmpresaForm({ ...empresaForm, ball_on: v === "_none" ? null : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">Sin asignar</SelectItem>
+                    <SelectItem value="nosotros">← Nosotros</SelectItem>
+                    <SelectItem value="cliente">→ Cliente</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
+
+            {/* Summary note */}
             <div>
-              <label className="text-sm font-medium">Dirección</label>
+              <label className="text-sm font-medium">Nota de seguimiento</label>
               <Textarea
-                value={empresaForm.address ?? ""}
+                value={empresaForm.summary_note ?? ""}
                 onChange={(e) =>
-                  setEmpresaForm({ ...empresaForm, address: e.target.value || null })
+                  setEmpresaForm({ ...empresaForm, summary_note: e.target.value || null })
                 }
+                placeholder="Resumen del estado actual..."
                 rows={2}
               />
             </div>
-            <div className="flex justify-end gap-2">
+
+            {/* Separator */}
+            <div className="border-t pt-3">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+                onClick={(e) => {
+                  const target = e.currentTarget.nextElementSibling;
+                  if (target) target.classList.toggle("hidden");
+                  const chevron = e.currentTarget.querySelector("svg");
+                  if (chevron) chevron.classList.toggle("rotate-180");
+                }}
+              >
+                <ChevronDown className="h-3 w-3 transition-transform" />
+                Datos fiscales y contacto
+              </button>
+              <div className="hidden mt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">Industria</label>
+                    <Input
+                      value={empresaForm.industry ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, industry: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Email</label>
+                    <Input
+                      value={empresaForm.email ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, email: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Teléfono</label>
+                    <Input
+                      value={empresaForm.phone ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, phone: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">RFC</label>
+                    <Input
+                      value={empresaForm.rfc ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, rfc: e.target.value || null })
+                      }
+                      maxLength={13}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Razón Social</label>
+                    <Input
+                      value={empresaForm.razon_social ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, razon_social: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Régimen Fiscal</label>
+                    <Input
+                      value={empresaForm.regimen_fiscal ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, regimen_fiscal: e.target.value || null })
+                      }
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Dirección</label>
+                  <Textarea
+                    value={empresaForm.address ?? ""}
+                    onChange={(e) =>
+                      setEmpresaForm({ ...empresaForm, address: e.target.value || null })
+                    }
+                    rows={2}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setEmpresaModalOpen(false)}>
                 Cancelar
               </Button>
@@ -578,110 +635,45 @@ export default function EmpresasPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Item Modal ─────────────────────────────────────────────── */}
-      <Dialog open={itemModalOpen} onOpenChange={setItemModalOpen}>
-        <DialogContent className="max-w-md">
+      {/* ── History Modal ──────────────────────────────────────────── */}
+      <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
+        <DialogContent className="max-w-md max-h-[70vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingItemId ? "Editar Elemento" : "Nuevo Elemento"}
-            </DialogTitle>
+            <DialogTitle>Historial — {historyEmpresaName}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            {!editingItemId && (
-              <div>
-                <label className="text-sm font-medium">Tipo</label>
-                <Select
-                  value={itemForm.type}
-                  onValueChange={(v) =>
-                    setItemForm({ ...itemForm, type: v as "need" | "task", priority: v === "task" ? null : itemForm.priority })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="need">Necesidad</SelectItem>
-                    <SelectItem value="task">Tarea</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div>
-              <label className="text-sm font-medium">Título *</label>
-              <Input
-                value={itemForm.title}
-                onChange={(e) => setItemForm({ ...itemForm, title: e.target.value })}
-                placeholder="Título del elemento"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Descripción</label>
-              <Textarea
-                value={itemForm.description ?? ""}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, description: e.target.value || null })
-                }
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">Estado</label>
-                <Select
-                  value={itemForm.status}
-                  onValueChange={(v) => setItemForm({ ...itemForm, status: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">Abierto</SelectItem>
-                    <SelectItem value="in_progress">En progreso</SelectItem>
-                    <SelectItem value="done">Hecho</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {itemForm.type === "need" && (
-                <div>
-                  <label className="text-sm font-medium">Prioridad</label>
-                  <Select
-                    value={itemForm.priority ?? ""}
-                    onValueChange={(v) => setItemForm({ ...itemForm, priority: v || null })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Sin prioridad" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Baja</SelectItem>
-                      <SelectItem value="medium">Media</SelectItem>
-                      <SelectItem value="high">Alta</SelectItem>
-                    </SelectContent>
-                  </Select>
+          {historyLoading ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Cargando...</p>
+          ) : historyEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Sin cambios registrados</p>
+          ) : (
+            <div className="space-y-3">
+              {historyEntries.map((entry) => (
+                <div key={entry.id} className="border-l-2 border-muted pl-3 py-1">
+                  <p className="text-sm">
+                    <span className="font-medium">{FIELD_LABELS[entry.field_changed] || entry.field_changed}</span>
+                    {" cambiado de "}
+                    <span className="text-muted-foreground">
+                      {entry.old_value ? (VALUE_LABELS[entry.old_value] || entry.old_value) : "vacío"}
+                    </span>
+                    {" a "}
+                    <span className="font-medium">
+                      {entry.new_value ? (VALUE_LABELS[entry.new_value] || entry.new_value) : "vacío"}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {entry.changed_by_name || "Sistema"} · {formatRelativeTime(entry.changed_at)}
+                  </p>
                 </div>
-              )}
+              ))}
             </div>
-            <div>
-              <label className="text-sm font-medium">Fecha límite</label>
-              <Input
-                type="date"
-                value={itemForm.due_date ?? ""}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, due_date: e.target.value || null })
-                }
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setItemModalOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={saveItem}>Guardar</Button>
-            </div>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+// ── Helper Components ──────────────────────────────────────────────
 
 function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: string; size?: "lg" | "sm" }) {
   const [failed, setFailed] = useState(false);
@@ -691,8 +683,8 @@ function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: stri
     setFailed(false);
   }
 
-  const dim = size === "lg" ? "h-20 w-20" : "h-10 w-10";
-  const iconDim = size === "lg" ? "h-9 w-9" : "h-5 w-5";
+  const dim = size === "lg" ? "h-16 w-16" : "h-10 w-10";
+  const iconDim = size === "lg" ? "h-7 w-7" : "h-5 w-5";
   const radius = size === "lg" ? "rounded-2xl" : "rounded-xl";
 
   if (url && !failed) {
@@ -768,11 +760,18 @@ function LogoPicker({ value, onChange }: { value: string | null; onChange: (url:
   );
 }
 
-function Detail({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{label}</p>
-      <p className="font-medium text-xs truncate">{value || "—"}</p>
-    </div>
-  );
+function formatRelativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "ahora";
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `hace ${diffHrs}h`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays === 1) return "ayer";
+  if (diffDays < 30) return `hace ${diffDays} días`;
+  const diffMonths = Math.floor(diffDays / 30);
+  return `hace ${diffMonths} ${diffMonths === 1 ? "mes" : "meses"}`;
 }

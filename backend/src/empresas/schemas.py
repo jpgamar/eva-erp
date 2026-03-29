@@ -17,6 +17,9 @@ class EmpresaCreate(BaseModel):
     rfc: str | None = None
     razon_social: str | None = None
     regimen_fiscal: str | None = None
+    status: str = "operativo"
+    ball_on: str | None = None
+    summary_note: str | None = None
 
 
 class EmpresaUpdate(BaseModel):
@@ -29,19 +32,17 @@ class EmpresaUpdate(BaseModel):
     rfc: str | None = None
     razon_social: str | None = None
     regimen_fiscal: str | None = None
+    status: str | None = None
+    ball_on: str | None = None
+    summary_note: str | None = None
 
 
 class EmpresaItemResponse(BaseModel):
     id: uuid.UUID
     empresa_id: uuid.UUID
-    type: str
     title: str
-    description: str | None
-    status: str
-    priority: str | None
-    due_date: _dt.date | None
+    done: bool
     created_at: _dt.datetime
-    updated_at: _dt.datetime
     model_config = {"from_attributes": True}
 
 
@@ -56,6 +57,9 @@ class EmpresaResponse(BaseModel):
     rfc: str | None
     razon_social: str | None
     regimen_fiscal: str | None
+    status: str
+    ball_on: str | None
+    summary_note: str | None
     created_at: _dt.datetime
     updated_at: _dt.datetime
     items: list[EmpresaItemResponse] = []
@@ -66,24 +70,32 @@ class EmpresaListResponse(BaseModel):
     id: uuid.UUID
     name: str
     logo_url: str | None
+    status: str
+    ball_on: str | None
+    summary_note: str | None
     item_count: int = 0
     model_config = {"from_attributes": True}
 
 
-# ── Empresa Items (Needs / Tasks) ───────────────────────────────────
+# ── Empresa Items ────────────────────────────────────────────────────
 
 class EmpresaItemCreate(BaseModel):
-    type: str  # "need" or "task"
     title: str
-    description: str | None = None
-    status: str = "open"
-    priority: str | None = None  # only for needs
-    due_date: _dt.date | None = None
 
 
 class EmpresaItemUpdate(BaseModel):
     title: str | None = None
-    description: str | None = None
-    status: str | None = None
-    priority: str | None = None
-    due_date: _dt.date | None = None
+    done: bool | None = None
+
+
+# ── History ──────────────────────────────────────────────────────────
+
+class EmpresaHistoryResponse(BaseModel):
+    id: uuid.UUID
+    field_changed: str
+    old_value: str | None
+    new_value: str | None
+    changed_by: uuid.UUID | None
+    changed_by_name: str | None = None
+    changed_at: _dt.datetime
+    model_config = {"from_attributes": True}
