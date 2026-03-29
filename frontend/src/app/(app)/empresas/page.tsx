@@ -329,7 +329,7 @@ export default function EmpresasPage() {
 
                 {/* Summary note */}
                 {emp.summary_note && (
-                  <p className="px-5 pb-2 text-xs text-muted-foreground italic line-clamp-2 text-center">
+                  <p className="px-5 pb-2 text-xs text-muted-foreground italic text-center">
                     {emp.summary_note}
                   </p>
                 )}
