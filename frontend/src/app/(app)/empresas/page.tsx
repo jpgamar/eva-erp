@@ -697,12 +697,14 @@ function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: stri
 
   if (url && !failed) {
     return (
-      <img
-        src={url}
-        alt={name}
-        className={`${dim} ${radius} object-cover shadow-sm`}
-        onError={() => setFailed(true)}
-      />
+      <div className={`flex ${dim} items-center justify-center ${radius} bg-white shadow-sm p-1.5`}>
+        <img
+          src={url}
+          alt={name}
+          className="h-full w-full object-contain"
+          onError={() => setFailed(true)}
+        />
+      </div>
     );
   }
 
