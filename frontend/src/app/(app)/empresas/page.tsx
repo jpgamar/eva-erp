@@ -309,30 +309,27 @@ export default function EmpresasPage() {
                 key={emp.id}
                 className="rounded-xl border bg-card shadow-sm flex flex-col overflow-hidden"
               >
-                {/* Header: logo + name + status */}
-                <div className="flex flex-col items-center gap-2 px-5 pt-5 pb-3">
+                {/* Status banner at top */}
+                <div className={`flex items-center justify-center gap-2 px-4 py-1.5 ${statusCfg.className}`}>
+                  <span className="text-[11px] font-semibold">{statusCfg.label}</span>
+                  {ballCfg && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] opacity-80">
+                      · <ballCfg.icon className="h-3 w-3" /> {ballCfg.label}
+                    </span>
+                  )}
+                </div>
+
+                {/* Logo + name */}
+                <div className="flex flex-col items-center gap-3 px-5 pt-5 pb-3">
                   <LogoAvatar url={emp.logo_url} name={emp.name} />
-                  <h3 className="font-semibold text-base truncate max-w-[200px] text-center">
+                  <h3 className="font-semibold text-lg truncate max-w-[220px] text-center">
                     {emp.name}
                   </h3>
-
-                  {/* Status + ball */}
-                  <div className="flex items-center gap-2 flex-wrap justify-center">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusCfg.className}`}>
-                      {statusCfg.label}
-                    </span>
-                    {ballCfg && (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <ballCfg.icon className="h-3 w-3" />
-                        {ballCfg.label}
-                      </span>
-                    )}
-                  </div>
                 </div>
 
                 {/* Summary note */}
                 {emp.summary_note && (
-                  <p className="px-5 text-xs text-muted-foreground italic line-clamp-2 text-center">
+                  <p className="px-5 pb-2 text-xs text-muted-foreground italic line-clamp-2 text-center">
                     {emp.summary_note}
                   </p>
                 )}
@@ -683,8 +680,8 @@ function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: stri
     setFailed(false);
   }
 
-  const dim = size === "lg" ? "h-16 w-16" : "h-10 w-10";
-  const iconDim = size === "lg" ? "h-7 w-7" : "h-5 w-5";
+  const dim = size === "lg" ? "h-20 w-20" : "h-10 w-10";
+  const iconDim = size === "lg" ? "h-9 w-9" : "h-5 w-5";
   const radius = size === "lg" ? "rounded-2xl" : "rounded-xl";
 
   if (url && !failed) {
