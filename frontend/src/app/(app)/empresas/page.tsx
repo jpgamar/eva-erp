@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Building2,
   ChevronDown,
   ChevronRight,
+  ImagePlus,
   MoreHorizontal,
   Plus,
   Search,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -325,17 +327,7 @@ export default function EmpresasPage() {
                   onClick={() => toggleCard(emp.id)}
                   className="flex flex-col items-center gap-3 px-5 pt-6 pb-4 hover:bg-muted/40 transition-colors cursor-pointer"
                 >
-                  {emp.logo_url ? (
-                    <img
-                      src={emp.logo_url}
-                      alt={emp.name}
-                      className="h-20 w-20 rounded-2xl object-cover shadow-sm"
-                    />
-                  ) : (
-                    <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted shadow-sm">
-                      <Building2 className="h-9 w-9 text-muted-foreground" />
-                    </div>
-                  )}
+                  <LogoAvatar url={emp.logo_url} name={emp.name} />
                   <div className="text-center">
                     <h3 className="font-semibold text-base truncate max-w-[200px]">
                       {emp.name}
@@ -503,13 +495,10 @@ export default function EmpresasPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">URL del Logo</label>
-              <Input
-                value={empresaForm.logo_url ?? ""}
-                onChange={(e) =>
-                  setEmpresaForm({ ...empresaForm, logo_url: e.target.value || null })
-                }
-                placeholder="https://..."
+              <label className="text-sm font-medium">Logo</label>
+              <LogoPicker
+                value={empresaForm.logo_url ?? null}
+                onChange={(url) => setEmpresaForm({ ...empresaForm, logo_url: url })}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -694,11 +683,88 @@ export default function EmpresasPage() {
   );
 }
 
+function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: string; size?: "lg" | "sm" }) {
+  const [failed, setFailed] = useState(false);
+  const dim = size === "lg" ? "h-20 w-20" : "h-10 w-10";
+  const iconDim = size === "lg" ? "h-9 w-9" : "h-5 w-5";
+  const radius = size === "lg" ? "rounded-2xl" : "rounded-xl";
+
+  if (url && !failed) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        className={`${dim} ${radius} object-cover shadow-sm`}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div className={`flex ${dim} items-center justify-center ${radius} bg-muted shadow-sm`}>
+      <Building2 className={`${iconDim} text-muted-foreground`} />
+    </div>
+  );
+}
+
+function LogoPicker({ value, onChange }: { value: string | null; onChange: (url: string | null) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500_000) {
+      alert("La imagen debe pesar menos de 500 KB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      onChange(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="flex items-center gap-3 mt-1">
+      <LogoAvatar url={value} name="" size="sm" />
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 text-xs"
+        onClick={() => inputRef.current?.click()}
+      >
+        <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
+        {value ? "Cambiar" : "Seleccionar imagen"}
+      </Button>
+      {value && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => onChange(null)}
+        >
+          <X className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFile}
+      />
+    </div>
+  );
+}
+
 function Detail({ label, value }: { label: string; value: string | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{label}</p>
-      <p className="font-medium text-xs">{value || "—"}</p>
+      <p className="font-medium text-xs truncate">{value || "—"}</p>
     </div>
   );
 }
