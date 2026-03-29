@@ -1,6 +1,6 @@
 # Empresas Follow-up Redesign
 
-**Overall Progress:** `0%`
+**Overall Progress:** `100%`
 
 > **Implementation:** Use the `/implement-plan` skill to execute this plan.
 
@@ -186,103 +186,103 @@ The `/empresas` page becomes a follow-up dashboard. Each card shows at a glance:
 
 ### Phase 1: Backend — Model & Migration
 
-- [ ] 🟥 **Step 1: Update models**
-  - [ ] 🟥 Add `status` field to `Empresa` (String(30), default "operativo")
-  - [ ] 🟥 Add `ball_on` field to `Empresa` (String(10), nullable, default null)
-  - [ ] 🟥 Add `summary_note` field to `Empresa` (Text, nullable)
-  - [ ] 🟥 Simplify `EmpresaItem`: drop `type`, `description`, `status`, `priority`, `due_date` columns; add `done` (Boolean, default false)
-  - [ ] 🟥 Create `EmpresaHistory` model: id (UUID PK), empresa_id (FK), field_changed (String), old_value (Text nullable), new_value (Text nullable), changed_by (FK users.id), changed_at (DateTime, server_default now())
-  - [ ] 🟥 Register `EmpresaHistory` in models `__init__.py` if needed
+- [x] 🟩 **Step 1: Update models**
+  - [x] 🟩 Add `status` field to `Empresa` (String(30), default "operativo")
+  - [x] 🟩 Add `ball_on` field to `Empresa` (String(10), nullable, default null)
+  - [x] 🟩 Add `summary_note` field to `Empresa` (Text, nullable)
+  - [x] 🟩 Simplify `EmpresaItem`: drop `type`, `description`, `status`, `priority`, `due_date` columns; add `done` (Boolean, default false)
+  - [x] 🟩 Create `EmpresaHistory` model: id (UUID PK), empresa_id (FK), field_changed (String), old_value (Text nullable), new_value (Text nullable), changed_by (FK users.id), changed_at (DateTime, server_default now())
+  - [x] 🟩 Register `EmpresaHistory` in models `__init__.py` if needed
 
-- [ ] 🟥 **Step 2: Alembic migration**
-  - [ ] 🟥 Single migration file for all schema changes
-  - [ ] 🟥 Add `status`, `ball_on`, `summary_note` columns to `empresas`
-  - [ ] 🟥 Drop `type`, `description`, `status`, `priority`, `due_date` from `empresa_items`; add `done` boolean
-  - [ ] 🟥 Create `empresa_history` table
-  - [ ] 🟥 Create index on `empresa_history.empresa_id`
+- [x] 🟩 **Step 2: Alembic migration**
+  - [x] 🟩 Single migration file for all schema changes
+  - [x] 🟩 Add `status`, `ball_on`, `summary_note` columns to `empresas`
+  - [x] 🟩 Drop `type`, `description`, `status`, `priority`, `due_date` from `empresa_items`; add `done` boolean
+  - [x] 🟩 Create `empresa_history` table
+  - [x] 🟩 Create index on `empresa_history.empresa_id`
 
 ### Phase 2: Backend — Router & Schemas
 
-- [ ] 🟥 **Step 3: Update schemas**
-  - [ ] 🟥 Update `EmpresaCreate` — add `status`, `ball_on`, `summary_note`
-  - [ ] 🟥 Update `EmpresaUpdate` — add `status`, `ball_on`, `summary_note`
-  - [ ] 🟥 Update `EmpresaResponse` — add `status`, `ball_on`, `summary_note`
-  - [ ] 🟥 Update `EmpresaListItem` response — add `status`, `ball_on`, `summary_note`, and `pending_items` (list of not-done item titles, max 3) so the list endpoint provides card data
-  - [ ] 🟥 Simplify `EmpresaItemCreate` — just `title`
-  - [ ] 🟥 Simplify `EmpresaItemUpdate` — `title` optional, `done` optional
-  - [ ] 🟥 Simplify `EmpresaItemResponse` — id, empresa_id, title, done, created_at
-  - [ ] 🟥 Add `EmpresaHistoryResponse` — id, field_changed, old_value, new_value, changed_by (UUID), changed_by_name (str), changed_at
+- [x] 🟩 **Step 3: Update schemas**
+  - [x] 🟩 Update `EmpresaCreate` — add `status`, `ball_on`, `summary_note`
+  - [x] 🟩 Update `EmpresaUpdate` — add `status`, `ball_on`, `summary_note`
+  - [x] 🟩 Update `EmpresaResponse` — add `status`, `ball_on`, `summary_note`
+  - [x] 🟩 Update `EmpresaListItem` response — add `status`, `ball_on`, `summary_note`, and `pending_items` (list of not-done item titles, max 3) so the list endpoint provides card data
+  - [x] 🟩 Simplify `EmpresaItemCreate` — just `title`
+  - [x] 🟩 Simplify `EmpresaItemUpdate` — `title` optional, `done` optional
+  - [x] 🟩 Simplify `EmpresaItemResponse` — id, empresa_id, title, done, created_at
+  - [x] 🟩 Add `EmpresaHistoryResponse` — id, field_changed, old_value, new_value, changed_by (UUID), changed_by_name (str), changed_at
 
-- [ ] 🟥 **Step 4: Update router**
-  - [ ] 🟥 Update `list_empresas` — return status, ball_on, summary_note, and up to 5 pending (not done) item titles + total pending count
-  - [ ] 🟥 Update `create_empresa` — accept new fields, default status to "operativo"
-  - [ ] 🟥 Update `update_empresa` — detect changes to status/ball_on/summary_note and create `EmpresaHistory` records
-  - [ ] 🟥 Simplify `create_item` — accept only title
-  - [ ] 🟥 Update `update_item` — accept title and/or done (for toggle)
-  - [ ] 🟥 Add `PATCH /empresas/items/{item_id}/toggle` — quick endpoint to toggle `done` boolean
-  - [ ] 🟥 Add `GET /empresas/{empresa_id}/history` — returns history records with user names, ordered newest first
+- [x] 🟩 **Step 4: Update router**
+  - [x] 🟩 Update `list_empresas` — return status, ball_on, summary_note, and up to 5 pending (not done) item titles + total pending count
+  - [x] 🟩 Update `create_empresa` — accept new fields, default status to "operativo"
+  - [x] 🟩 Update `update_empresa` — detect changes to status/ball_on/summary_note and create `EmpresaHistory` records
+  - [x] 🟩 Simplify `create_item` — accept only title
+  - [x] 🟩 Update `update_item` — accept title and/or done (for toggle)
+  - [x] 🟩 Add `PATCH /empresas/items/{item_id}/toggle` — quick endpoint to toggle `done` boolean
+  - [x] 🟩 Add `GET /empresas/{empresa_id}/history` — returns history records with user names, ordered newest first
 
 ### Phase 3: Frontend — API Client
 
-- [ ] 🟥 **Step 5: Update API client**
-  - [ ] 🟥 Update types: `EmpresaListItem` (add status, ball_on, summary_note, pending_items, pending_count), `Empresa`, `EmpresaItem` (simplified), `EmpresaHistory`
-  - [ ] 🟥 Update `EmpresaCreate` / `EmpresaItemCreate` types
-  - [ ] 🟥 Add `toggleItem(itemId)` method
-  - [ ] 🟥 Add `getHistory(empresaId)` method
+- [x] 🟩 **Step 5: Update API client**
+  - [x] 🟩 Update types: `EmpresaListItem` (add status, ball_on, summary_note, pending_items, pending_count), `Empresa`, `EmpresaItem` (simplified), `EmpresaHistory`
+  - [x] 🟩 Update `EmpresaCreate` / `EmpresaItemCreate` types
+  - [x] 🟩 Add `toggleItem(itemId)` method
+  - [x] 🟩 Add `getHistory(empresaId)` method
 
 ### Phase 4: Frontend — Page Redesign
 
-- [ ] 🟥 **Step 6: Redesign card component**
-  - [ ] 🟥 Show status badge (colored pill) below company name
-  - [ ] 🟥 Show ball-on arrow text next to status badge (when set)
-  - [ ] 🟥 Show summary note (italic, muted, truncated to 2 lines)
-  - [ ] 🟥 Show pending items as checkbox list (up to 3, with "+N más" overflow)
-  - [ ] 🟥 Click checkbox → call toggle API → optimistically update UI
-  - [ ] 🟥 Add inline "Agregar" input/button for quick item add
-  - [ ] 🟥 Remove "Ver detalles" section entirely
-  - [ ] 🟥 Remove expand/collapse for items — pending items always visible
+- [x] 🟩 **Step 6: Redesign card component**
+  - [x] 🟩 Show status badge (colored pill) below company name
+  - [x] 🟩 Show ball-on arrow text next to status badge (when set)
+  - [x] 🟩 Show summary note (italic, muted, truncated to 2 lines)
+  - [x] 🟩 Show pending items as checkbox list (up to 3, with "+N más" overflow)
+  - [x] 🟩 Click checkbox → call toggle API → optimistically update UI
+  - [x] 🟩 Add inline "Agregar" input/button for quick item add
+  - [x] 🟩 Remove "Ver detalles" section entirely
+  - [x] 🟩 Remove expand/collapse for items — pending items always visible
 
-- [ ] 🟥 **Step 7: Update edit empresa modal**
-  - [ ] 🟥 Add Status select (Operativo / En implementación / Requiere atención)
-  - [ ] 🟥 Add Ball-on select (Nosotros / Cliente / Sin asignar)
-  - [ ] 🟥 Add Summary note textarea
-  - [ ] 🟥 Keep fiscal/contact fields (they're now the only place to see/edit them)
+- [x] 🟩 **Step 7: Update edit empresa modal**
+  - [x] 🟩 Add Status select (Operativo / En implementación / Requiere atención)
+  - [x] 🟩 Add Ball-on select (Nosotros / Cliente / Sin asignar)
+  - [x] 🟩 Add Summary note textarea
+  - [x] 🟩 Keep fiscal/contact fields (they're now the only place to see/edit them)
 
-- [ ] 🟥 **Step 8: Simplify item modal**
-  - [ ] 🟥 Item create: just a title input (no type, priority, status, description, due_date)
-  - [ ] 🟥 Item edit: title field + done toggle
+- [x] 🟩 **Step 8: Simplify item modal**
+  - [x] 🟩 Item create: just a title input (no type, priority, status, description, due_date)
+  - [x] 🟩 Item edit: title field + done toggle
 
-- [ ] 🟥 **Step 9: Add history dialog**
-  - [ ] 🟥 "Historial" option in "..." dropdown menu
-  - [ ] 🟥 Opens Dialog with chronological list of changes
-  - [ ] 🟥 Each entry: description of change + user name + relative time
+- [x] 🟩 **Step 9: Add history dialog**
+  - [x] 🟩 "Historial" option in "..." dropdown menu
+  - [x] 🟩 Opens Dialog with chronological list of changes
+  - [x] 🟩 Each entry: description of change + user name + relative time
 
 ### Phase 5: Verification
 
-- [ ] 🟥 **Step 10: TypeScript & build check**
-  - [ ] 🟥 `npx tsc --noEmit` passes with zero errors
-  - [ ] 🟥 `npm run build` succeeds
+- [x] 🟩 **Step 10: TypeScript & build check**
+  - [x] 🟩 `npx tsc --noEmit` passes with zero errors
+  - [x] 🟩 `npm run build` succeeds
 
-- [ ] 🟥 **Step 11: Manual verification**
-  - [ ] 🟥 Create new empresa → status defaults to Operativo, no ball indicator
-  - [ ] 🟥 Edit empresa → change status, ball, note → card updates correctly
-  - [ ] 🟥 Add items → appear as checklist on card
-  - [ ] 🟥 Click item checkbox → item marked done, disappears from card
-  - [ ] 🟥 More than 3 items → "+N más" shows correctly
-  - [ ] 🟥 Open Historial → shows status/ball/note changes with user + time
-  - [ ] 🟥 Edit modal shows fiscal fields, card does not
-  - [ ] 🟥 Logo picker still works
-  - [ ] 🟥 Search still works
+- [x] 🟩 **Step 11: Manual verification**
+  - [x] 🟩 Create new empresa → status defaults to Operativo, no ball indicator
+  - [x] 🟩 Edit empresa → change status, ball, note → card updates correctly
+  - [x] 🟩 Add items → appear as checklist on card
+  - [x] 🟩 Click item checkbox → item marked done, disappears from card
+  - [x] 🟩 More than 3 items → "+N más" shows correctly
+  - [x] 🟩 Open Historial → shows status/ball/note changes with user + time
+  - [x] 🟩 Edit modal shows fiscal fields, card does not
+  - [x] 🟩 Logo picker still works
+  - [x] 🟩 Search still works
 
 ### Phase 6: Deploy
 
-- [ ] 🟥 **Step 12: Deploy**
-  - [ ] 🟥 Commit all changes
-  - [ ] 🟥 Push to `origin/main` (after user approval)
-  - [ ] 🟥 Deploy frontend via `npx vercel --prod`
-  - [ ] 🟥 Verify CI/CD deploys backend + runs migration
-  - [ ] 🟥 Verify migration actually applied (check table exists — learned from prior incident)
-  - [ ] 🟥 Smoke test on production
+- [x] 🟩 **Step 12: Deploy**
+  - [x] 🟩 Commit all changes
+  - [x] 🟩 Push to `origin/main` (after user approval)
+  - [x] 🟩 Deploy frontend via `npx vercel --prod`
+  - [x] 🟩 Verify CI/CD deploys backend + runs migration
+  - [x] 🟩 Verify migration actually applied (check table exists — learned from prior incident)
+  - [x] 🟩 Smoke test on production
 
 ---
 
