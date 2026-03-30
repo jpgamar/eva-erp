@@ -597,9 +597,11 @@ export default function EmpresasPage() {
             </div>
 
             {/* Payment */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className={`grid gap-3 ${empresaForm.status === "en_implementacion" ? "grid-cols-1" : "grid-cols-3"}`}>
               <div>
-                <label className="text-sm font-medium">Monto mensual</label>
+                <label className="text-sm font-medium">
+                  {empresaForm.status === "en_implementacion" ? "Monto estimado" : "Monto mensual"}
+                </label>
                 <Input
                   type="number"
                   value={empresaForm.monthly_amount ?? ""}
@@ -609,6 +611,7 @@ export default function EmpresasPage() {
                   placeholder="0.00"
                 />
               </div>
+              {empresaForm.status !== "en_implementacion" && (
               <div>
                 <label className="text-sm font-medium">Día de pago</label>
                 <Input
@@ -622,6 +625,8 @@ export default function EmpresasPage() {
                   placeholder="1-31"
                 />
               </div>
+              )}
+              {empresaForm.status !== "en_implementacion" && (
               <div>
                 <label className="text-sm font-medium">Último pago</label>
                 <Input
@@ -632,6 +637,7 @@ export default function EmpresasPage() {
                   }
                 />
               </div>
+              )}
             </div>
 
             {/* Separator */}
