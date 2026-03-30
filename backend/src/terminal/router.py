@@ -6,11 +6,12 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
+from src.auth.dependencies import get_current_user, require_admin
 from src.auth.models import User
-from src.auth.service import decode_token
+from src.auth.service import create_access_token, decode_token
 from src.common.config import settings
 from src.common.database import async_session
 from src.terminal.pty_manager import PtySession, SessionManager
@@ -24,23 +25,27 @@ session_manager = SessionManager()
 
 
 async def _authenticate(ws: WebSocket) -> User | None:
-    """Wait for an auth message and return the authenticated admin User, or None."""
-    try:
-        raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
-    except (asyncio.TimeoutError, WebSocketDisconnect):
+    """Authenticate via cookie from the WebSocket handshake, or via an auth message."""
+    token: str | None = None
+
+    # 1. Try to read the HttpOnly cookie from the handshake headers
+    token = ws.cookies.get("erp_access_token")
+
+    # 2. Fallback: wait for an explicit auth message
+    if not token:
+        try:
+            raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
+            msg = json.loads(raw)
+            if msg.get("type") == "auth" and msg.get("token"):
+                token = msg["token"]
+        except (asyncio.TimeoutError, WebSocketDisconnect, json.JSONDecodeError):
+            pass
+
+    if not token:
+        await ws.send_json({"type": "error", "message": "No auth token found"})
         return None
 
-    try:
-        msg = json.loads(raw)
-    except json.JSONDecodeError:
-        await ws.send_json({"type": "error", "message": "Invalid JSON"})
-        return None
-
-    if msg.get("type") != "auth" or not msg.get("token"):
-        await ws.send_json({"type": "error", "message": "Expected auth message"})
-        return None
-
-    payload = decode_token(msg["token"])
+    payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         await ws.send_json({"type": "error", "message": "Invalid or expired token"})
         return None
@@ -120,6 +125,15 @@ async def _ws_input_loop(ws: WebSocket, session: PtySession) -> None:
                 await ws.send_json({"type": "pong"})
             except Exception:
                 break
+
+
+@router.get("/api/v1/terminal/token")
+async def get_terminal_token(user: User = Depends(require_admin)):
+    """Return a short-lived JWT for WebSocket auth (admin only)."""
+    if not settings.terminal_enabled:
+        raise HTTPException(status_code=403, detail="Terminal feature disabled")
+    token = create_access_token(user.id)
+    return {"token": token}
 
 
 @router.websocket("/ws/terminal")

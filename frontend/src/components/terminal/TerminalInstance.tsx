@@ -35,14 +35,20 @@ function getWsUrl(): string {
     process.env.NEXT_PUBLIC_BACKEND_URL ||
     process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, "") ||
     "http://localhost:8000";
-  // Strip any trailing whitespace/newlines from env vars
   const clean = backendUrl.trim();
   return clean.replace(/^http/, "ws") + "/ws/terminal";
 }
 
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+async function fetchTerminalToken(): Promise<string | null> {
+  try {
+    // Uses the Next.js rewrite proxy so HttpOnly cookies are sent automatically
+    const res = await fetch("/api/v1/terminal/token", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.token || null;
+  } catch {
+    return null;
+  }
 }
 
 interface TerminalInstanceProps {
@@ -69,8 +75,8 @@ export function TerminalInstance({ visible }: TerminalInstanceProps) {
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      const token = getCookie("erp_access_token");
+    ws.onopen = async () => {
+      const token = await fetchTerminalToken();
       if (token) {
         ws.send(JSON.stringify({ type: "auth", token }));
       } else {
