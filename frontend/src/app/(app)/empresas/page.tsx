@@ -86,6 +86,34 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   status: "operativo",
   ball_on: null,
   summary_note: null,
+  monthly_amount: null,
+  payment_day: null,
+  last_paid_date: null,
+};
+
+function getPaymentStatus(lastPaidDate: string | null, paymentDay: number | null): "paid" | "warning" | "overdue" | null {
+  if (paymentDay == null) return null;
+  const today = new Date();
+  const currentMonth = today.getMonth();
+  const currentYear = today.getFullYear();
+
+  // Check if paid this month
+  if (lastPaidDate) {
+    const paid = new Date(lastPaidDate + "T00:00:00");
+    if (paid.getMonth() === currentMonth && paid.getFullYear() === currentYear) return "paid";
+  }
+
+  // Not paid this month — check if overdue or warning
+  const dayOfMonth = today.getDate();
+  if (dayOfMonth > paymentDay) return "overdue"; // past payment day
+  if (paymentDay - dayOfMonth <= 10) return "warning"; // within 10 days
+  return null; // still far away, no indicator
+}
+
+const PAYMENT_STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  paid: { label: "Pagado", className: "text-emerald-600" },
+  warning: { label: "Pendiente", className: "text-amber-600" },
+  overdue: { label: "Vencido", className: "text-red-600" },
 };
 
 // ── Page ───────────────────────────────────────────────────────────
@@ -158,6 +186,9 @@ export default function EmpresasPage() {
         status: full.status,
         ball_on: full.ball_on,
         summary_note: full.summary_note,
+        monthly_amount: full.monthly_amount,
+        payment_day: full.payment_day,
+        last_paid_date: full.last_paid_date,
       });
       setEditingEmpresaId(full.id);
       setEmpresaModalOpen(true);
@@ -300,6 +331,8 @@ export default function EmpresasPage() {
           {empresas.map((emp) => {
             const statusCfg = STATUS_CONFIG[emp.status] || STATUS_CONFIG.operativo;
             const ballCfg = emp.ball_on ? BALL_ON_CONFIG[emp.ball_on] : null;
+            const paymentStatus = getPaymentStatus(emp.last_paid_date, emp.payment_day);
+            const paymentCfg = paymentStatus ? PAYMENT_STATUS_CONFIG[paymentStatus] : null;
             const isExpanded = expandedItems.has(emp.id);
             const visibleItems = isExpanded ? emp.pending_items : emp.pending_items.slice(0, 3);
             const overflowCount = emp.pending_items.length - 3;
@@ -326,6 +359,25 @@ export default function EmpresasPage() {
                     {emp.name}
                   </h3>
                 </div>
+
+                {/* Payment line */}
+                {emp.monthly_amount != null && (
+                  <div className="flex items-center justify-center gap-1.5 text-xs px-5 pb-1">
+                    <span className="font-medium">${emp.monthly_amount.toLocaleString("es-MX")}/mes</span>
+                    {paymentCfg && (
+                      <>
+                        <span className="text-muted-foreground">·</span>
+                        <span className={`font-medium ${paymentCfg.className}`}>{paymentCfg.label}</span>
+                      </>
+                    )}
+                    {emp.payment_day && (
+                      <>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">Día {emp.payment_day}</span>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* Summary note */}
                 {emp.summary_note && (
@@ -533,6 +585,44 @@ export default function EmpresasPage() {
                 placeholder="Resumen del estado actual..."
                 rows={2}
               />
+            </div>
+
+            {/* Payment */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-sm font-medium">Monto mensual</label>
+                <Input
+                  type="number"
+                  value={empresaForm.monthly_amount ?? ""}
+                  onChange={(e) =>
+                    setEmpresaForm({ ...empresaForm, monthly_amount: e.target.value ? parseFloat(e.target.value) : null })
+                  }
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Día de pago</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={empresaForm.payment_day ?? ""}
+                  onChange={(e) =>
+                    setEmpresaForm({ ...empresaForm, payment_day: e.target.value ? parseInt(e.target.value) : null })
+                  }
+                  placeholder="1-31"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Último pago</label>
+                <Input
+                  type="date"
+                  value={empresaForm.last_paid_date ?? ""}
+                  onChange={(e) =>
+                    setEmpresaForm({ ...empresaForm, last_paid_date: e.target.value || null })
+                  }
+                />
+              </div>
             </div>
 
             {/* Separator */}

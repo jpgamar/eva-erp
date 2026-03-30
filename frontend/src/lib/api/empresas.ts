@@ -14,6 +14,9 @@ export interface EmpresaListItem {
   status: string;
   ball_on: string | null;
   summary_note: string | null;
+  monthly_amount: number | null;
+  payment_day: number | null;
+  last_paid_date: string | null;
   item_count: number;
   pending_count: number;
   pending_items: PendingItem[];
@@ -41,6 +44,9 @@ export interface Empresa {
   status: string;
   ball_on: string | null;
   summary_note: string | null;
+  monthly_amount: number | null;
+  payment_day: number | null;
+  last_paid_date: string | null;
   created_at: string;
   updated_at: string;
   items: EmpresaItem[];
@@ -59,6 +65,9 @@ export interface EmpresaCreate {
   status?: string;
   ball_on?: string | null;
   summary_note?: string | null;
+  monthly_amount?: number | null;
+  payment_day?: number | null;
+  last_paid_date?: string | null;
 }
 
 export interface EmpresaItemCreate {

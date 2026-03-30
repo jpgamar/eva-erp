@@ -20,6 +20,9 @@ class EmpresaCreate(BaseModel):
     status: str = "operativo"
     ball_on: str | None = None
     summary_note: str | None = None
+    monthly_amount: float | None = None
+    payment_day: int | None = None
+    last_paid_date: _dt.date | None = None
 
 
 class EmpresaUpdate(BaseModel):
@@ -35,6 +38,9 @@ class EmpresaUpdate(BaseModel):
     status: str | None = None
     ball_on: str | None = None
     summary_note: str | None = None
+    monthly_amount: float | None = None
+    payment_day: int | None = None
+    last_paid_date: _dt.date | None = None
 
 
 class EmpresaItemResponse(BaseModel):
@@ -60,6 +66,9 @@ class EmpresaResponse(BaseModel):
     status: str
     ball_on: str | None
     summary_note: str | None
+    monthly_amount: float | None
+    payment_day: int | None
+    last_paid_date: _dt.date | None
     created_at: _dt.datetime
     updated_at: _dt.datetime
     items: list[EmpresaItemResponse] = []
@@ -73,6 +82,9 @@ class EmpresaListResponse(BaseModel):
     status: str
     ball_on: str | None
     summary_note: str | None
+    monthly_amount: float | None
+    payment_day: int | None
+    last_paid_date: _dt.date | None
     item_count: int = 0
     model_config = {"from_attributes": True}
 
