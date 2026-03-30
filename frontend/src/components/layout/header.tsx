@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Menu, Terminal, User as UserIcon } from "lucide-react";
+import { LogOut, Menu, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -11,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth/context";
-import { useTerminal } from "@/components/terminal/useTerminal";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -25,7 +24,6 @@ interface HeaderProps {
 
 export function Header({ title, subtitle, subtitleNode, onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
-  const terminal = useTerminal();
 
   const initials = user?.name
     ?.split(" ")
@@ -49,19 +47,6 @@ export function Header({ title, subtitle, subtitleNode, onMenuClick }: HeaderPro
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Terminal toggle (admin only) */}
-        {user?.role === "admin" && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9"
-            onClick={terminal.toggle}
-            title="Toggle terminal (Ctrl+`)"
-          >
-            <Terminal className="h-5 w-5" />
-          </Button>
-        )}
-
         {/* Notifications */}
         <NotificationBell />
 
