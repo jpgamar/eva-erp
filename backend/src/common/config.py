@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     eva_ssh_private_key_base64: str = ""
     hetzner_api_token: str = ""
 
+    # Terminal (web-based PTY for Claude Code)
+    terminal_enabled: bool = False
+    terminal_idle_timeout_seconds: int = 3600
+    terminal_working_dir: str = ""
+
     # Environment
     environment: str = "development"
     vault_session_ttl_minutes: int = 0

@@ -10,6 +10,7 @@ from src.common.config import settings
 from src.common.database import engine, eva_engine
 from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
 from src.finances.stripe_service import stripe_reconciliation_runner_loop
+from src.terminal.router import router as terminal_router, session_manager as terminal_session_manager
 
 
 @asynccontextmanager
@@ -25,6 +26,9 @@ async def lifespan(app: FastAPI):
         stripe_task = asyncio.create_task(stripe_reconciliation_runner_loop(stripe_stop))
 
     yield
+
+    # Terminate all PTY sessions on shutdown
+    terminal_session_manager.destroy_all()
 
     monitor_stop.set()
     stripe_stop.set()
@@ -107,6 +111,9 @@ api_router.include_router(eva_billing_router)
 api_router.include_router(empresas_router)
 
 app.include_router(api_router)
+
+# WebSocket endpoints (not under /api/v1)
+app.include_router(terminal_router)
 
 
 async def _db_health() -> tuple[bool, str | None, bool, str | None]:

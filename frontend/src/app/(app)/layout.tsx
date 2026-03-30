@@ -9,6 +9,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { CommandPalette } from "@/components/command-palette";
 import { WelcomeOverlay } from "@/components/welcome-overlay";
+import { TerminalProvider } from "@/components/terminal/TerminalPanel";
+import { useTerminal } from "@/components/terminal/useTerminal";
 import { cn } from "@/lib/utils";
 
 const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
@@ -144,7 +146,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
-  return (
+  const isAdmin = user.role === "admin";
+
+  const shell = (
     <div className="min-h-screen bg-background">
       <WelcomeOverlay userName={user.name} />
       <Sidebar
@@ -172,6 +176,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <CommandPalette />
     </div>
   );
+
+  if (!isAdmin) return shell;
+
+  return <TerminalProvider>{shell}</TerminalProvider>;
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
