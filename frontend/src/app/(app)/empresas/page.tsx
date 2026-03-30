@@ -364,16 +364,25 @@ export default function EmpresasPage() {
                 {emp.monthly_amount != null && (
                   <div className="flex items-center justify-center gap-1.5 text-xs px-5 pb-1">
                     <span className="font-medium">${emp.monthly_amount.toLocaleString("es-MX")}/mes</span>
-                    {paymentCfg && (
+                    {emp.status === "en_implementacion" ? (
                       <>
                         <span className="text-muted-foreground">·</span>
-                        <span className={`font-medium ${paymentCfg.className}`}>{paymentCfg.label}</span>
+                        <span className="text-muted-foreground italic">Pago estimado</span>
                       </>
-                    )}
-                    {emp.payment_day && (
+                    ) : (
                       <>
-                        <span className="text-muted-foreground">·</span>
-                        <span className="text-muted-foreground">Día {emp.payment_day}</span>
+                        {paymentCfg && (
+                          <>
+                            <span className="text-muted-foreground">·</span>
+                            <span className={`font-medium ${paymentCfg.className}`}>{paymentCfg.label}</span>
+                          </>
+                        )}
+                        {emp.payment_day && (
+                          <>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">Día {emp.payment_day}</span>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
