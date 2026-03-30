@@ -31,13 +31,8 @@ const TERMINAL_THEME = {
 };
 
 function getWsUrl(): string {
-  const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, "") ||
-    "http://localhost:8000";
-  // Strip any trailing whitespace/newlines from env vars
-  const clean = backendUrl.trim();
-  return clean.replace(/^http/, "ws") + "/ws/terminal";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  return apiBase.replace(/^http/, "ws") + "/ws/terminal";
 }
 
 function getCookie(name: string): string | null {
