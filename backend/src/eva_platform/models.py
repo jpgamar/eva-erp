@@ -96,9 +96,9 @@ class EvaAccountUser(EvaBase):
     email = Column(String, nullable=False)
     display_name = Column(String(255), nullable=True)
     role = Column(
-        SQLEnum("OWNER", "ADMIN", "MEMBER", name="account_role", create_type=False),
+        SQLEnum("OWNER", "ADMIN", "VENDEDOR", name="account_role", create_type=False),
         nullable=False,
-        default="MEMBER",
+        default="VENDEDOR",
     )
     status = Column(
         SQLEnum("ACTIVE", "INVITED", name="account_user_status", create_type=False),
