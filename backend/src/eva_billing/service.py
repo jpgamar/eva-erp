@@ -498,16 +498,23 @@ class EvaBillingService:
     ) -> list[dict]:
         import base64
 
+        facturapi_id = getattr(factura, "facturapi_id", None)
+        if not facturapi_id:
+            return []
+
+        api_key = (settings.facturapi_api_key or "").strip()
+        if not api_key:
+            return []
+
         attachments: list[dict] = []
         async with httpx.AsyncClient(timeout=15.0) as client:
-            for url, ext, mime in [
-                (factura.pdf_url, "pdf", "application/pdf"),
-                (factura.xml_url, "xml", "application/xml"),
-            ]:
-                if not url:
-                    continue
+            for ext, mime in [("pdf", "application/pdf"), ("xml", "application/xml")]:
                 try:
-                    resp = await client.get(url)
+                    resp = await client.get(
+                        f"https://www.facturapi.io/v2/invoices/{facturapi_id}/{ext}",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        follow_redirects=True,
+                    )
                     if resp.status_code == 200:
                         attachments.append({
                             "content": base64.b64encode(resp.content).decode("ascii"),
@@ -516,7 +523,7 @@ class EvaBillingService:
                             "disposition": "attachment",
                         })
                 except Exception:
-                    pass  # Attachment download failed — send email without it
+                    pass  # Download failed — send email without this attachment
         return attachments
 
 
