@@ -453,6 +453,8 @@ class EvaBillingService:
             return "failed", "SendGrid not configured"
         if not recipient_emails:
             return "failed", "Invoice recipient email is missing"
+
+        uuid_short = (factura.cfdi_uuid or "factura")[:8]
         html = (
             f"<p>Hola,</p>"
             f"<p>Tu factura de EvaAI ya fue emitida.</p>"
@@ -460,10 +462,9 @@ class EvaBillingService:
             f"<strong>RFC:</strong> {customer.tax_id}<br/>"
             f"<strong>UUID:</strong> {factura.cfdi_uuid or 'pendiente'}<br/>"
             f"<strong>Total:</strong> {total} MXN</p>"
-            f"<p>Puedes descargar tus archivos aqui:</p>"
-            f"<p><a href='{factura.pdf_url or '#'}'>PDF</a> · <a href='{factura.xml_url or '#'}'>XML</a></p>"
+            f"<p>Los archivos PDF y XML de tu factura se encuentran adjuntos a este correo.</p>"
         )
-        payload = {
+        payload: dict = {
             "personalizations": [{"to": [{"email": email}]} for email in recipient_emails],
             "from": {
                 "email": settings.billing_invoice_from_email,
@@ -473,8 +474,13 @@ class EvaBillingService:
             "subject": "Tu factura de EvaAI",
             "content": [{"type": "text/html", "value": html}],
         }
+
+        attachments = await self._download_invoice_attachments(factura, uuid_short)
+        if attachments:
+            payload["attachments"] = attachments
+
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     "https://api.sendgrid.com/v3/mail/send",
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -485,6 +491,33 @@ class EvaBillingService:
             return "failed", f"SendGrid status {response.status_code}"
         except Exception as exc:  # pragma: no cover - defensive
             return "failed", str(exc)
+
+    @staticmethod
+    async def _download_invoice_attachments(
+        factura: "Factura", uuid_short: str
+    ) -> list[dict]:
+        import base64
+
+        attachments: list[dict] = []
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for url, ext, mime in [
+                (factura.pdf_url, "pdf", "application/pdf"),
+                (factura.xml_url, "xml", "application/xml"),
+            ]:
+                if not url:
+                    continue
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        attachments.append({
+                            "content": base64.b64encode(resp.content).decode("ascii"),
+                            "type": mime,
+                            "filename": f"factura-{uuid_short}.{ext}",
+                            "disposition": "attachment",
+                        })
+                except Exception:
+                    pass  # Attachment download failed — send email without it
+        return attachments
 
 
 def compute_hmac_signature(secret: str, timestamp: str, raw_body: bytes) -> str:
