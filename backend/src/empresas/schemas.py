@@ -85,18 +85,40 @@ class EmpresaResponse(BaseModel):
 
 # ── Channel health (silent-channel-health plan) ──────────────────────
 
+class ChannelTypeHealth(BaseModel):
+    """Per-channel-type health for one Empresa's linked Eva account.
+
+    ``present`` indicates whether the linked account has at least one
+    active channel of this type. ``healthy`` is True only if ALL active
+    channels of this type pass the worker health check.
+    """
+
+    present: bool = False
+    healthy: bool = False
+    count: int = 0
+
+
 class EmpresaHealth(BaseModel):
     """Aggregate channel health for one Empresa.
 
     Returned as the ``health`` field on each Empresa list item so the
-    frontend can render a status dot per card without making a
-    follow-up request per empresa.
+    frontend can render per-card health info without making a follow-up
+    request per empresa.
 
-    Plan: docs/domains/integrations/instagram/plan-silent-channel-health.md
+    Plan: docs/archive/plans/silent-channel-health.md
     """
 
     status: Literal["healthy", "unhealthy", "unknown", "not_linked"]
     unhealthy_count: int = 0
+    # Resolved name of the linked Eva account, or None when the empresa
+    # is not linked. Surfaced on the frontend card so users can see
+    # WHICH Eva customer the empresa points at without opening the
+    # edit modal.
+    linked_account_name: str | None = None
+    # Per-channel-type breakdown so the frontend can render
+    # "Messenger ✅ Instagram ❌" badges directly on the card.
+    messenger: ChannelTypeHealth = ChannelTypeHealth()
+    instagram: ChannelTypeHealth = ChannelTypeHealth()
 
 
 class ChannelHealthEntry(BaseModel):

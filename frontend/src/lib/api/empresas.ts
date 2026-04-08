@@ -9,9 +9,18 @@ export interface PendingItem {
 
 export type EmpresaHealthStatus = "healthy" | "unhealthy" | "unknown" | "not_linked";
 
+export interface ChannelTypeHealth {
+  present: boolean;
+  healthy: boolean;
+  count: number;
+}
+
 export interface EmpresaHealth {
   status: EmpresaHealthStatus;
   unhealthy_count: number;
+  linked_account_name: string | null;
+  messenger: ChannelTypeHealth;
+  instagram: ChannelTypeHealth;
 }
 
 export interface EmpresaListItem {

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections import namedtuple
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,6 +31,44 @@ from src.empresas.schemas import (
     EmpresaHealth,
     EvaAccountForLink,
 )
+
+
+# Named tuples that mimic SQLAlchemy result rows. The production code
+# accesses .id, .name, etc., so plain tuples don't work in these tests.
+_AccountRow = namedtuple("_AccountRow", ["id", "name"])  # for accounts query
+_ChannelRow = namedtuple("_ChannelRow", ["is_healthy", "account_id"])  # for channel rows
+
+
+def _empty_health(status: str) -> dict:
+    """Build the empty-health shape for assertions."""
+    return {
+        "status": status,
+        "unhealthy_count": 0,
+        "linked_account_name": None,
+        "messenger": {"present": False, "healthy": False, "count": 0},
+        "instagram": {"present": False, "healthy": False, "count": 0},
+    }
+
+
+def _health(
+    status: str,
+    *,
+    unhealthy_count: int = 0,
+    linked_account_name: str | None = None,
+    msg_present: bool = False,
+    msg_healthy: bool = False,
+    msg_count: int = 0,
+    ig_present: bool = False,
+    ig_healthy: bool = False,
+    ig_count: int = 0,
+) -> dict:
+    return {
+        "status": status,
+        "unhealthy_count": unhealthy_count,
+        "linked_account_name": linked_account_name,
+        "messenger": {"present": msg_present, "healthy": msg_healthy, "count": msg_count},
+        "instagram": {"present": ig_present, "healthy": ig_healthy, "count": ig_count},
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -193,8 +232,8 @@ def test_compute_health_all_not_linked():
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: None, e2: None})
     )
-    assert result[e1] == {"status": "not_linked", "unhealthy_count": 0}
-    assert result[e2] == {"status": "not_linked", "unhealthy_count": 0}
+    assert result[e1] == _empty_health("not_linked")
+    assert result[e2] == _empty_health("not_linked")
     assert eva_db._idx == 0
 
 
@@ -204,57 +243,90 @@ def test_compute_health_unknown_when_eva_db_none():
     result = asyncio.run(
         _compute_health_for_empresas(None, {e1: acc1})
     )
-    assert result[e1] == {"status": "unknown", "unhealthy_count": 0}
+    assert result[e1] == _empty_health("unknown")
 
 
 def test_compute_health_unknown_when_query_raises():
     e1 = uuid.uuid4()
     acc1 = uuid.uuid4()
+    # First eva_db query (account names) raises.
     eva_db = _FakeEvaDB([RuntimeError("connection refused")])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
     )
-    assert result[e1] == {"status": "unknown", "unhealthy_count": 0}
+    assert result[e1] == _empty_health("unknown")
 
 
 def test_compute_health_all_healthy_when_no_unhealthy_rows():
     e1 = uuid.uuid4()
     acc1 = uuid.uuid4()
-    # First query (messenger): 1 healthy row. Second query (instagram): empty.
+    # Query order: account names → messenger rows → instagram rows.
     eva_db = _FakeEvaDB([
-        [(True, acc1)],
-        [],
+        [_AccountRow(id=acc1, name="Test Account")],
+        [_ChannelRow(is_healthy=True, account_id=acc1)],  # 1 healthy messenger
+        [],  # no instagram
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
     )
-    assert result[e1] == {"status": "healthy", "unhealthy_count": 0}
+    assert result[e1] == _health(
+        "healthy",
+        linked_account_name="Test Account",
+        msg_present=True,
+        msg_healthy=True,
+        msg_count=1,
+    )
 
 
 def test_compute_health_unhealthy_when_one_channel_broken():
     e1 = uuid.uuid4()
     acc1 = uuid.uuid4()
     eva_db = _FakeEvaDB([
-        [(True, acc1), (False, acc1)],  # 1 healthy + 1 broken messenger
+        [_AccountRow(id=acc1, name="Acc1")],
+        [
+            _ChannelRow(is_healthy=True, account_id=acc1),
+            _ChannelRow(is_healthy=False, account_id=acc1),
+        ],
         [],
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
     )
-    assert result[e1] == {"status": "unhealthy", "unhealthy_count": 1}
+    assert result[e1] == _health(
+        "unhealthy",
+        unhealthy_count=1,
+        linked_account_name="Acc1",
+        msg_present=True,
+        msg_healthy=False,
+        msg_count=2,
+    )
 
 
 def test_compute_health_counts_across_messenger_and_instagram():
     e1 = uuid.uuid4()
     acc1 = uuid.uuid4()
     eva_db = _FakeEvaDB([
-        [(False, acc1)],  # 1 broken messenger
-        [(False, acc1), (True, acc1)],  # 1 broken instagram, 1 healthy ig
+        [_AccountRow(id=acc1, name="Acc1")],
+        [_ChannelRow(is_healthy=False, account_id=acc1)],  # 1 broken messenger
+        [
+            _ChannelRow(is_healthy=False, account_id=acc1),
+            _ChannelRow(is_healthy=True, account_id=acc1),
+        ],
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
     )
-    assert result[e1] == {"status": "unhealthy", "unhealthy_count": 2}
+    assert result[e1] == _health(
+        "unhealthy",
+        unhealthy_count=2,
+        linked_account_name="Acc1",
+        msg_present=True,
+        msg_healthy=False,
+        msg_count=1,
+        ig_present=True,
+        ig_healthy=False,
+        ig_count=2,
+    )
 
 
 def test_compute_health_partitions_per_account():
@@ -263,14 +335,34 @@ def test_compute_health_partitions_per_account():
     acc1 = uuid.uuid4()
     acc2 = uuid.uuid4()
     eva_db = _FakeEvaDB([
-        [(True, acc1), (False, acc2)],  # acc1 healthy, acc2 broken
+        [
+            _AccountRow(id=acc1, name="Acc1"),
+            _AccountRow(id=acc2, name="Acc2"),
+        ],
+        [
+            _ChannelRow(is_healthy=True, account_id=acc1),
+            _ChannelRow(is_healthy=False, account_id=acc2),
+        ],
         [],
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1, e2: acc2})
     )
-    assert result[e1] == {"status": "healthy", "unhealthy_count": 0}
-    assert result[e2] == {"status": "unhealthy", "unhealthy_count": 1}
+    assert result[e1] == _health(
+        "healthy",
+        linked_account_name="Acc1",
+        msg_present=True,
+        msg_healthy=True,
+        msg_count=1,
+    )
+    assert result[e2] == _health(
+        "unhealthy",
+        unhealthy_count=1,
+        linked_account_name="Acc2",
+        msg_present=True,
+        msg_healthy=False,
+        msg_count=1,
+    )
 
 
 def test_compute_health_mixed_linked_and_not_linked():
@@ -278,14 +370,42 @@ def test_compute_health_mixed_linked_and_not_linked():
     e2 = uuid.uuid4()
     acc1 = uuid.uuid4()
     eva_db = _FakeEvaDB([
-        [(False, acc1)],
+        [_AccountRow(id=acc1, name="Acc1")],
+        [_ChannelRow(is_healthy=False, account_id=acc1)],
         [],
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1, e2: None})
     )
-    assert result[e1] == {"status": "unhealthy", "unhealthy_count": 1}
-    assert result[e2] == {"status": "not_linked", "unhealthy_count": 0}
+    assert result[e1] == _health(
+        "unhealthy",
+        unhealthy_count=1,
+        linked_account_name="Acc1",
+        msg_present=True,
+        msg_healthy=False,
+        msg_count=1,
+    )
+    assert result[e2] == _empty_health("not_linked")
+
+
+def test_compute_health_account_with_no_active_channels_is_healthy():
+    """An account with zero active channels should be 'healthy' (nothing to break),
+    NOT 'not_linked' (which is reserved for empresas with no eva_account_id).
+    """
+    e1 = uuid.uuid4()
+    acc1 = uuid.uuid4()
+    eva_db = _FakeEvaDB([
+        [_AccountRow(id=acc1, name="Empty Account")],
+        [],  # no messenger
+        [],  # no instagram
+    ])
+    result = asyncio.run(
+        _compute_health_for_empresas(eva_db, {e1: acc1})
+    )
+    assert result[e1] == _health(
+        "healthy",
+        linked_account_name="Empty Account",
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -65,7 +65,13 @@ function buildEmpresa(overrides: Record<string, unknown> = {}) {
     item_count: 0,
     pending_count: 0,
     pending_items: [],
-    health: { status: "healthy", unhealthy_count: 0 },
+    health: {
+      status: "healthy",
+      unhealthy_count: 0,
+      linked_account_name: null,
+      messenger: { present: false, healthy: false, count: 0 },
+      instagram: { present: false, healthy: false, count: 0 },
+    },
     ...overrides,
   };
 }
@@ -234,5 +240,132 @@ describe("EmpresasPage — channel health UI", () => {
     });
     // Dropdown trigger present
     expect(screen.getByTestId("empresa-eva-account-select")).toBeInTheDocument();
+  });
+
+  // ── Round 2 follow-up: surface linked-account name + channel badges ──
+
+  it("renders the linked Eva account name on the card when linked", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "11111111-1111-1111-1111-111111111111",
+        health: {
+          status: "healthy",
+          unhealthy_count: 0,
+          linked_account_name: "Lucky Intelligence",
+          messenger: { present: true, healthy: true, count: 1 },
+          instagram: { present: false, healthy: false, count: 0 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const link = await screen.findByTestId(
+      "empresa-eva-account-11111111-1111-1111-1111-111111111111"
+    );
+    expect(link.textContent).toContain("Lucky Intelligence");
+  });
+
+  it("renders 'Sin vincular a Eva' when not linked", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "22222222-2222-2222-2222-222222222222",
+        eva_account_id: null,
+        health: {
+          status: "not_linked",
+          unhealthy_count: 0,
+          linked_account_name: null,
+          messenger: { present: false, healthy: false, count: 0 },
+          instagram: { present: false, healthy: false, count: 0 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const link = await screen.findByTestId(
+      "empresa-eva-account-22222222-2222-2222-2222-222222222222"
+    );
+    expect(link.textContent).toContain("Sin vincular");
+  });
+
+  it("renders Messenger + Instagram badges with green dots when both are healthy", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "33333333-3333-3333-3333-333333333333",
+        health: {
+          status: "healthy",
+          unhealthy_count: 0,
+          linked_account_name: "Test Co",
+          messenger: { present: true, healthy: true, count: 1 },
+          instagram: { present: true, healthy: true, count: 1 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const msg = await screen.findByTestId("empresa-msg-badge-33333333-3333-3333-3333-333333333333");
+    const ig = await screen.findByTestId("empresa-ig-badge-33333333-3333-3333-3333-333333333333");
+    expect(msg.getAttribute("data-healthy")).toBe("true");
+    expect(ig.getAttribute("data-healthy")).toBe("true");
+  });
+
+  it("renders only the Instagram badge with red dot when only Instagram is broken and Messenger isn't configured", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "44444444-4444-4444-4444-444444444444",
+        health: {
+          status: "unhealthy",
+          unhealthy_count: 1,
+          linked_account_name: "Test Co",
+          messenger: { present: false, healthy: false, count: 0 },
+          instagram: { present: true, healthy: false, count: 1 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const ig = await screen.findByTestId("empresa-ig-badge-44444444-4444-4444-4444-444444444444");
+    expect(ig.getAttribute("data-healthy")).toBe("false");
+    expect(
+      screen.queryByTestId("empresa-msg-badge-44444444-4444-4444-4444-444444444444")
+    ).toBeNull();
+  });
+
+  it("hides the channel badges row entirely when the linked account has no channels", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "55555555-5555-5555-5555-555555555555",
+        health: {
+          status: "healthy",
+          unhealthy_count: 0,
+          linked_account_name: "Test Co",
+          messenger: { present: false, healthy: false, count: 0 },
+          instagram: { present: false, healthy: false, count: 0 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    // Wait for card to render
+    await screen.findByTestId("empresa-eva-account-55555555-5555-5555-5555-555555555555");
+    // No badges row at all
+    expect(
+      screen.queryByTestId("empresa-channel-badges-55555555-5555-5555-5555-555555555555")
+    ).toBeNull();
+  });
+
+  it("renames the phase banner labels with 'Fase:' prefix", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "66666666-6666-6666-6666-666666666666",
+        status: "operativo",
+      }),
+      buildEmpresa({
+        id: "77777777-7777-7777-7777-777777777777",
+        status: "en_implementacion",
+      }),
+      buildEmpresa({
+        id: "88888888-8888-8888-8888-888888888888",
+        status: "requiere_atencion",
+      }),
+    ]);
+    render(<EmpresasPage />);
+    expect(await screen.findByText("Fase: Operativo")).toBeInTheDocument();
+    expect(screen.getByText("Fase: Implementación")).toBeInTheDocument();
+    expect(screen.getByText("Fase: Atención")).toBeInTheDocument();
   });
 });

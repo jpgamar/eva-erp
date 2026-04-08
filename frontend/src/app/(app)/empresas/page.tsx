@@ -9,6 +9,8 @@ import {
   Check,
   ChevronDown,
   ImagePlus,
+  Instagram,
+  MessageCircle,
   MoreHorizontal,
   Plus,
   Search,
@@ -51,10 +53,14 @@ import {
 
 // ── Constants ──────────────────────────────────────────────────────
 
+// Renamed labels (silent-channel-health follow-up): "Fase: ..." disambiguates
+// the manual customer-relationship phase from the auto-detected channel
+// health (the colored dots / channel badges below). Without the prefix,
+// "Requiere atención" reads like a health alert.
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  operativo: { label: "Operativo", className: "bg-emerald-100 text-emerald-700" },
-  en_implementacion: { label: "En implementación", className: "bg-amber-100 text-amber-700" },
-  requiere_atencion: { label: "Requiere atención", className: "bg-red-100 text-red-700" },
+  operativo: { label: "Fase: Operativo", className: "bg-emerald-100 text-emerald-700" },
+  en_implementacion: { label: "Fase: Implementación", className: "bg-amber-100 text-amber-700" },
+  requiere_atencion: { label: "Fase: Atención", className: "bg-red-100 text-red-700" },
 };
 
 const BALL_ON_CONFIG: Record<string, { label: string; icon: typeof ArrowLeft }> = {
@@ -465,12 +471,42 @@ export default function EmpresasPage() {
                   </button>
                 </div>
 
-                {/* Logo + name */}
-                <div className="flex flex-col items-center gap-3 px-5 pt-5 pb-3">
+                {/* Logo + name + linked-account line */}
+                <div className="flex flex-col items-center gap-2 px-5 pt-5 pb-3">
                   <LogoAvatar url={emp.logo_url} name={emp.name} />
                   <h3 className="font-semibold text-lg truncate max-w-[220px] text-center">
                     {emp.name}
                   </h3>
+                  {/* Linked Eva account line — shows the account name when
+                      linked, or "Sin vincular" italics when not. Click to
+                      open the edit modal pre-focused on the dropdown. */}
+                  {emp.health.linked_account_name ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void openEditEmpresa(emp);
+                      }}
+                      data-testid={`empresa-eva-account-${emp.id}`}
+                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors truncate max-w-[220px]"
+                      title={`Vinculada a la cuenta de Eva: ${emp.health.linked_account_name} (clic para editar)`}
+                    >
+                      Eva: <span className="font-medium">{emp.health.linked_account_name}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void openEditEmpresa(emp);
+                      }}
+                      data-testid={`empresa-eva-account-${emp.id}`}
+                      className="text-[11px] text-muted-foreground/60 italic hover:text-foreground transition-colors"
+                      title="Esta empresa no está vinculada a una cuenta de Eva (clic para editar)"
+                    >
+                      Sin vincular a Eva
+                    </button>
+                  )}
                 </div>
 
                 {/* Payment line */}
@@ -500,6 +536,67 @@ export default function EmpresasPage() {
                     )}
                   </div>
                 )}
+
+                {/* Channel-health badges row (silent-channel-health follow-up).
+                    Renders Messenger / Instagram badges only when the empresa
+                    is linked to an Eva account that actually has channels of
+                    that type. Click opens the same health modal as the dot. */}
+                {emp.health.linked_account_name &&
+                  (emp.health.messenger.present || emp.health.instagram.present) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void openHealthModal(emp);
+                      }}
+                      data-testid={`empresa-channel-badges-${emp.id}`}
+                      className="flex items-center justify-center gap-3 text-[11px] px-5 pb-2 hover:opacity-80 transition-opacity"
+                      title="Ver detalle de canales"
+                    >
+                      {emp.health.messenger.present && (
+                        <span
+                          className={`inline-flex items-center gap-1 ${
+                            emp.health.messenger.healthy
+                              ? "text-emerald-600"
+                              : "text-red-600"
+                          }`}
+                          data-testid={`empresa-msg-badge-${emp.id}`}
+                          data-healthy={emp.health.messenger.healthy}
+                        >
+                          <MessageCircle className="h-3 w-3" />
+                          Messenger
+                          <span
+                            className={`inline-block h-1.5 w-1.5 rounded-full ${
+                              emp.health.messenger.healthy
+                                ? "bg-emerald-500"
+                                : "bg-red-500"
+                            }`}
+                          />
+                        </span>
+                      )}
+                      {emp.health.instagram.present && (
+                        <span
+                          className={`inline-flex items-center gap-1 ${
+                            emp.health.instagram.healthy
+                              ? "text-emerald-600"
+                              : "text-red-600"
+                          }`}
+                          data-testid={`empresa-ig-badge-${emp.id}`}
+                          data-healthy={emp.health.instagram.healthy}
+                        >
+                          <Instagram className="h-3 w-3" />
+                          Instagram
+                          <span
+                            className={`inline-block h-1.5 w-1.5 rounded-full ${
+                              emp.health.instagram.healthy
+                                ? "bg-emerald-500"
+                                : "bg-red-500"
+                            }`}
+                          />
+                        </span>
+                      )}
+                    </button>
+                  )}
 
                 {/* Summary note */}
                 {emp.summary_note && (

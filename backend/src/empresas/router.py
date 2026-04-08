@@ -105,21 +105,33 @@ async def _compute_health_for_empresas(
     eva_db: AsyncSession | None,
     empresa_account_ids: dict[uuid.UUID, uuid.UUID | None],
 ) -> dict[uuid.UUID, dict]:
-    """Return a dict mapping empresa_id → {status, unhealthy_count}.
+    """Return a dict mapping empresa_id → health dict.
 
-    Status values:
-        - "not_linked" — empresa.eva_account_id is None
-        - "unknown" — eva_db unreachable or query raised
-        - "healthy" — all linked-account channels are is_healthy=True
-        - "unhealthy" — at least one channel is_healthy=False
+    Each value is a dict shaped like ``EmpresaHealth`` with:
+        - status: "healthy" | "unhealthy" | "unknown" | "not_linked"
+        - unhealthy_count: int
+        - linked_account_name: str | None
+        - messenger: {present, healthy, count}
+        - instagram: {present, healthy, count}
     """
+    empty_channel = {"present": False, "healthy": False, "count": 0}
+
+    def _empty_health(status: str) -> dict:
+        return {
+            "status": status,
+            "unhealthy_count": 0,
+            "linked_account_name": None,
+            "messenger": dict(empty_channel),
+            "instagram": dict(empty_channel),
+        }
+
     out: dict[uuid.UUID, dict] = {}
 
     # Partition: not_linked vs linked
     linked_account_ids: set[uuid.UUID] = set()
     for emp_id, acc_id in empresa_account_ids.items():
         if acc_id is None:
-            out[emp_id] = {"status": "not_linked", "unhealthy_count": 0}
+            out[emp_id] = _empty_health("not_linked")
         else:
             linked_account_ids.add(acc_id)
 
@@ -130,10 +142,21 @@ async def _compute_health_for_empresas(
         # Can't query Eva — every linked empresa is "unknown".
         for emp_id, acc_id in empresa_account_ids.items():
             if acc_id is not None:
-                out[emp_id] = {"status": "unknown", "unhealthy_count": 0}
+                out[emp_id] = _empty_health("unknown")
         return out
 
     try:
+        # Resolve account names so the frontend can show
+        # "Eva: Lucky Intelligence" without a follow-up request.
+        accounts_result = await eva_db.execute(
+            select(EvaAccount.id, EvaAccount.name).where(
+                EvaAccount.id.in_(linked_account_ids)
+            )
+        )
+        account_names: dict[uuid.UUID, str] = {
+            row.id: row.name for row in accounts_result.all()
+        }
+
         msg_result = await eva_db.execute(
             select(EvaMessengerChannel.is_healthy, EvaAgent.account_id)
             .join(EvaAgent, EvaAgent.id == EvaMessengerChannel.agent_id)
@@ -161,25 +184,79 @@ async def _compute_health_for_empresas(
         )
         for emp_id, acc_id in empresa_account_ids.items():
             if acc_id is not None:
-                out[emp_id] = {"status": "unknown", "unhealthy_count": 0}
+                out[emp_id] = _empty_health("unknown")
         return out
 
-    # Aggregate per account_id
-    unhealthy_per_account: dict[uuid.UUID, int] = {acc: 0 for acc in linked_account_ids}
-    has_channels: set[uuid.UUID] = set()
-    for is_healthy, account_id in msg_rows + ig_rows:
-        has_channels.add(account_id)
+    # Aggregate per account_id, per channel type.
+    # Each entry: {"messenger_total": N, "messenger_unhealthy": N,
+    #              "instagram_total": N, "instagram_unhealthy": N}
+    per_account: dict[uuid.UUID, dict[str, int]] = {
+        acc: {
+            "messenger_total": 0,
+            "messenger_unhealthy": 0,
+            "instagram_total": 0,
+            "instagram_unhealthy": 0,
+        }
+        for acc in linked_account_ids
+    }
+    for is_healthy, account_id in msg_rows:
+        bucket = per_account.setdefault(
+            account_id,
+            {
+                "messenger_total": 0,
+                "messenger_unhealthy": 0,
+                "instagram_total": 0,
+                "instagram_unhealthy": 0,
+            },
+        )
+        bucket["messenger_total"] += 1
         if not is_healthy:
-            unhealthy_per_account[account_id] = unhealthy_per_account.get(account_id, 0) + 1
+            bucket["messenger_unhealthy"] += 1
+    for is_healthy, account_id in ig_rows:
+        bucket = per_account.setdefault(
+            account_id,
+            {
+                "messenger_total": 0,
+                "messenger_unhealthy": 0,
+                "instagram_total": 0,
+                "instagram_unhealthy": 0,
+            },
+        )
+        bucket["instagram_total"] += 1
+        if not is_healthy:
+            bucket["instagram_unhealthy"] += 1
 
     for emp_id, acc_id in empresa_account_ids.items():
         if acc_id is None:
             continue
-        unhealthy_count = unhealthy_per_account.get(acc_id, 0)
-        if unhealthy_count > 0:
-            out[emp_id] = {"status": "unhealthy", "unhealthy_count": unhealthy_count}
+        bucket = per_account[acc_id]
+        msg_total = bucket["messenger_total"]
+        msg_bad = bucket["messenger_unhealthy"]
+        ig_total = bucket["instagram_total"]
+        ig_bad = bucket["instagram_unhealthy"]
+        unhealthy_count = msg_bad + ig_bad
+        if msg_total + ig_total == 0:
+            # No active channels at all → still "healthy" (nothing to break)
+            status = "healthy"
+        elif unhealthy_count > 0:
+            status = "unhealthy"
         else:
-            out[emp_id] = {"status": "healthy", "unhealthy_count": 0}
+            status = "healthy"
+        out[emp_id] = {
+            "status": status,
+            "unhealthy_count": unhealthy_count,
+            "linked_account_name": account_names.get(acc_id),
+            "messenger": {
+                "present": msg_total > 0,
+                "healthy": msg_total > 0 and msg_bad == 0,
+                "count": msg_total,
+            },
+            "instagram": {
+                "present": ig_total > 0,
+                "healthy": ig_total > 0 and ig_bad == 0,
+                "count": ig_total,
+            },
+        }
     return out
 
 
@@ -278,7 +355,16 @@ async def list_empresas(
             "item_count": r.item_count,
             "pending_count": r.pending_count,
             "pending_items": pending_items_map.get(r.id, []),
-            "health": health_map.get(r.id, {"status": "not_linked", "unhealthy_count": 0}),
+            "health": health_map.get(
+                r.id,
+                {
+                    "status": "not_linked",
+                    "unhealthy_count": 0,
+                    "linked_account_name": None,
+                    "messenger": {"present": False, "healthy": False, "count": 0},
+                    "instagram": {"present": False, "healthy": False, "count": 0},
+                },
+            ),
         }
         for r in rows
     ]
