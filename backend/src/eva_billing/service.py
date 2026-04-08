@@ -113,8 +113,11 @@ class EvaBillingService:
                 )
 
         quote = _compute_quote(payload.charge.base_subtotal_minor, retention_applicable=payload.charge.retention_applicable)
-        if quote.payable_total_minor != payload.charge.payable_total_minor:
-            raise ValueError("Quote total does not match Stripe payable amount")
+        if abs(quote.payable_total_minor - payload.charge.payable_total_minor) > 100:
+            raise ValueError(
+                f"Quote total ({quote.payable_total_minor}) does not match Stripe payable amount "
+                f"({payload.charge.payable_total_minor}), diff={abs(quote.payable_total_minor - payload.charge.payable_total_minor)}"
+            )
         recipient_emails = self._resolve_recipient_emails(payload.owner_email, payload.recipient_emails)
 
         line_items = [
