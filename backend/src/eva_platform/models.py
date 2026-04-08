@@ -378,3 +378,29 @@ class EvaInstagramChannel(EvaBase):
     is_healthy = Column(Boolean, nullable=False, default=True)
     cached_status_data = Column(JSONB, nullable=True)
     last_status_check = Column(DateTime(timezone=True), nullable=True)
+
+
+class EvaWhatsAppChannel(EvaBase):
+    """Mirror of Eva's ``whatsapp_channels`` table. Read-only.
+
+    WhatsApp uses ``is_message_ready`` instead of ``is_healthy`` —
+    same semantic (can the channel deliver messages right now?).
+    The eva-erp health computation aliases it.
+
+    NOTE: ``is_active`` is nullable in the upstream Eva schema (it
+    has no NOT NULL constraint and no default), so we mirror it as
+    nullable here too. The health computation treats NULL as inactive.
+    """
+
+    __tablename__ = "whatsapp_channels"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), nullable=False)
+    waba_id = Column(String(100), nullable=False)
+    phone_number_id = Column(String(100), nullable=False)
+    display_phone_number = Column(String(50), nullable=True)
+    verified_name = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=True)
+    is_message_ready = Column(Boolean, nullable=False, default=False)
+    cached_status_data = Column(JSONB, nullable=True)
+    last_status_check = Column(DateTime(timezone=True), nullable=True)

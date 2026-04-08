@@ -21,6 +21,7 @@ export interface EmpresaHealth {
   linked_account_name: string | null;
   messenger: ChannelTypeHealth;
   instagram: ChannelTypeHealth;
+  whatsapp: ChannelTypeHealth;
 }
 
 export interface EmpresaListItem {
@@ -96,7 +97,7 @@ export interface EmpresaCreate {
 
 export interface ChannelHealthEntry {
   id: string;
-  channel_type: "messenger" | "instagram";
+  channel_type: "messenger" | "instagram" | "whatsapp";
   display_name: string | null;
   is_healthy: boolean;
   health_status_reason: string | null;
@@ -107,6 +108,7 @@ export interface AccountChannelHealthResponse {
   account_id: string;
   messenger: ChannelHealthEntry[];
   instagram: ChannelHealthEntry[];
+  whatsapp: ChannelHealthEntry[];
 }
 
 export interface EvaAccountForLink {

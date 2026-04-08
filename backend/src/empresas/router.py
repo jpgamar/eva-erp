@@ -24,6 +24,7 @@ from src.eva_platform.models import (
     EvaAgent,
     EvaInstagramChannel,
     EvaMessengerChannel,
+    EvaWhatsAppChannel,
 )
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
@@ -113,6 +114,7 @@ async def _compute_health_for_empresas(
         - linked_account_name: str | None
         - messenger: {present, healthy, count}
         - instagram: {present, healthy, count}
+        - whatsapp: {present, healthy, count}
     """
     empty_channel = {"present": False, "healthy": False, "count": 0}
 
@@ -123,6 +125,7 @@ async def _compute_health_for_empresas(
             "linked_account_name": None,
             "messenger": dict(empty_channel),
             "instagram": dict(empty_channel),
+            "whatsapp": dict(empty_channel),
         }
 
     out: dict[uuid.UUID, dict] = {}
@@ -176,6 +179,22 @@ async def _compute_health_for_empresas(
             )
         )
         ig_rows = list(ig_result.all())
+
+        # WhatsApp uses ``is_message_ready`` (the WhatsApp equivalent
+        # of ``is_healthy``). NULL ``is_active`` is treated as inactive
+        # because the upstream column has no NOT NULL constraint.
+        wa_result = await eva_db.execute(
+            select(
+                EvaWhatsAppChannel.is_message_ready,
+                EvaAgent.account_id,
+            )
+            .join(EvaAgent, EvaAgent.id == EvaWhatsAppChannel.agent_id)
+            .where(
+                EvaAgent.account_id.in_(linked_account_ids),
+                EvaWhatsAppChannel.is_active.is_(True),
+            )
+        )
+        wa_rows = list(wa_result.all())
     except Exception as exc:
         logger.warning(
             "empresas.health.eva_db_failed: %s",
@@ -188,43 +207,34 @@ async def _compute_health_for_empresas(
         return out
 
     # Aggregate per account_id, per channel type.
-    # Each entry: {"messenger_total": N, "messenger_unhealthy": N,
-    #              "instagram_total": N, "instagram_unhealthy": N}
-    per_account: dict[uuid.UUID, dict[str, int]] = {
-        acc: {
+    def _empty_bucket() -> dict[str, int]:
+        return {
             "messenger_total": 0,
             "messenger_unhealthy": 0,
             "instagram_total": 0,
             "instagram_unhealthy": 0,
+            "whatsapp_total": 0,
+            "whatsapp_unhealthy": 0,
         }
-        for acc in linked_account_ids
+
+    per_account: dict[uuid.UUID, dict[str, int]] = {
+        acc: _empty_bucket() for acc in linked_account_ids
     }
     for is_healthy, account_id in msg_rows:
-        bucket = per_account.setdefault(
-            account_id,
-            {
-                "messenger_total": 0,
-                "messenger_unhealthy": 0,
-                "instagram_total": 0,
-                "instagram_unhealthy": 0,
-            },
-        )
+        bucket = per_account.setdefault(account_id, _empty_bucket())
         bucket["messenger_total"] += 1
         if not is_healthy:
             bucket["messenger_unhealthy"] += 1
     for is_healthy, account_id in ig_rows:
-        bucket = per_account.setdefault(
-            account_id,
-            {
-                "messenger_total": 0,
-                "messenger_unhealthy": 0,
-                "instagram_total": 0,
-                "instagram_unhealthy": 0,
-            },
-        )
+        bucket = per_account.setdefault(account_id, _empty_bucket())
         bucket["instagram_total"] += 1
         if not is_healthy:
             bucket["instagram_unhealthy"] += 1
+    for is_message_ready, account_id in wa_rows:
+        bucket = per_account.setdefault(account_id, _empty_bucket())
+        bucket["whatsapp_total"] += 1
+        if not is_message_ready:
+            bucket["whatsapp_unhealthy"] += 1
 
     for emp_id, acc_id in empresa_account_ids.items():
         if acc_id is None:
@@ -234,8 +244,10 @@ async def _compute_health_for_empresas(
         msg_bad = bucket["messenger_unhealthy"]
         ig_total = bucket["instagram_total"]
         ig_bad = bucket["instagram_unhealthy"]
-        unhealthy_count = msg_bad + ig_bad
-        if msg_total + ig_total == 0:
+        wa_total = bucket["whatsapp_total"]
+        wa_bad = bucket["whatsapp_unhealthy"]
+        unhealthy_count = msg_bad + ig_bad + wa_bad
+        if msg_total + ig_total + wa_total == 0:
             # No active channels at all → still "healthy" (nothing to break)
             status = "healthy"
         elif unhealthy_count > 0:
@@ -255,6 +267,11 @@ async def _compute_health_for_empresas(
                 "present": ig_total > 0,
                 "healthy": ig_total > 0 and ig_bad == 0,
                 "count": ig_total,
+            },
+            "whatsapp": {
+                "present": wa_total > 0,
+                "healthy": wa_total > 0 and wa_bad == 0,
+                "count": wa_total,
             },
         }
     return out
@@ -363,6 +380,7 @@ async def list_empresas(
                     "linked_account_name": None,
                     "messenger": {"present": False, "healthy": False, "count": 0},
                     "instagram": {"present": False, "healthy": False, "count": 0},
+                    "whatsapp": {"present": False, "healthy": False, "count": 0},
                 },
             ),
         }

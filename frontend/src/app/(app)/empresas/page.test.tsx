@@ -71,6 +71,7 @@ function buildEmpresa(overrides: Record<string, unknown> = {}) {
       linked_account_name: null,
       messenger: { present: false, healthy: false, count: 0 },
       instagram: { present: false, healthy: false, count: 0 },
+      whatsapp: { present: false, healthy: false, count: 0 },
     },
     ...overrides,
   };
@@ -176,6 +177,7 @@ describe("EmpresasPage — channel health UI", () => {
         },
       ],
       instagram: [],
+      whatsapp: [],
     });
 
     render(<EmpresasPage />);
@@ -254,6 +256,7 @@ describe("EmpresasPage — channel health UI", () => {
           linked_account_name: "Lucky Intelligence",
           messenger: { present: true, healthy: true, count: 1 },
           instagram: { present: false, healthy: false, count: 0 },
+          whatsapp: { present: false, healthy: false, count: 0 },
         },
       }),
     ]);
@@ -275,6 +278,7 @@ describe("EmpresasPage — channel health UI", () => {
           linked_account_name: null,
           messenger: { present: false, healthy: false, count: 0 },
           instagram: { present: false, healthy: false, count: 0 },
+          whatsapp: { present: false, healthy: false, count: 0 },
         },
       }),
     ]);
@@ -295,6 +299,7 @@ describe("EmpresasPage — channel health UI", () => {
           linked_account_name: "Test Co",
           messenger: { present: true, healthy: true, count: 1 },
           instagram: { present: true, healthy: true, count: 1 },
+          whatsapp: { present: false, healthy: false, count: 0 },
         },
       }),
     ]);
@@ -315,6 +320,7 @@ describe("EmpresasPage — channel health UI", () => {
           linked_account_name: "Test Co",
           messenger: { present: false, healthy: false, count: 0 },
           instagram: { present: true, healthy: false, count: 1 },
+          whatsapp: { present: false, healthy: false, count: 0 },
         },
       }),
     ]);
@@ -336,6 +342,7 @@ describe("EmpresasPage — channel health UI", () => {
           linked_account_name: "Test Co",
           messenger: { present: false, healthy: false, count: 0 },
           instagram: { present: false, healthy: false, count: 0 },
+          whatsapp: { present: false, healthy: false, count: 0 },
         },
       }),
     ]);
@@ -346,6 +353,79 @@ describe("EmpresasPage — channel health UI", () => {
     expect(
       screen.queryByTestId("empresa-channel-badges-55555555-5555-5555-5555-555555555555")
     ).toBeNull();
+  });
+
+  // ── Round 3 follow-up: WhatsApp + per-channel counts ──
+
+  it("renders the WhatsApp badge when the linked account has WhatsApp channels", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "99999999-9999-9999-9999-999999999999",
+        health: {
+          status: "healthy",
+          unhealthy_count: 0,
+          linked_account_name: "Test Co",
+          messenger: { present: false, healthy: false, count: 0 },
+          instagram: { present: false, healthy: false, count: 0 },
+          whatsapp: { present: true, healthy: true, count: 1 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const wa = await screen.findByTestId(
+      "empresa-wa-badge-99999999-9999-9999-9999-999999999999"
+    );
+    expect(wa.getAttribute("data-healthy")).toBe("true");
+    expect(wa.getAttribute("data-count")).toBe("1");
+  });
+
+  it("renders WhatsApp badge as red when is_message_ready aggregates to unhealthy", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        health: {
+          status: "unhealthy",
+          unhealthy_count: 1,
+          linked_account_name: "Test Co",
+          messenger: { present: false, healthy: false, count: 0 },
+          instagram: { present: false, healthy: false, count: 0 },
+          whatsapp: { present: true, healthy: false, count: 2 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const wa = await screen.findByTestId(
+      "empresa-wa-badge-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    );
+    expect(wa.getAttribute("data-healthy")).toBe("false");
+    expect(wa.getAttribute("data-count")).toBe("2");
+  });
+
+  it("shows the channel count next to the badge label when there are multiple channels of the same type", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "12121212-1212-1212-1212-121212121212",
+        health: {
+          status: "healthy",
+          unhealthy_count: 0,
+          linked_account_name: "Lucky Intelligence",
+          messenger: { present: true, healthy: true, count: 1 },
+          instagram: { present: true, healthy: true, count: 2 },
+          whatsapp: { present: false, healthy: false, count: 0 },
+        },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    const ig = await screen.findByTestId(
+      "empresa-ig-badge-12121212-1212-1212-1212-121212121212"
+    );
+    // Count badge "· 2" appears for instagram
+    expect(ig.textContent).toContain("2");
+    // Single-channel messenger does NOT show a count
+    const msg = screen.getByTestId(
+      "empresa-msg-badge-12121212-1212-1212-1212-121212121212"
+    );
+    expect(msg.textContent).not.toMatch(/·\s*1/);
   });
 
   it("renames the phase banner labels with 'Fase:' prefix", async () => {

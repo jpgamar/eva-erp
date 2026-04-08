@@ -12,6 +12,7 @@ import {
   Instagram,
   MessageCircle,
   MoreHorizontal,
+  Phone,
   Plus,
   Search,
   X,
@@ -538,11 +539,15 @@ export default function EmpresasPage() {
                 )}
 
                 {/* Channel-health badges row (silent-channel-health follow-up).
-                    Renders Messenger / Instagram badges only when the empresa
-                    is linked to an Eva account that actually has channels of
-                    that type. Click opens the same health modal as the dot. */}
+                    Renders Messenger / Instagram / WhatsApp badges only when the
+                    empresa is linked to an Eva account that actually has channels
+                    of that type. Each badge shows a count (e.g. "Instagram · 2")
+                    when the linked account has multiple channels of the same type.
+                    Click opens the same health modal as the dot. */}
                 {emp.health.linked_account_name &&
-                  (emp.health.messenger.present || emp.health.instagram.present) && (
+                  (emp.health.messenger.present ||
+                    emp.health.instagram.present ||
+                    emp.health.whatsapp.present) && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -550,50 +555,35 @@ export default function EmpresasPage() {
                         void openHealthModal(emp);
                       }}
                       data-testid={`empresa-channel-badges-${emp.id}`}
-                      className="flex items-center justify-center gap-3 text-[11px] px-5 pb-2 hover:opacity-80 transition-opacity"
+                      className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] px-5 pb-2 hover:opacity-80 transition-opacity"
                       title="Ver detalle de canales"
                     >
                       {emp.health.messenger.present && (
-                        <span
-                          className={`inline-flex items-center gap-1 ${
-                            emp.health.messenger.healthy
-                              ? "text-emerald-600"
-                              : "text-red-600"
-                          }`}
-                          data-testid={`empresa-msg-badge-${emp.id}`}
-                          data-healthy={emp.health.messenger.healthy}
-                        >
-                          <MessageCircle className="h-3 w-3" />
-                          Messenger
-                          <span
-                            className={`inline-block h-1.5 w-1.5 rounded-full ${
-                              emp.health.messenger.healthy
-                                ? "bg-emerald-500"
-                                : "bg-red-500"
-                            }`}
-                          />
-                        </span>
+                        <ChannelBadge
+                          icon={MessageCircle}
+                          label="Messenger"
+                          healthy={emp.health.messenger.healthy}
+                          count={emp.health.messenger.count}
+                          testId={`empresa-msg-badge-${emp.id}`}
+                        />
                       )}
                       {emp.health.instagram.present && (
-                        <span
-                          className={`inline-flex items-center gap-1 ${
-                            emp.health.instagram.healthy
-                              ? "text-emerald-600"
-                              : "text-red-600"
-                          }`}
-                          data-testid={`empresa-ig-badge-${emp.id}`}
-                          data-healthy={emp.health.instagram.healthy}
-                        >
-                          <Instagram className="h-3 w-3" />
-                          Instagram
-                          <span
-                            className={`inline-block h-1.5 w-1.5 rounded-full ${
-                              emp.health.instagram.healthy
-                                ? "bg-emerald-500"
-                                : "bg-red-500"
-                            }`}
-                          />
-                        </span>
+                        <ChannelBadge
+                          icon={Instagram}
+                          label="Instagram"
+                          healthy={emp.health.instagram.healthy}
+                          count={emp.health.instagram.count}
+                          testId={`empresa-ig-badge-${emp.id}`}
+                        />
+                      )}
+                      {emp.health.whatsapp.present && (
+                        <ChannelBadge
+                          icon={Phone}
+                          label="WhatsApp"
+                          healthy={emp.health.whatsapp.healthy}
+                          count={emp.health.whatsapp.count}
+                          testId={`empresa-wa-badge-${emp.id}`}
+                        />
                       )}
                     </button>
                   )}
@@ -1054,13 +1044,19 @@ export default function EmpresasPage() {
             <p className="text-sm text-muted-foreground py-4 text-center">
               No se pudo cargar el estado de los canales.
             </p>
-          ) : healthModalData.messenger.length === 0 && healthModalData.instagram.length === 0 ? (
+          ) : healthModalData.messenger.length === 0 &&
+            healthModalData.instagram.length === 0 &&
+            healthModalData.whatsapp.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
               Esta cuenta de Eva no tiene canales activos configurados.
             </p>
           ) : (
             <div className="space-y-4 py-2">
-              {[...healthModalData.messenger, ...healthModalData.instagram].map((ch) => (
+              {[
+                ...healthModalData.messenger,
+                ...healthModalData.instagram,
+                ...healthModalData.whatsapp,
+              ].map((ch) => (
                 <div
                   key={ch.id}
                   className="border rounded-lg p-3 space-y-1"
@@ -1114,6 +1110,38 @@ export default function EmpresasPage() {
 }
 
 // ── Helper Components ──────────────────────────────────────────────
+
+interface ChannelBadgeProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  healthy: boolean;
+  count: number;
+  testId: string;
+}
+
+function ChannelBadge({ icon: Icon, label, healthy, count, testId }: ChannelBadgeProps) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 ${
+        healthy ? "text-emerald-600" : "text-red-600"
+      }`}
+      data-testid={testId}
+      data-healthy={healthy}
+      data-count={count}
+    >
+      <Icon className="h-3 w-3" />
+      {label}
+      {count > 1 && (
+        <span className="text-muted-foreground">· {count}</span>
+      )}
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full ${
+          healthy ? "bg-emerald-500" : "bg-red-500"
+        }`}
+      />
+    </span>
+  );
+}
 
 function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: string; size?: "lg" | "sm" }) {
   const [failed, setFailed] = useState(false);

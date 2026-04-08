@@ -116,16 +116,19 @@ class EmpresaHealth(BaseModel):
     # edit modal.
     linked_account_name: str | None = None
     # Per-channel-type breakdown so the frontend can render
-    # "Messenger ✅ Instagram ❌" badges directly on the card.
+    # "Messenger ✅ Instagram ❌ WhatsApp ✅" badges directly on the card.
+    # ``count`` lets the badge show "Instagram · 2" when one Eva account
+    # has multiple channels of the same type.
     messenger: ChannelTypeHealth = ChannelTypeHealth()
     instagram: ChannelTypeHealth = ChannelTypeHealth()
+    whatsapp: ChannelTypeHealth = ChannelTypeHealth()
 
 
 class ChannelHealthEntry(BaseModel):
     """One channel row inside the per-account health endpoint response."""
 
     id: uuid.UUID
-    channel_type: Literal["messenger", "instagram"]
+    channel_type: Literal["messenger", "instagram", "whatsapp"]
     display_name: str | None
     is_healthy: bool
     health_status_reason: str | None
@@ -138,6 +141,7 @@ class AccountChannelHealthResponse(BaseModel):
     account_id: uuid.UUID
     messenger: list[ChannelHealthEntry]
     instagram: list[ChannelHealthEntry]
+    whatsapp: list[ChannelHealthEntry] = []
 
 
 class EvaAccountForLink(BaseModel):

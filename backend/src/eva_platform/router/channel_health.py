@@ -35,6 +35,7 @@ from src.eva_platform.models import (
     EvaAgent,
     EvaInstagramChannel,
     EvaMessengerChannel,
+    EvaWhatsAppChannel,
 )
 
 router = APIRouter()
@@ -59,12 +60,15 @@ async def get_account_channel_health(
     user: User = Depends(get_current_user),
     eva_db: AsyncSession | None = Depends(get_optional_eva_db),
 ) -> AccountChannelHealthResponse:
-    """Return all Messenger + Instagram channels for an Eva account.
+    """Return all Messenger + Instagram + WhatsApp channels for an Eva account.
 
     Channels are joined via ``agents.account_id == account_id`` and
     filtered to ``is_active = TRUE``. Returns BOTH healthy and
     unhealthy channels so the modal in Eva ERP can show the full
-    inventory, not just the broken ones.
+    inventory, not just the broken ones. WhatsApp uses
+    ``is_message_ready`` which is mapped onto the ``is_healthy``
+    field of the response so the frontend can treat all three
+    channel types uniformly.
 
     If ``eva_db`` is not configured, returns 503 — the caller should
     fall back to a "status unknown" indicator. If ``eva_db`` is
@@ -96,6 +100,16 @@ async def get_account_channel_health(
             )
         )
         instagram_rows = list(ig_result.scalars().all())
+
+        wa_result = await eva_db.execute(
+            select(EvaWhatsAppChannel)
+            .join(EvaAgent, EvaAgent.id == EvaWhatsAppChannel.agent_id)
+            .where(
+                EvaAgent.account_id == account_id,
+                EvaWhatsAppChannel.is_active.is_(True),
+            )
+        )
+        whatsapp_rows = list(wa_result.scalars().all())
     except Exception as exc:
         logger.warning(
             "eva_platform.channel_health: query failed for account %s: %s",
@@ -132,10 +146,27 @@ async def get_account_channel_health(
         )
         for row in instagram_rows
     ]
+    whatsapp_entries: List[ChannelHealthEntry] = [
+        ChannelHealthEntry(
+            id=row.id,
+            channel_type="whatsapp",
+            display_name=(
+                row.verified_name
+                or row.display_phone_number
+                or row.phone_number_id
+            ),
+            # WhatsApp uses is_message_ready as the "is_healthy" signal.
+            is_healthy=bool(row.is_message_ready),
+            health_status_reason=_extract_reason(row.cached_status_data),
+            last_status_check=row.last_status_check,
+        )
+        for row in whatsapp_rows
+    ]
     return AccountChannelHealthResponse(
         account_id=account_id,
         messenger=messenger_entries,
         instagram=instagram_entries,
+        whatsapp=whatsapp_entries,
     )
 
 

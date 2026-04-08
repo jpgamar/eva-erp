@@ -47,6 +47,7 @@ def _empty_health(status: str) -> dict:
         "linked_account_name": None,
         "messenger": {"present": False, "healthy": False, "count": 0},
         "instagram": {"present": False, "healthy": False, "count": 0},
+        "whatsapp": {"present": False, "healthy": False, "count": 0},
     }
 
 
@@ -61,6 +62,9 @@ def _health(
     ig_present: bool = False,
     ig_healthy: bool = False,
     ig_count: int = 0,
+    wa_present: bool = False,
+    wa_healthy: bool = False,
+    wa_count: int = 0,
 ) -> dict:
     return {
         "status": status,
@@ -68,6 +72,7 @@ def _health(
         "linked_account_name": linked_account_name,
         "messenger": {"present": msg_present, "healthy": msg_healthy, "count": msg_count},
         "instagram": {"present": ig_present, "healthy": ig_healthy, "count": ig_count},
+        "whatsapp": {"present": wa_present, "healthy": wa_healthy, "count": wa_count},
     }
 
 
@@ -260,11 +265,12 @@ def test_compute_health_unknown_when_query_raises():
 def test_compute_health_all_healthy_when_no_unhealthy_rows():
     e1 = uuid.uuid4()
     acc1 = uuid.uuid4()
-    # Query order: account names → messenger rows → instagram rows.
+    # Query order: account names → messenger → instagram → whatsapp.
     eva_db = _FakeEvaDB([
         [_AccountRow(id=acc1, name="Test Account")],
         [_ChannelRow(is_healthy=True, account_id=acc1)],  # 1 healthy messenger
         [],  # no instagram
+        [],  # no whatsapp
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
@@ -288,6 +294,7 @@ def test_compute_health_unhealthy_when_one_channel_broken():
             _ChannelRow(is_healthy=False, account_id=acc1),
         ],
         [],
+        [],  # no whatsapp
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
@@ -312,6 +319,7 @@ def test_compute_health_counts_across_messenger_and_instagram():
             _ChannelRow(is_healthy=False, account_id=acc1),
             _ChannelRow(is_healthy=True, account_id=acc1),
         ],
+        [],  # no whatsapp
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
@@ -326,6 +334,36 @@ def test_compute_health_counts_across_messenger_and_instagram():
         ig_present=True,
         ig_healthy=False,
         ig_count=2,
+    )
+
+
+def test_compute_health_counts_whatsapp():
+    """WhatsApp channels are aggregated using is_message_ready as the
+    'healthy' signal. Round 3 follow-up.
+    """
+    e1 = uuid.uuid4()
+    acc1 = uuid.uuid4()
+    eva_db = _FakeEvaDB([
+        [_AccountRow(id=acc1, name="Acc1")],
+        [],  # no messenger
+        [],  # no instagram
+        [
+            # The channel row uses (is_message_ready, account_id) for WA.
+            _ChannelRow(is_healthy=True, account_id=acc1),
+            _ChannelRow(is_healthy=False, account_id=acc1),
+            _ChannelRow(is_healthy=True, account_id=acc1),
+        ],
+    ])
+    result = asyncio.run(
+        _compute_health_for_empresas(eva_db, {e1: acc1})
+    )
+    assert result[e1] == _health(
+        "unhealthy",
+        unhealthy_count=1,
+        linked_account_name="Acc1",
+        wa_present=True,
+        wa_healthy=False,
+        wa_count=3,
     )
 
 
@@ -344,6 +382,7 @@ def test_compute_health_partitions_per_account():
             _ChannelRow(is_healthy=False, account_id=acc2),
         ],
         [],
+        [],  # no whatsapp
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1, e2: acc2})
@@ -373,6 +412,7 @@ def test_compute_health_mixed_linked_and_not_linked():
         [_AccountRow(id=acc1, name="Acc1")],
         [_ChannelRow(is_healthy=False, account_id=acc1)],
         [],
+        [],  # no whatsapp
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1, e2: None})
@@ -398,6 +438,7 @@ def test_compute_health_account_with_no_active_channels_is_healthy():
         [_AccountRow(id=acc1, name="Empty Account")],
         [],  # no messenger
         [],  # no instagram
+        [],  # no whatsapp
     ])
     result = asyncio.run(
         _compute_health_for_empresas(eva_db, {e1: acc1})
