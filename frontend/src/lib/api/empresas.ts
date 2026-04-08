@@ -7,6 +7,13 @@ export interface PendingItem {
   title: string;
 }
 
+export type EmpresaHealthStatus = "healthy" | "unhealthy" | "unknown" | "not_linked";
+
+export interface EmpresaHealth {
+  status: EmpresaHealthStatus;
+  unhealthy_count: number;
+}
+
 export interface EmpresaListItem {
   id: string;
   name: string;
@@ -17,9 +24,12 @@ export interface EmpresaListItem {
   monthly_amount: number | null;
   payment_day: number | null;
   last_paid_date: string | null;
+  eva_account_id: string | null;
+  auto_match_attempted: boolean;
   item_count: number;
   pending_count: number;
   pending_items: PendingItem[];
+  health: EmpresaHealth;
 }
 
 export interface EmpresaItem {
@@ -47,6 +57,8 @@ export interface Empresa {
   monthly_amount: number | null;
   payment_day: number | null;
   last_paid_date: string | null;
+  eva_account_id: string | null;
+  auto_match_attempted: boolean;
   created_at: string;
   updated_at: string;
   items: EmpresaItem[];
@@ -68,6 +80,29 @@ export interface EmpresaCreate {
   monthly_amount?: number | null;
   payment_day?: number | null;
   last_paid_date?: string | null;
+  eva_account_id?: string | null;
+}
+
+// ── Channel health types (silent-channel-health plan) ──
+
+export interface ChannelHealthEntry {
+  id: string;
+  channel_type: "messenger" | "instagram";
+  display_name: string | null;
+  is_healthy: boolean;
+  health_status_reason: string | null;
+  last_status_check: string | null;
+}
+
+export interface AccountChannelHealthResponse {
+  account_id: string;
+  messenger: ChannelHealthEntry[];
+  instagram: ChannelHealthEntry[];
+}
+
+export interface EvaAccountForLink {
+  id: string;
+  name: string;
 }
 
 export interface EmpresaItemCreate {
@@ -113,4 +148,15 @@ export const empresasApi = {
   // History
   getHistory: (empresaId: string) =>
     api.get<EmpresaHistory[]>(`/empresas/${empresaId}/history`).then((r) => r.data),
+
+  // Channel health (silent-channel-health plan)
+  getAccountChannelHealth: (accountId: string) =>
+    api
+      .get<AccountChannelHealthResponse>(`/eva-platform/accounts/${accountId}/channels/health`)
+      .then((r) => r.data),
+
+  listEvaAccountsForLink: () =>
+    api
+      .get<EvaAccountForLink[]>("/eva-platform/accounts/list-for-link")
+      .then((r) => r.data),
 };

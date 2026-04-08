@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import datetime as _dt
+from typing import Literal
 from pydantic import BaseModel
 
 
@@ -23,6 +24,10 @@ class EmpresaCreate(BaseModel):
     monthly_amount: float | None = None
     payment_day: int | None = None
     last_paid_date: _dt.date | None = None
+    # Cross-DB link to an Eva customer account. NULL = not yet linked.
+    # Set automatically by the auto-match-by-name routine, or
+    # manually via the Empresa edit modal.
+    eva_account_id: uuid.UUID | None = None
 
 
 class EmpresaUpdate(BaseModel):
@@ -41,6 +46,7 @@ class EmpresaUpdate(BaseModel):
     monthly_amount: float | None = None
     payment_day: int | None = None
     last_paid_date: _dt.date | None = None
+    eva_account_id: uuid.UUID | None = None
 
 
 class EmpresaItemResponse(BaseModel):
@@ -69,10 +75,54 @@ class EmpresaResponse(BaseModel):
     monthly_amount: float | None
     payment_day: int | None
     last_paid_date: _dt.date | None
+    eva_account_id: uuid.UUID | None = None
+    auto_match_attempted: bool = False
     created_at: _dt.datetime
     updated_at: _dt.datetime
     items: list[EmpresaItemResponse] = []
     model_config = {"from_attributes": True}
+
+
+# ── Channel health (silent-channel-health plan) ──────────────────────
+
+class EmpresaHealth(BaseModel):
+    """Aggregate channel health for one Empresa.
+
+    Returned as the ``health`` field on each Empresa list item so the
+    frontend can render a status dot per card without making a
+    follow-up request per empresa.
+
+    Plan: docs/domains/integrations/instagram/plan-silent-channel-health.md
+    """
+
+    status: Literal["healthy", "unhealthy", "unknown", "not_linked"]
+    unhealthy_count: int = 0
+
+
+class ChannelHealthEntry(BaseModel):
+    """One channel row inside the per-account health endpoint response."""
+
+    id: uuid.UUID
+    channel_type: Literal["messenger", "instagram"]
+    display_name: str | None
+    is_healthy: bool
+    health_status_reason: str | None
+    last_status_check: _dt.datetime | None
+
+
+class AccountChannelHealthResponse(BaseModel):
+    """Full per-account channel health, used by the modal in Eva ERP."""
+
+    account_id: uuid.UUID
+    messenger: list[ChannelHealthEntry]
+    instagram: list[ChannelHealthEntry]
+
+
+class EvaAccountForLink(BaseModel):
+    """One row in the dropdown that links an Empresa to an Eva account."""
+
+    id: uuid.UUID
+    name: str
 
 
 class EmpresaListResponse(BaseModel):

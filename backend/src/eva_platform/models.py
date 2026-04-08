@@ -323,3 +323,58 @@ class EvaOpenclawRuntimeEvent(EvaBase):
     runtime_host_id = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+# ── Agents + channels (read-only mirrors used by the channel-health UI) ──
+
+
+class EvaAgent(EvaBase):
+    """Mirror of Eva's ``agents`` table — only the columns we need.
+
+    Used by the Empresas channel-health UI to join channel rows back
+    to an Eva account via ``account_id``. Read-only; this table is
+    NEVER targeted by ERP migrations (EvaBase keeps it out of
+    Alembic).
+    """
+
+    __tablename__ = "agents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String(255), nullable=False)
+
+
+class EvaMessengerChannel(EvaBase):
+    """Mirror of Eva's ``messenger_channels`` table.
+
+    Only the columns the channel-health endpoint needs. Read-only;
+    we never UPDATE this from Eva ERP.
+    """
+
+    __tablename__ = "messenger_channels"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), nullable=False)
+    page_id = Column(String(64), nullable=False)
+    page_name = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_healthy = Column(Boolean, nullable=False, default=True)
+    cached_status_data = Column(JSONB, nullable=True)
+    last_status_check = Column(DateTime(timezone=True), nullable=True)
+
+
+class EvaInstagramChannel(EvaBase):
+    """Mirror of Eva's ``instagram_channels`` table. Read-only."""
+
+    __tablename__ = "instagram_channels"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), nullable=False)
+    page_id = Column(String(64), nullable=False)
+    page_name = Column(String(255), nullable=True)
+    ig_id = Column(String(64), nullable=False)
+    ig_username = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_healthy = Column(Boolean, nullable=False, default=True)
+    cached_status_data = Column(JSONB, nullable=True)
+    last_status_check = Column(DateTime(timezone=True), nullable=True)

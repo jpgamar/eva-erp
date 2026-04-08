@@ -27,6 +27,18 @@ class Empresa(Base):
     monthly_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     payment_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Cross-DB link to an Eva customer account (no FK — Eva ERP and
+    # Eva live in different databases). Populated either by the
+    # auto-match-by-name routine or by the manual override in the
+    # Empresa edit modal. NULL means "not yet linked".
+    eva_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # True once the auto-match routine has run for this empresa,
+    # regardless of result. Prevents the routine from re-running on
+    # every page load (and prevents it from clobbering manual links
+    # the user cleared on purpose).
+    auto_match_attempted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
