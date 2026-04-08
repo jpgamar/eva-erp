@@ -40,10 +40,13 @@ import {
 
 import {
   empresasApi,
+  type AccountChannelHealthResponse,
   type Empresa,
   type EmpresaCreate,
+  type EmpresaHealthStatus,
   type EmpresaHistory,
   type EmpresaListItem,
+  type EvaAccountForLink,
 } from "@/lib/api/empresas";
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -89,7 +92,48 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   monthly_amount: null,
   payment_day: null,
   last_paid_date: null,
+  eva_account_id: null,
 };
+
+// ── Channel health UI helpers ──────────────────────────────────────
+
+const HEALTH_DOT_CLASS: Record<EmpresaHealthStatus, string> = {
+  healthy: "bg-emerald-500",
+  unhealthy: "bg-red-500",
+  unknown: "bg-yellow-400",
+  not_linked: "bg-muted-foreground/40",
+};
+
+const HEALTH_TOOLTIP: Record<EmpresaHealthStatus, string> = {
+  healthy: "Todos los canales operando",
+  unhealthy: "1+ canal desconectado",
+  unknown: "No se pudo verificar el estado",
+  not_linked: "Sin vincular a una cuenta de Eva",
+};
+
+function formatHealthTooltip(emp: EmpresaListItem): string {
+  if (emp.health.status === "unhealthy") {
+    const n = emp.health.unhealthy_count;
+    return n === 1 ? "1 canal desconectado" : `${n} canales desconectados`;
+  }
+  return HEALTH_TOOLTIP[emp.health.status];
+}
+
+function formatRelativeTimeSpanish(iso: string | null): string {
+  if (!iso) return "Nunca verificado";
+  const then = new Date(iso).getTime();
+  const diffMs = Date.now() - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "ahora";
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `hace ${diffHrs}h`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays === 1) return "ayer";
+  if (diffDays < 30) return `hace ${diffDays} días`;
+  const diffMonths = Math.floor(diffDays / 30);
+  return `hace ${diffMonths} ${diffMonths === 1 ? "mes" : "meses"}`;
+}
 
 function getPaymentStatus(lastPaidDate: string | null, paymentDay: number | null): "paid" | "warning" | "overdue" | null {
   if (paymentDay == null) return null;
@@ -145,6 +189,16 @@ export default function EmpresasPage() {
   // Toggling items (for optimistic UI + disable)
   const [togglingItems, setTogglingItems] = useState<Set<string>>(new Set());
 
+  // Channel health modal (silent-channel-health plan)
+  const [healthModalOpen, setHealthModalOpen] = useState(false);
+  const [healthModalEmpresa, setHealthModalEmpresa] = useState<EmpresaListItem | null>(null);
+  const [healthModalLoading, setHealthModalLoading] = useState(false);
+  const [healthModalData, setHealthModalData] = useState<AccountChannelHealthResponse | null>(null);
+
+  // Eva accounts list (for the link dropdown in the edit modal)
+  const [evaAccounts, setEvaAccounts] = useState<EvaAccountForLink[]>([]);
+  const [loadingEvaAccounts, setLoadingEvaAccounts] = useState(false);
+
   // ── Data loading ────────────────────────────────────────────────
 
   const loadEmpresas = async () => {
@@ -164,10 +218,25 @@ export default function EmpresasPage() {
 
   // ── Empresa CRUD ────────────────────────────────────────────────
 
+  const ensureEvaAccountsLoaded = async () => {
+    if (evaAccounts.length > 0 || loadingEvaAccounts) return;
+    setLoadingEvaAccounts(true);
+    try {
+      const data = await empresasApi.listEvaAccountsForLink();
+      setEvaAccounts(data);
+    } catch {
+      // Silent fall-through — the dropdown will show "no accounts"
+      setEvaAccounts([]);
+    } finally {
+      setLoadingEvaAccounts(false);
+    }
+  };
+
   const openCreateEmpresa = () => {
     setEmpresaForm(EMPTY_EMPRESA);
     setEditingEmpresaId(null);
     setEmpresaModalOpen(true);
+    void ensureEvaAccountsLoaded();
   };
 
   const openEditEmpresa = async (emp: EmpresaListItem) => {
@@ -189,11 +258,36 @@ export default function EmpresasPage() {
         monthly_amount: full.monthly_amount,
         payment_day: full.payment_day,
         last_paid_date: full.last_paid_date,
+        eva_account_id: full.eva_account_id,
       });
       setEditingEmpresaId(full.id);
       setEmpresaModalOpen(true);
+      void ensureEvaAccountsLoaded();
     } catch {
       toast.error("Error al cargar empresa");
+    }
+  };
+
+  // ── Channel health modal ────────────────────────────────────────
+
+  const openHealthModal = async (emp: EmpresaListItem) => {
+    setHealthModalEmpresa(emp);
+    setHealthModalData(null);
+    setHealthModalOpen(true);
+
+    if (emp.health.status === "not_linked" || !emp.eva_account_id) {
+      // Nothing to fetch — modal renders the "not linked" hint.
+      return;
+    }
+
+    setHealthModalLoading(true);
+    try {
+      const data = await empresasApi.getAccountChannelHealth(emp.eva_account_id);
+      setHealthModalData(data);
+    } catch {
+      toast.error("No se pudo cargar el estado de los canales");
+    } finally {
+      setHealthModalLoading(false);
     }
   };
 
@@ -342,14 +436,33 @@ export default function EmpresasPage() {
                 key={emp.id}
                 className="rounded-xl border bg-card shadow-sm flex flex-col overflow-hidden"
               >
-                {/* Status banner at top */}
-                <div className={`flex items-center justify-center gap-2 px-4 py-1.5 ${statusCfg.className}`}>
+                {/* Status banner at top — with channel-health dot */}
+                <div
+                  className={`relative flex items-center justify-center gap-2 px-4 py-1.5 ${statusCfg.className}`}
+                >
                   <span className="text-[11px] font-semibold">{statusCfg.label}</span>
                   {ballCfg && (
                     <span className="inline-flex items-center gap-0.5 text-[11px] opacity-80">
                       · <ballCfg.icon className="h-3 w-3" /> {ballCfg.label}
                     </span>
                   )}
+                  {/* Channel-health status dot (silent-channel-health plan) */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void openHealthModal(emp);
+                    }}
+                    title={formatHealthTooltip(emp)}
+                    aria-label={formatHealthTooltip(emp)}
+                    data-testid={`empresa-health-dot-${emp.id}`}
+                    data-status={emp.health.status}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full ring-1 ring-white/30 hover:ring-white/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-white/80"
+                  >
+                    <span
+                      className={`block h-2.5 w-2.5 rounded-full ${HEALTH_DOT_CLASS[emp.health.status]}`}
+                    />
+                  </button>
                 </div>
 
                 {/* Logo + name */}
@@ -583,6 +696,40 @@ export default function EmpresasPage() {
               </div>
             </div>
 
+            {/* Linked Eva Account (silent-channel-health plan) */}
+            <div>
+              <label className="text-sm font-medium">Cuenta de Eva vinculada</label>
+              <Select
+                value={empresaForm.eva_account_id ?? "_none"}
+                onValueChange={(v) =>
+                  setEmpresaForm({
+                    ...empresaForm,
+                    eva_account_id: v === "_none" ? null : v,
+                  })
+                }
+              >
+                <SelectTrigger data-testid="empresa-eva-account-select">
+                  <SelectValue
+                    placeholder={
+                      loadingEvaAccounts ? "Cargando cuentas..." : "Sin vincular"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">Sin vincular</SelectItem>
+                  {evaAccounts.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id}>
+                      {acc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Vincula esta empresa con su cuenta correspondiente en Eva para
+                ver el estado de los canales en tiempo real.
+              </p>
+            </div>
+
             {/* Summary note */}
             <div>
               <label className="text-sm font-medium">Nota de seguimiento</label>
@@ -764,6 +911,100 @@ export default function EmpresasPage() {
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {entry.changed_by_name || "Sistema"} · {formatRelativeTime(entry.changed_at)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Channel Health Modal (silent-channel-health plan) ───────── */}
+      <Dialog open={healthModalOpen} onOpenChange={setHealthModalOpen}>
+        <DialogContent
+          className="max-w-lg max-h-[80vh] overflow-y-auto"
+          data-testid="empresa-health-modal"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              Estado de canales — {healthModalEmpresa?.name ?? ""}
+            </DialogTitle>
+          </DialogHeader>
+
+          {healthModalEmpresa?.health.status === "not_linked" || !healthModalEmpresa?.eva_account_id ? (
+            <div className="space-y-3 py-2">
+              <p className="text-sm text-muted-foreground">
+                Esta empresa no está vinculada a una cuenta de Eva. Edita la
+                empresa para vincularla y poder ver el estado de sus canales.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setHealthModalOpen(false);
+                  if (healthModalEmpresa) {
+                    void openEditEmpresa(healthModalEmpresa);
+                  }
+                }}
+              >
+                Editar empresa
+              </Button>
+            </div>
+          ) : healthModalLoading ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Cargando...
+            </p>
+          ) : !healthModalData ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No se pudo cargar el estado de los canales.
+            </p>
+          ) : healthModalData.messenger.length === 0 && healthModalData.instagram.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Esta cuenta de Eva no tiene canales activos configurados.
+            </p>
+          ) : (
+            <div className="space-y-4 py-2">
+              {[...healthModalData.messenger, ...healthModalData.instagram].map((ch) => (
+                <div
+                  key={ch.id}
+                  className="border rounded-lg p-3 space-y-1"
+                  data-testid={`channel-row-${ch.id}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full ${
+                          ch.is_healthy ? "bg-emerald-500" : "bg-red-500"
+                        }`}
+                      />
+                      <span className="font-medium text-sm truncate">
+                        {ch.display_name ?? "(sin nombre)"}
+                      </span>
+                      <span className="text-[11px] uppercase text-muted-foreground">
+                        {ch.channel_type}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                        ch.is_healthy
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {ch.is_healthy ? "Operando" : "Desconectado"}
+                    </span>
+                  </div>
+                  {!ch.is_healthy && ch.health_status_reason && (
+                    <p
+                      className="text-xs text-muted-foreground italic"
+                      title={ch.health_status_reason}
+                    >
+                      {ch.health_status_reason.length > 200
+                        ? `${ch.health_status_reason.slice(0, 200)}...`
+                        : ch.health_status_reason}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Verificado: {formatRelativeTimeSpanish(ch.last_status_check)}
                   </p>
                 </div>
               ))}
