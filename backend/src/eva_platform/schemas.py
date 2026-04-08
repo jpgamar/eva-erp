@@ -455,15 +455,23 @@ class RuntimeHostResponse(BaseModel):
     region: str
     host_class: str
     state: str
-    public_ip: str | None
+    public_ip: str | None = None
     vcpu: int
     ram_mb: int
     disk_gb: int
     max_tenants: int
     tenant_count: int
     saturation: float
-    last_heartbeat_at: _dt.datetime | None
-    created_at: _dt.datetime
+    last_heartbeat_at: _dt.datetime | None = None
+    # ``created_at`` is intentionally Optional (and defaults to None)
+    # because Eva's ``OpenclawRuntimeMonitoringHostResponse`` (the
+    # upstream schema this proxy unmarshals from) does NOT include
+    # the field. Marking it required caused the
+    # /eva-platform/infrastructure/openclaw/overview endpoint to
+    # 500 with ValidationError, which surfaced as
+    # "Failed to load OpenClaw health" toasts on every page load
+    # in Eva ERP. Lesson learned 2026-04-08.
+    created_at: _dt.datetime | None = None
     model_config = {"from_attributes": True}
 
 
