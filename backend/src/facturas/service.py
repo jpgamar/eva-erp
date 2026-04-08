@@ -48,8 +48,9 @@ def build_facturapi_payload(data: FacturaCreate) -> dict:
         "payment_form": data.payment_form,
         "payment_method": data.payment_method,
     }
-    if data.notes:
-        payload["comments"] = data.notes
+    # Note: Facturapi no longer accepts the "comments" field.
+    # data.notes is internal metadata (e.g. "Eva billing source=subscription_invoice")
+    # and is not needed on the CFDI itself.
     return payload
 
 
