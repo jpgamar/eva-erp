@@ -941,47 +941,87 @@ export default function EmpresasPage() {
                 Datos fiscales y contacto
               </button>
               <div className="hidden mt-3 space-y-3">
-                {/* Constancia upload */}
-                <div className="flex items-center gap-3">
-                  <label className="relative cursor-pointer">
-                    <input
-                      type="file"
-                      accept=".pdf,image/png,image/jpeg,image/webp"
-                      className="sr-only"
-                      disabled={extractingConstancia || !editingEmpresaId}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !editingEmpresaId) return;
-                        setExtractingConstancia(true);
-                        try {
-                          const result = await empresasApi.extractConstancia(editingEmpresaId, file);
-                          const ext = result.extracted;
-                          setEmpresaForm((prev) => ({
-                            ...prev,
-                            rfc: ext.rfc || prev.rfc,
-                            razon_social: ext.legal_name || prev.razon_social,
-                            regimen_fiscal: ext.tax_regime || prev.regimen_fiscal,
-                            fiscal_postal_code: ext.postal_code || prev.fiscal_postal_code,
-                            person_type: ext.person_type || prev.person_type,
-                          }));
-                          if (result.warnings.length > 0) {
-                            toast.warning(result.warnings.join(". "));
-                          } else {
-                            toast.success("Datos fiscales extraidos de la constancia");
-                          }
-                        } catch {
-                          toast.error("Error al extraer datos de la constancia");
-                        } finally {
-                          setExtractingConstancia(false);
-                          e.target.value = "";
+                {/* Constancia drag-and-drop upload */}
+                <div
+                  className={`relative rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
+                    extractingConstancia
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50"
+                  }`}
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-primary", "bg-primary/5"); }}
+                  onDragLeave={(e) => { e.currentTarget.classList.remove("border-primary", "bg-primary/5"); }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove("border-primary", "bg-primary/5");
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file || !editingEmpresaId || extractingConstancia) return;
+                    setExtractingConstancia(true);
+                    try {
+                      const result = await empresasApi.extractConstancia(editingEmpresaId, file);
+                      const ext = result.extracted;
+                      setEmpresaForm((prev) => ({
+                        ...prev,
+                        rfc: ext.rfc || prev.rfc,
+                        razon_social: ext.legal_name || prev.razon_social,
+                        regimen_fiscal: ext.tax_regime || prev.regimen_fiscal,
+                        fiscal_postal_code: ext.postal_code || prev.fiscal_postal_code,
+                        person_type: ext.person_type || prev.person_type,
+                      }));
+                      if (result.warnings.length > 0) {
+                        toast.warning(result.warnings.join(". "));
+                      } else {
+                        toast.success("Datos fiscales extraidos de la constancia");
+                      }
+                    } catch {
+                      toast.error("Error al extraer datos de la constancia");
+                    } finally {
+                      setExtractingConstancia(false);
+                    }
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept=".pdf,image/png,image/jpeg,image/webp"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={extractingConstancia || !editingEmpresaId}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !editingEmpresaId) return;
+                      setExtractingConstancia(true);
+                      try {
+                        const result = await empresasApi.extractConstancia(editingEmpresaId, file);
+                        const ext = result.extracted;
+                        setEmpresaForm((prev) => ({
+                          ...prev,
+                          rfc: ext.rfc || prev.rfc,
+                          razon_social: ext.legal_name || prev.razon_social,
+                          regimen_fiscal: ext.tax_regime || prev.regimen_fiscal,
+                          fiscal_postal_code: ext.postal_code || prev.fiscal_postal_code,
+                          person_type: ext.person_type || prev.person_type,
+                        }));
+                        if (result.warnings.length > 0) {
+                          toast.warning(result.warnings.join(". "));
+                        } else {
+                          toast.success("Datos fiscales extraidos de la constancia");
                         }
-                      }}
-                    />
-                    <span className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors">
-                      {extractingConstancia ? "Extrayendo..." : "Subir constancia"}
-                    </span>
-                  </label>
-                  <span className="text-xs text-muted-foreground">PDF o imagen de la constancia de situacion fiscal</span>
+                      } catch {
+                        toast.error("Error al extraer datos de la constancia");
+                      } finally {
+                        setExtractingConstancia(false);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <div className="pointer-events-none space-y-1">
+                    <p className="text-sm font-medium">
+                      {extractingConstancia ? "Extrayendo datos fiscales..." : "Arrastra tu constancia aqui"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {extractingConstancia
+                        ? "Analizando documento con IA..."
+                        : "o haz clic para seleccionar archivo (PDF o imagen)"}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
