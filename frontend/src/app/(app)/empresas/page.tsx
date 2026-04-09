@@ -94,6 +94,9 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   rfc: null,
   razon_social: null,
   regimen_fiscal: null,
+  fiscal_postal_code: null,
+  cfdi_use: "G03",
+  person_type: null,
   status: "operativo",
   ball_on: null,
   summary_note: null,
@@ -179,6 +182,7 @@ export default function EmpresasPage() {
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
   const [empresaForm, setEmpresaForm] = useState<EmpresaCreate>(EMPTY_EMPRESA);
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
+  const [extractingConstancia, setExtractingConstancia] = useState(false);
 
   // History modal
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -263,6 +267,9 @@ export default function EmpresasPage() {
         rfc: full.rfc,
         razon_social: full.razon_social,
         regimen_fiscal: full.regimen_fiscal,
+        fiscal_postal_code: full.fiscal_postal_code,
+        cfdi_use: full.cfdi_use,
+        person_type: full.person_type,
         status: full.status,
         ball_on: full.ball_on,
         summary_note: full.summary_note,
@@ -934,34 +941,50 @@ export default function EmpresasPage() {
                 Datos fiscales y contacto
               </button>
               <div className="hidden mt-3 space-y-3">
+                {/* Constancia upload */}
+                <div className="flex items-center gap-3">
+                  <label className="relative cursor-pointer">
+                    <input
+                      type="file"
+                      accept=".pdf,image/png,image/jpeg,image/webp"
+                      className="sr-only"
+                      disabled={extractingConstancia || !editingEmpresaId}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !editingEmpresaId) return;
+                        setExtractingConstancia(true);
+                        try {
+                          const result = await empresasApi.extractConstancia(editingEmpresaId, file);
+                          const ext = result.extracted;
+                          setEmpresaForm((prev) => ({
+                            ...prev,
+                            rfc: ext.rfc || prev.rfc,
+                            razon_social: ext.legal_name || prev.razon_social,
+                            regimen_fiscal: ext.tax_regime || prev.regimen_fiscal,
+                            fiscal_postal_code: ext.postal_code || prev.fiscal_postal_code,
+                            person_type: ext.person_type || prev.person_type,
+                          }));
+                          if (result.warnings.length > 0) {
+                            toast.warning(result.warnings.join(". "));
+                          } else {
+                            toast.success("Datos fiscales extraidos de la constancia");
+                          }
+                        } catch {
+                          toast.error("Error al extraer datos de la constancia");
+                        } finally {
+                          setExtractingConstancia(false);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <span className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors">
+                      {extractingConstancia ? "Extrayendo..." : "Subir constancia"}
+                    </span>
+                  </label>
+                  <span className="text-xs text-muted-foreground">PDF o imagen de la constancia de situacion fiscal</span>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-sm font-medium">Industria</label>
-                    <Input
-                      value={empresaForm.industry ?? ""}
-                      onChange={(e) =>
-                        setEmpresaForm({ ...empresaForm, industry: e.target.value || null })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Email</label>
-                    <Input
-                      value={empresaForm.email ?? ""}
-                      onChange={(e) =>
-                        setEmpresaForm({ ...empresaForm, email: e.target.value || null })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Teléfono</label>
-                    <Input
-                      value={empresaForm.phone ?? ""}
-                      onChange={(e) =>
-                        setEmpresaForm({ ...empresaForm, phone: e.target.value || null })
-                      }
-                    />
-                  </div>
                   <div>
                     <label className="text-sm font-medium">RFC</label>
                     <Input
@@ -973,7 +996,7 @@ export default function EmpresasPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Razón Social</label>
+                    <label className="text-sm font-medium">Razon Social</label>
                     <Input
                       value={empresaForm.razon_social ?? ""}
                       onChange={(e) =>
@@ -982,17 +1005,80 @@ export default function EmpresasPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Régimen Fiscal</label>
+                    <label className="text-sm font-medium">Regimen Fiscal</label>
                     <Input
                       value={empresaForm.regimen_fiscal ?? ""}
                       onChange={(e) =>
                         setEmpresaForm({ ...empresaForm, regimen_fiscal: e.target.value || null })
                       }
+                      placeholder="601"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">CP Fiscal</label>
+                    <Input
+                      value={empresaForm.fiscal_postal_code ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, fiscal_postal_code: e.target.value || null })
+                      }
+                      maxLength={5}
+                      placeholder="11560"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Uso CFDI</label>
+                    <Input
+                      value={empresaForm.cfdi_use ?? "G03"}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, cfdi_use: e.target.value || null })
+                      }
+                      placeholder="G03"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Tipo de persona</label>
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                      value={empresaForm.person_type ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, person_type: e.target.value || null })
+                      }
+                    >
+                      <option value="">Sin definir</option>
+                      <option value="persona_moral">Persona Moral</option>
+                      <option value="persona_fisica">Persona Fisica</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Email</label>
+                    <Input
+                      value={empresaForm.email ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, email: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Telefono</label>
+                    <Input
+                      value={empresaForm.phone ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, phone: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Industria</label>
+                    <Input
+                      value={empresaForm.industry ?? ""}
+                      onChange={(e) =>
+                        setEmpresaForm({ ...empresaForm, industry: e.target.value || null })
+                      }
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Dirección</label>
+                  <label className="text-sm font-medium">Direccion</label>
                   <Textarea
                     value={empresaForm.address ?? ""}
                     onChange={(e) =>

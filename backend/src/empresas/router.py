@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import Boolean, func, select, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +13,7 @@ from src.empresas.models import Empresa, EmpresaHistory, EmpresaItem
 from src.empresas.schemas import (
     CheckoutLinkRequest,
     CheckoutLinkResponse,
+    ConstanciaExtractResponse,
     EmpresaCreate,
     EmpresaHistoryResponse,
     EmpresaItemCreate,
@@ -645,3 +646,28 @@ async def create_portal_link(
         return PortalLinkResponse(portal_url=url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{empresa_id}/extract-constancia", response_model=ConstanciaExtractResponse)
+async def extract_constancia(
+    empresa_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    empresa = await db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in ("application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF o imagenes (PNG, JPG)")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="El archivo no puede ser mayor a 10 MB")
+
+    from src.empresas.constancia_service import extract_from_file
+
+    result = await extract_from_file(file_bytes, content_type)
+    return ConstanciaExtractResponse(**result)

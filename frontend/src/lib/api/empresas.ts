@@ -70,6 +70,9 @@ export interface Empresa {
   rfc: string | null;
   razon_social: string | null;
   regimen_fiscal: string | null;
+  fiscal_postal_code: string | null;
+  cfdi_use: string | null;
+  person_type: string | null;
   status: string;
   ball_on: string | null;
   summary_note: string | null;
@@ -83,6 +86,18 @@ export interface Empresa {
   items: EmpresaItem[];
 }
 
+export interface ConstanciaExtractResponse {
+  extracted: {
+    rfc: string | null;
+    legal_name: string | null;
+    tax_regime: string | null;
+    postal_code: string | null;
+    person_type: string | null;
+  };
+  warnings: string[];
+  source: string;
+}
+
 export interface EmpresaCreate {
   name: string;
   logo_url?: string | null;
@@ -93,6 +108,9 @@ export interface EmpresaCreate {
   rfc?: string | null;
   razon_social?: string | null;
   regimen_fiscal?: string | null;
+  fiscal_postal_code?: string | null;
+  cfdi_use?: string | null;
+  person_type?: string | null;
   status?: string;
   ball_on?: string | null;
   summary_note?: string | null;
@@ -186,4 +204,14 @@ export const empresasApi = {
 
   createPortalLink: (empresaId: string) =>
     api.post<{ portal_url: string }>(`/empresas/${empresaId}/portal-link`).then((r) => r.data),
+
+  extractConstancia: (empresaId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api
+      .post<ConstanciaExtractResponse>(`/empresas/${empresaId}/extract-constancia`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
 };

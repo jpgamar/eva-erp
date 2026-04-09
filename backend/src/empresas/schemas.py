@@ -20,6 +20,9 @@ class EmpresaCreate(BaseModel):
     rfc: str | None = None
     razon_social: str | None = None
     regimen_fiscal: str | None = None
+    fiscal_postal_code: str | None = None
+    cfdi_use: str | None = "G03"
+    person_type: str | None = None
     status: str = "operativo"
     ball_on: str | None = None
     summary_note: str | None = None
@@ -42,6 +45,9 @@ class EmpresaUpdate(BaseModel):
     rfc: str | None = None
     razon_social: str | None = None
     regimen_fiscal: str | None = None
+    fiscal_postal_code: str | None = None
+    cfdi_use: str | None = None
+    person_type: str | None = None
     status: str | None = None
     ball_on: str | None = None
     summary_note: str | None = None
@@ -71,6 +77,9 @@ class EmpresaResponse(BaseModel):
     rfc: str | None
     razon_social: str | None
     regimen_fiscal: str | None
+    fiscal_postal_code: str | None = None
+    cfdi_use: str | None = None
+    person_type: str | None = None
     status: str
     ball_on: str | None
     summary_note: str | None
@@ -213,3 +222,19 @@ class CheckoutLinkResponse(BaseModel):
 
 class PortalLinkResponse(BaseModel):
     portal_url: str
+
+
+# ── Constancia Extraction ───────────────────────────────────────────
+
+class ConstanciaExtractedFields(BaseModel):
+    rfc: str | None = None
+    legal_name: str | None = None
+    tax_regime: str | None = None
+    postal_code: str | None = None
+    person_type: str | None = None
+
+
+class ConstanciaExtractResponse(BaseModel):
+    extracted: ConstanciaExtractedFields = Field(default_factory=ConstanciaExtractedFields)
+    warnings: list[str] = Field(default_factory=list)
+    source: str = "unknown"
