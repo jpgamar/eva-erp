@@ -209,8 +209,22 @@ class EmpresaHistoryResponse(BaseModel):
 
 # ── Billing / Checkout ──────────────────────────────────────────────
 
+class PreviewCheckoutRequest(BaseModel):
+    amount_mxn: Decimal = Field(..., gt=0, description="Base amount in MXN before IVA (e.g., 2000.00)")
+
+
+class PreviewCheckoutResponse(BaseModel):
+    retention_applicable: bool
+    base_subtotal_minor: int
+    iva_minor: int
+    isr_retention_minor: int
+    iva_retention_minor: int
+    payable_total_minor: int
+    stripe_charges_tax: bool
+
+
 class CheckoutLinkRequest(BaseModel):
-    amount_mxn: Decimal = Field(..., gt=0, description="Monthly amount in MXN (e.g., 2000.00)")
+    amount_mxn: Decimal = Field(..., gt=0, description="Base amount in MXN before IVA (e.g., 2000.00)")
     description: str = Field(default="", max_length=500)
     interval: Literal["month", "year"] = "month"
     recipient_email: EmailStr
@@ -218,6 +232,7 @@ class CheckoutLinkRequest(BaseModel):
 
 class CheckoutLinkResponse(BaseModel):
     checkout_url: str
+    quote: PreviewCheckoutResponse
 
 
 class PortalLinkResponse(BaseModel):

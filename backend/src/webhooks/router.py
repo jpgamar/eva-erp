@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -11,6 +12,11 @@ from sqlalchemy import select
 
 from src.common.config import settings
 from src.common.database import async_sessionmaker, engine
+from src.eva_billing.service import (
+    _compute_quote,
+    is_fiscal_complete,
+    resolve_retention_applicable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +69,13 @@ async def stripe_webhook(request: Request):
         logger.warning("Webhook %s missing empresa_id in metadata", event_type)
         return {"received": True, "handled": False}
 
+    # Session 1: Handle subscription status updates (synchronous, returns 200 to Stripe)
     async with async_sessionmaker(engine)() as db:
         try:
             if event_type == "checkout.session.completed":
                 await _handle_checkout_completed(db, empresa_id, data_object)
             elif event_type == "invoice.paid":
-                await _handle_invoice_paid(db, empresa_id, data_object, subscription_metadata)
+                await _handle_invoice_paid_status(db, empresa_id, data_object)
             elif event_type == "invoice.payment_failed":
                 await _handle_payment_failed(db, empresa_id)
             elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
@@ -77,8 +84,13 @@ async def stripe_webhook(request: Request):
         except Exception:
             logger.exception("Error handling webhook %s for empresa %s", event_type, empresa_id)
             await db.rollback()
-            # Re-raise so Stripe gets a 500 and retries the event
             raise HTTPException(status_code=500, detail="Webhook processing failed")
+
+    # Session 2: Background CFDI stamping for invoice.paid (separate DB session)
+    if event_type == "invoice.paid":
+        asyncio.create_task(
+            _stamp_cfdi_background(empresa_id, data_object, subscription_metadata)
+        )
 
     return {"received": True, "handled": True}
 
@@ -111,20 +123,15 @@ async def _handle_checkout_completed(db, empresa_id: str, session: dict):
     logger.info("Empresa %s subscription activated: %s", empresa.name, subscription_id)
 
 
-async def _handle_invoice_paid(db, empresa_id: str, invoice: dict, subscription_metadata: dict):
-    """Recurring payment succeeded — stamp CFDI and send email."""
+async def _handle_invoice_paid_status(db, empresa_id: str, invoice: dict):
+    """Update subscription period on invoice.paid (CFDI handled in background)."""
     from src.empresas.models import Empresa
-    from src.facturas.models import Factura
-    from src.facturas.schemas import FacturaCreate, FacturaLineItem
-    from src.eva_billing.models import EvaBillingRecord
-    from src.eva_billing.service import EvaBillingService, EvaBillingCustomer
 
     empresa = await db.get(Empresa, empresa_id)
     if not empresa:
         logger.warning("Empresa %s not found for invoice.paid", empresa_id)
         return
 
-    # Update period
     sub_id = invoice.get("subscription")
     if sub_id:
         stripe.api_key = settings.eva_stripe_secret_key
@@ -140,146 +147,150 @@ async def _handle_invoice_paid(db, empresa_id: str, invoice: dict, subscription_
         except Exception:
             logger.exception("Failed to update subscription period for empresa %s", empresa_id)
 
-    # Check idempotency — don't re-stamp for the same invoice
-    stripe_invoice_id = invoice.get("id")
-    existing = await db.scalar(
-        select(EvaBillingRecord).where(EvaBillingRecord.stripe_invoice_id == stripe_invoice_id).limit(1)
+
+async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_metadata: dict):
+    """Stamp CFDI in a separate DB session (fire-and-forget from webhook).
+
+    If stamping fails, logs the error. Admin can re-stamp from /facturas.
+    """
+    from src.empresas.models import Empresa
+    from src.eva_billing.models import EvaBillingRecord
+    from src.eva_billing.schemas import (
+        EvaBillingCustomer,
+        EvaBillingStampCharge,
+        EvaBillingStampRequest,
+        EvaBillingStampSource,
     )
-    if existing:
-        logger.info("Invoice %s already processed for empresa %s", stripe_invoice_id, empresa.name)
-        return
+    from src.eva_billing.service import EvaBillingService
 
-    # Check fiscal info
-    if not empresa.rfc or not empresa.razon_social or not empresa.regimen_fiscal:
-        logger.warning("Skipping CFDI for empresa %s — fiscal info incomplete (rfc=%s)", empresa.name, empresa.rfc)
-        return
+    stripe_invoice_id = invoice.get("id")
 
-    # Stamp CFDI
-    amount_total = int(invoice.get("total") or invoice.get("amount_paid") or 0)
-    description = subscription_metadata.get("description") or f"Servicio EvaAI — {empresa.name}"
-    recipient_emails = [e.strip().lower() for e in (empresa.billing_recipient_emails or []) if isinstance(e, str) and e.strip()]
-    if not recipient_emails and empresa.email:
-        recipient_emails = [empresa.email.strip().lower()]
+    async with async_sessionmaker(engine)() as db:
+        try:
+            empresa = await db.get(Empresa, empresa_id)
+            if not empresa:
+                logger.warning("CFDI background: Empresa %s not found", empresa_id)
+                return
 
-    # Determine if retention applies (persona moral = regimen 601)
-    is_persona_moral = empresa.regimen_fiscal in ("601", "603", "610", "620", "622", "623", "624", "628")
-    base_subtotal_minor = amount_total  # For non-retention, base = total
+            # Check idempotency
+            existing = await db.scalar(
+                select(EvaBillingRecord)
+                .where(EvaBillingRecord.stripe_invoice_id == stripe_invoice_id)
+                .limit(1)
+            )
+            if existing:
+                logger.info("CFDI background: Invoice %s already processed for empresa %s", stripe_invoice_id, empresa.name)
+                return
 
-    if is_persona_moral:
-        # Reverse-compute base from payable total (same as Eva billing)
-        from decimal import Decimal, ROUND_HALF_UP
-        factor = (Decimal("1.00") + Decimal("0.16") - Decimal("0.0125") - Decimal("0.106667")).quantize(
-            Decimal("0.000001"), rounding=ROUND_HALF_UP
-        )
-        base_subtotal_minor = int((Decimal(amount_total) / factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            # Determine retention from metadata (preferred) or empresa fields (legacy)
+            meta_retention = subscription_metadata.get("retention_applicable")
+            meta_base = subscription_metadata.get("base_subtotal_minor")
 
-    try:
-        customer = EvaBillingCustomer(
-            legal_name=empresa.razon_social or empresa.name,
-            tax_id=empresa.rfc,
-            tax_regime=empresa.regimen_fiscal or "601",
-            postal_code="11560",  # Default — should be on empresa model eventually
-            cfdi_use="G03",
-            person_type="persona_moral" if is_persona_moral else "persona_fisica",
-        )
+            if meta_retention is not None and meta_base is not None:
+                # New path: metadata stored by create_checkout_session
+                retention_applicable = meta_retention in (True, "True", "true")
+                base_subtotal_minor = int(meta_base)
+            else:
+                # Legacy path: infer from empresa fields
+                retention = resolve_retention_applicable(empresa.person_type, empresa.regimen_fiscal)
+                if retention is None:
+                    logger.warning(
+                        "CFDI background: Cannot determine retention for empresa %s (person_type=%s, regimen=%s). Skipping CFDI.",
+                        empresa.name, empresa.person_type, empresa.regimen_fiscal,
+                    )
+                    return
+                retention_applicable = retention
+                amount_total = int(invoice.get("total") or invoice.get("amount_paid") or 0)
+                if retention_applicable:
+                    # Reverse-compute base from payable total
+                    from decimal import Decimal, ROUND_HALF_UP
+                    from src.eva_billing.service import IVA_RATE, ISR_RETENTION_RATE, IVA_RETENTION_RATE
+                    factor = (Decimal("1.00") + IVA_RATE - ISR_RETENTION_RATE - IVA_RETENTION_RATE).quantize(
+                        Decimal("0.000001"), rounding=ROUND_HALF_UP
+                    )
+                    base_subtotal_minor = int(
+                        (Decimal(amount_total) / factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                    )
+                else:
+                    base_subtotal_minor = amount_total
 
-        svc = EvaBillingService()
-        factura_data = FacturaCreate(
-            customer_name=customer.legal_name,
-            customer_rfc=customer.tax_id,
-            customer_tax_system=customer.tax_regime,
-            customer_zip=customer.postal_code,
-            use=customer.cfdi_use,
-            payment_form="04",  # Tarjeta de credito
-            payment_method="PUE",
-            line_items=[
-                FacturaLineItem(
-                    product_key="81112100",
-                    description=description,
-                    quantity=1,
-                    unit_price=float(base_subtotal_minor) / 100,
-                    tax_rate=0.16,
-                    isr_retention=0.0125 if is_persona_moral else None,
-                    iva_retention=0.106667 if is_persona_moral else None,
+            # Check fiscal completeness — skip CFDI if incomplete
+            if not is_fiscal_complete(
+                empresa.rfc, empresa.razon_social, empresa.regimen_fiscal,
+                empresa.fiscal_postal_code, empresa.cfdi_use, empresa.person_type,
+            ):
+                logger.warning(
+                    "CFDI background: Fiscal info incomplete for empresa %s (rfc=%s). Skipping CFDI.",
+                    empresa.name, empresa.rfc,
                 )
-            ],
-            currency="MXN",
-            account_id=empresa.id,
-        )
+                return
 
-        from src.facturas import service as facturapi_svc
-        payload = facturapi_svc.build_facturapi_payload(factura_data)
-        api_result = await facturapi_svc.create_invoice(payload)
+            # Compute quote using centralized logic
+            quote = _compute_quote(base_subtotal_minor, retention_applicable=retention_applicable)
+            description = subscription_metadata.get("description") or f"Servicio EvaAI — {empresa.name}"
+            sub_id = invoice.get("subscription")
 
-        # Create Factura record
-        factura = Factura(
-            facturapi_id=api_result["id"],
-            cfdi_uuid=api_result.get("uuid"),
-            customer_name=customer.legal_name,
-            customer_rfc=customer.tax_id,
-            customer_tax_system=customer.tax_regime,
-            customer_zip=customer.postal_code,
-            use=customer.cfdi_use,
-            payment_form="04",
-            payment_method="PUE",
-            line_items_json=[],
-            subtotal=float(base_subtotal_minor) / 100,
-            tax=float(base_subtotal_minor) * 0.16 / 100,
-            total=float(amount_total) / 100,
-            currency="MXN",
-            status=api_result.get("status", "valid"),
-            issued_at=datetime.now(timezone.utc),
-        )
-        db.add(factura)
-        await db.flush()
+            recipient_emails = [
+                e.strip().lower() for e in (empresa.billing_recipient_emails or [])
+                if isinstance(e, str) and e.strip()
+            ]
+            if not recipient_emails and empresa.email:
+                recipient_emails = [empresa.email.strip().lower()]
 
-        # Create billing record
-        record = EvaBillingRecord(
-            account_id=empresa.id,  # Use empresa_id as account_id for ERP custom deals
-            source_type="subscription_invoice",
-            idempotency_key=f"erp-deal:{empresa_id}:{stripe_invoice_id}",
-            stripe_invoice_id=stripe_invoice_id,
-            stripe_payment_intent_id=invoice.get("payment_intent"),
-            stripe_subscription_id=sub_id,
-            stripe_customer_id=invoice.get("customer"),
-            factura_id=factura.id,
-            status="issued",
-            recipient_email=recipient_emails[0] if recipient_emails else None,
-            currency="MXN",
-            total=float(amount_total) / 100,
-            metadata_json={
-                "source": "erp_custom_deal",
-                "empresa_id": empresa_id,
-                "description": description,
-                "recipient_emails": recipient_emails,
-            },
-        )
-        db.add(record)
-        await db.flush()
+            # Resolve person_type for EvaBillingCustomer
+            person_type = empresa.person_type
+            if not person_type:
+                person_type = "persona_moral" if retention_applicable else "persona_fisica"
 
-        # Send email with attachments
-        from decimal import Decimal as Dec
-        email_status, email_error = await svc._send_invoice_email(
-            recipient_emails=recipient_emails,
-            customer=customer,
-            factura=factura,
-            total=Dec(str(float(amount_total) / 100)),
-        )
-        record.email_status = email_status
-        record.email_error = email_error
-        if email_status == "sent":
-            record.email_sent_at = datetime.now(timezone.utc)
-            record.status = "email_sent"
-        db.add(record)
-        await db.flush()
+            stamp_request = EvaBillingStampRequest(
+                account_id=empresa.id,
+                owner_email=recipient_emails[0] if recipient_emails else "no-reply@goeva.ai",
+                recipient_emails=recipient_emails,
+                idempotency_key=f"erp-deal:{empresa_id}:{stripe_invoice_id}",
+                source=EvaBillingStampSource(
+                    type="subscription_invoice",
+                    stripe_invoice_id=stripe_invoice_id,
+                    stripe_payment_intent_id=invoice.get("payment_intent"),
+                    stripe_subscription_id=sub_id,
+                    stripe_customer_id=invoice.get("customer"),
+                ),
+                customer=EvaBillingCustomer(
+                    legal_name=empresa.razon_social or empresa.name,
+                    tax_id=empresa.rfc,
+                    tax_regime=empresa.regimen_fiscal,
+                    postal_code=empresa.fiscal_postal_code,
+                    cfdi_use=empresa.cfdi_use,
+                    person_type=person_type,
+                ),
+                charge=EvaBillingStampCharge(
+                    currency="MXN",
+                    description=description,
+                    payable_total_minor=quote.payable_total_minor,
+                    base_subtotal_minor=quote.base_subtotal_minor,
+                    payment_form="04",
+                    payment_method="PUE",
+                    retention_applicable=retention_applicable,
+                ),
+            )
 
-        logger.info(
-            "CFDI stamped for empresa %s: uuid=%s, email=%s",
-            empresa.name, factura.cfdi_uuid, email_status,
-        )
+            svc = EvaBillingService()
+            result = await svc.stamp(db, stamp_request)
+            await db.commit()
 
-    except Exception:
-        logger.exception("Failed to stamp CFDI for empresa %s invoice %s", empresa.name, stripe_invoice_id)
+            logger.info(
+                "CFDI stamped for empresa %s: uuid=%s, email=%s",
+                empresa.name, result.cfdi_uuid, result.email_status,
+            )
+
+        except Exception:
+            logger.exception(
+                "CFDI background: Failed to stamp for empresa %s invoice %s",
+                empresa_id, stripe_invoice_id,
+            )
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
 
 async def _handle_payment_failed(db, empresa_id: str):

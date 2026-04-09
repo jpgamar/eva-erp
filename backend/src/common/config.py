@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     eva_stripe_secret_key: str = ""
     eva_stripe_webhook_secret: str = ""
     stripe_webhook_secret_erp: str = ""
+    stripe_tax_enabled: bool = True
     stripe_reconciliation_enabled: bool = True
     stripe_reconciliation_interval_seconds: int = 86400
     finance_kpi_source: str = "lifecycle"

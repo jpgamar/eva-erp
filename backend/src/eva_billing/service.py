@@ -35,6 +35,51 @@ ISR_RETENTION_RATE = Decimal("0.0125")
 IVA_RETENTION_RATE = Decimal("0.106667")
 SERVICE_PRODUCT_KEY = "81112100"
 
+# Regimen fiscal codes that indicate persona moral
+PERSONA_MORAL_REGIMENES = frozenset({"601", "603", "610", "620", "622", "623", "624", "628"})
+
+
+def resolve_retention_applicable(
+    person_type: str | None,
+    regimen_fiscal: str | None,
+) -> bool | None:
+    """Determine if IVA/ISR retentions apply based on persona type.
+
+    Returns True (persona moral), False (persona fisica), or None (unknown).
+    Callers decide policy: checkout blocks on None, webhook skips CFDI.
+    """
+    if person_type == "persona_moral":
+        return True
+    if person_type == "persona_fisica":
+        return False
+    # person_type not set — try to infer from regimen_fiscal
+    if regimen_fiscal and regimen_fiscal in PERSONA_MORAL_REGIMENES:
+        return True
+    if regimen_fiscal:
+        # Known regimen but not persona_moral → persona fisica
+        return False
+    # Both null — unknown
+    return None
+
+
+def is_fiscal_complete(
+    rfc: str | None,
+    razon_social: str | None,
+    regimen_fiscal: str | None,
+    fiscal_postal_code: str | None,
+    cfdi_use: str | None,
+    person_type: str | None,
+) -> bool:
+    """Check if all fiscal fields required for CFDI stamping are present."""
+    return all([
+        rfc,
+        razon_social,
+        regimen_fiscal,
+        fiscal_postal_code,
+        cfdi_use,
+        person_type or (regimen_fiscal and regimen_fiscal in PERSONA_MORAL_REGIMENES),
+    ])
+
 
 def _minor_to_major(amount_minor: int) -> Decimal:
     return (Decimal(amount_minor) / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

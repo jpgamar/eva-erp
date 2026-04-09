@@ -38,10 +38,26 @@ export interface EmpresaListItem {
   auto_match_attempted: boolean;
   subscription_status: string | null;
   current_period_end: string | null;
+  person_type: string | null;
+  rfc: string | null;
   item_count: number;
   pending_count: number;
   pending_items: PendingItem[];
   health: EmpresaHealth;
+}
+
+export interface PreviewCheckoutRequest {
+  amount_mxn: number;
+}
+
+export interface PreviewCheckoutResponse {
+  retention_applicable: boolean;
+  base_subtotal_minor: number;
+  iva_minor: number;
+  isr_retention_minor: number;
+  iva_retention_minor: number;
+  payable_total_minor: number;
+  stripe_charges_tax: boolean;
 }
 
 export interface CheckoutLinkRequest {
@@ -49,6 +65,11 @@ export interface CheckoutLinkRequest {
   description: string;
   interval: "month" | "year";
   recipient_email: string;
+}
+
+export interface CheckoutLinkResponse {
+  checkout_url: string;
+  quote: PreviewCheckoutResponse;
 }
 
 export interface EmpresaItem {
@@ -199,8 +220,11 @@ export const empresasApi = {
       .then((r) => r.data),
 
   // Billing
+  previewCheckout: (empresaId: string, data: PreviewCheckoutRequest) =>
+    api.post<PreviewCheckoutResponse>(`/empresas/${empresaId}/preview-checkout`, data).then((r) => r.data),
+
   createCheckoutLink: (empresaId: string, data: CheckoutLinkRequest) =>
-    api.post<{ checkout_url: string }>(`/empresas/${empresaId}/checkout-link`, data).then((r) => r.data),
+    api.post<CheckoutLinkResponse>(`/empresas/${empresaId}/checkout-link`, data).then((r) => r.data),
 
   createPortalLink: (empresaId: string) =>
     api.post<{ portal_url: string }>(`/empresas/${empresaId}/portal-link`).then((r) => r.data),

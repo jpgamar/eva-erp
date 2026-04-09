@@ -22,6 +22,8 @@ from src.empresas.schemas import (
     EmpresaResponse,
     EmpresaUpdate,
     PortalLinkResponse,
+    PreviewCheckoutRequest,
+    PreviewCheckoutResponse,
 )
 from src.eva_platform.models import (
     EvaAccount,
@@ -301,6 +303,10 @@ async def list_empresas(
             Empresa.last_paid_date,
             Empresa.eva_account_id,
             Empresa.auto_match_attempted,
+            Empresa.subscription_status,
+            Empresa.current_period_end,
+            Empresa.person_type,
+            Empresa.rfc,
             func.count(EmpresaItem.id).label("item_count"),
             func.count(case((EmpresaItem.done == False, EmpresaItem.id))).label("pending_count"),
         )
@@ -373,6 +379,10 @@ async def list_empresas(
             "last_paid_date": r.last_paid_date.isoformat() if r.last_paid_date else None,
             "eva_account_id": str(empresa_account_ids[r.id]) if empresa_account_ids[r.id] else None,
             "auto_match_attempted": r.auto_match_attempted or (r.id in refreshed_account_ids),
+            "subscription_status": r.subscription_status,
+            "current_period_end": r.current_period_end.isoformat() if r.current_period_end else None,
+            "person_type": r.person_type,
+            "rfc": r.rfc,
             "item_count": r.item_count,
             "pending_count": r.pending_count,
             "pending_items": pending_items_map.get(r.id, []),
@@ -595,6 +605,26 @@ async def delete_item(
 # ── Billing endpoints ───────────────────────────────────────────────
 
 
+@router.post("/{empresa_id}/preview-checkout", response_model=PreviewCheckoutResponse)
+async def preview_checkout_endpoint(
+    empresa_id: uuid.UUID,
+    payload: PreviewCheckoutRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    empresa = await db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+
+    from src.empresas.billing_service import preview_checkout
+
+    try:
+        quote = preview_checkout(empresa, amount_mxn=payload.amount_mxn)
+        return PreviewCheckoutResponse(**quote)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/{empresa_id}/checkout-link", response_model=CheckoutLinkResponse)
 async def create_checkout_link(
     empresa_id: uuid.UUID,
@@ -611,7 +641,7 @@ async def create_checkout_link(
     from src.empresas.billing_service import create_checkout_session
 
     try:
-        url = await create_checkout_session(
+        url, quote = await create_checkout_session(
             db,
             empresa,
             amount_mxn=payload.amount_mxn,
@@ -620,9 +650,12 @@ async def create_checkout_link(
             recipient_email=payload.recipient_email,
         )
         await db.commit()
-        return CheckoutLinkResponse(checkout_url=url)
+        return CheckoutLinkResponse(
+            checkout_url=url,
+            quote=PreviewCheckoutResponse(**quote),
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

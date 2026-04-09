@@ -885,7 +885,7 @@ export default function EmpresasPage() {
             <div className={`grid gap-3 ${empresaForm.status === "en_implementacion" ? "grid-cols-1" : "grid-cols-3"}`}>
               <div>
                 <label className="text-sm font-medium">
-                  {empresaForm.status === "en_implementacion" ? "Monto estimado" : "Monto mensual"}
+                  {empresaForm.status === "en_implementacion" ? "Monto estimado" : "Monto base (antes de IVA)"}
                 </label>
                 <Input
                   type="number"
