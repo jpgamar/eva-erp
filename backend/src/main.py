@@ -108,6 +108,10 @@ api_router.include_router(empresas_router)
 
 app.include_router(api_router)
 
+# Stripe webhook (NOT under /api/v1 — Stripe sends raw POST to root path)
+from src.webhooks.router import router as webhooks_router
+app.include_router(webhooks_router)
+
 
 async def _db_health() -> tuple[bool, str | None, bool, str | None]:
     erp_ok = False

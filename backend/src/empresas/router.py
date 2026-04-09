@@ -11,6 +11,8 @@ from src.auth.models import User
 from src.common.database import get_db, get_optional_eva_db
 from src.empresas.models import Empresa, EmpresaHistory, EmpresaItem
 from src.empresas.schemas import (
+    CheckoutLinkRequest,
+    CheckoutLinkResponse,
     EmpresaCreate,
     EmpresaHistoryResponse,
     EmpresaItemCreate,
@@ -18,6 +20,7 @@ from src.empresas.schemas import (
     EmpresaItemUpdate,
     EmpresaResponse,
     EmpresaUpdate,
+    PortalLinkResponse,
 )
 from src.eva_platform.models import (
     EvaAccount,
@@ -586,3 +589,59 @@ async def delete_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     await db.delete(item)
+
+
+# ── Billing endpoints ───────────────────────────────────────────────
+
+
+@router.post("/{empresa_id}/checkout-link", response_model=CheckoutLinkResponse)
+async def create_checkout_link(
+    empresa_id: uuid.UUID,
+    payload: CheckoutLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    empresa = await db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if empresa.stripe_subscription_id and empresa.subscription_status == "active":
+        raise HTTPException(status_code=409, detail="Empresa already has an active subscription")
+
+    from src.empresas.billing_service import create_checkout_session
+
+    try:
+        url = await create_checkout_session(
+            db,
+            empresa,
+            amount_mxn=payload.amount_mxn,
+            description=payload.description,
+            interval=payload.interval,
+            recipient_email=payload.recipient_email,
+        )
+        await db.commit()
+        return CheckoutLinkResponse(checkout_url=url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/{empresa_id}/portal-link", response_model=PortalLinkResponse)
+async def create_portal_link(
+    empresa_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    empresa = await db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if not empresa.stripe_customer_id:
+        raise HTTPException(status_code=409, detail="Empresa does not have a Stripe customer")
+
+    from src.empresas.billing_service import create_portal_session
+
+    try:
+        url = await create_portal_session(empresa)
+        return PortalLinkResponse(portal_url=url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -51,6 +51,7 @@ import {
   type EmpresaListItem,
   type EvaAccountForLink,
 } from "@/lib/api/empresas";
+import { CheckoutLinkModal } from "@/components/empresas/CheckoutLinkModal";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -184,6 +185,9 @@ export default function EmpresasPage() {
   const [historyEmpresaName, setHistoryEmpresaName] = useState("");
   const [historyEntries, setHistoryEntries] = useState<EmpresaHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Checkout modal
+  const [checkoutEmpresa, setCheckoutEmpresa] = useState<EmpresaListItem | null>(null);
 
   // Inline add item
   const [addingItemFor, setAddingItemFor] = useState<string | null>(null);
@@ -396,6 +400,15 @@ export default function EmpresasPage() {
     }
   };
 
+  const openPortal = async (empresaId: string) => {
+    try {
+      const result = await empresasApi.createPortalLink(empresaId);
+      window.open(result.portal_url, "_blank");
+    } catch {
+      toast.error("Error al abrir el portal de pago");
+    }
+  };
+
   // ── Render ──────────────────────────────────────────────────────
 
   return (
@@ -509,6 +522,29 @@ export default function EmpresasPage() {
                     </button>
                   )}
                 </div>
+
+                {/* Subscription status badge */}
+                {emp.subscription_status && (
+                  <div className="flex justify-center px-5 pb-1">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        emp.subscription_status === "active"
+                          ? "bg-green-100 text-green-700"
+                          : emp.subscription_status === "past_due"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {emp.subscription_status === "active"
+                        ? "Suscripcion activa"
+                        : emp.subscription_status === "past_due"
+                        ? "Pago vencido"
+                        : emp.subscription_status === "canceled"
+                        ? "Cancelada"
+                        : emp.subscription_status}
+                    </span>
+                  </div>
+                )}
 
                 {/* Payment line */}
                 {emp.monthly_amount != null && (
@@ -704,6 +740,14 @@ export default function EmpresasPage() {
                       <DropdownMenuItem onClick={() => openHistory(emp.id, emp.name)}>
                         Historial
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCheckoutEmpresa(emp)}>
+                        Crear link de cobro
+                      </DropdownMenuItem>
+                      {emp.subscription_status === "active" && (
+                        <DropdownMenuItem onClick={() => openPortal(emp.id)}>
+                          Portal de pago
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onClick={() => deleteEmpresa(emp.id)}
@@ -1105,6 +1149,15 @@ export default function EmpresasPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Checkout link modal */}
+      {checkoutEmpresa && (
+        <CheckoutLinkModal
+          empresa={checkoutEmpresa}
+          open={!!checkoutEmpresa}
+          onClose={() => setCheckoutEmpresa(null)}
+        />
+      )}
     </div>
   );
 }

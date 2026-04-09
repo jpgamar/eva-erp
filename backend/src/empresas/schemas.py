@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import uuid
 import datetime as _dt
+from decimal import Decimal
 from typing import Literal
-from pydantic import BaseModel
+
+from pydantic import BaseModel, EmailStr, Field
 
 
 # ── Empresa ──────────────────────────────────────────────────────────
@@ -77,6 +79,11 @@ class EmpresaResponse(BaseModel):
     last_paid_date: _dt.date | None
     eva_account_id: uuid.UUID | None = None
     auto_match_attempted: bool = False
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    subscription_status: str | None = None
+    current_period_end: _dt.datetime | None = None
+    billing_recipient_emails: list[str] = []
     created_at: _dt.datetime
     updated_at: _dt.datetime
     items: list[EmpresaItemResponse] = []
@@ -161,6 +168,8 @@ class EmpresaListResponse(BaseModel):
     monthly_amount: float | None
     payment_day: int | None
     last_paid_date: _dt.date | None
+    subscription_status: str | None = None
+    current_period_end: _dt.datetime | None = None
     item_count: int = 0
     model_config = {"from_attributes": True}
 
@@ -187,3 +196,20 @@ class EmpresaHistoryResponse(BaseModel):
     changed_by_name: str | None = None
     changed_at: _dt.datetime
     model_config = {"from_attributes": True}
+
+
+# ── Billing / Checkout ──────────────────────────────────────────────
+
+class CheckoutLinkRequest(BaseModel):
+    amount_mxn: Decimal = Field(..., gt=0, description="Monthly amount in MXN (e.g., 2000.00)")
+    description: str = Field(default="", max_length=500)
+    interval: Literal["month", "year"] = "month"
+    recipient_email: EmailStr
+
+
+class CheckoutLinkResponse(BaseModel):
+    checkout_url: str
+
+
+class PortalLinkResponse(BaseModel):
+    portal_url: str

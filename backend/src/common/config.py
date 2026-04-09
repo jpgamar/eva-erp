@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # Stripe
     eva_stripe_secret_key: str = ""
     eva_stripe_webhook_secret: str = ""
+    stripe_webhook_secret_erp: str = ""
     stripe_reconciliation_enabled: bool = True
     stripe_reconciliation_interval_seconds: int = 86400
     finance_kpi_source: str = "lifecycle"
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     # OpenClaw Infrastructure (SSH access to runtime hosts)
     eva_ssh_private_key_base64: str = ""
     hetzner_api_token: str = ""
+
+    # Frontend
+    frontend_url: str = "https://erp.goeva.ai"
 
     # Environment
     environment: str = "development"

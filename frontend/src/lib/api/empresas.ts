@@ -36,10 +36,19 @@ export interface EmpresaListItem {
   last_paid_date: string | null;
   eva_account_id: string | null;
   auto_match_attempted: boolean;
+  subscription_status: string | null;
+  current_period_end: string | null;
   item_count: number;
   pending_count: number;
   pending_items: PendingItem[];
   health: EmpresaHealth;
+}
+
+export interface CheckoutLinkRequest {
+  amount_mxn: number;
+  description: string;
+  interval: "month" | "year";
+  recipient_email: string;
 }
 
 export interface EmpresaItem {
@@ -160,6 +169,7 @@ export const empresasApi = {
   getHistory: (empresaId: string) =>
     api.get<EmpresaHistory[]>(`/empresas/${empresaId}/history`).then((r) => r.data),
 
+<<<<<<< HEAD
   // Channel health (silent-channel-health plan)
   getAccountChannelHealth: (accountId: string) =>
     api
@@ -170,4 +180,11 @@ export const empresasApi = {
     api
       .get<EvaAccountForLink[]>("/eva-platform/accounts/list-for-link")
       .then((r) => r.data),
+
+  // Billing
+  createCheckoutLink: (empresaId: string, data: CheckoutLinkRequest) =>
+    api.post<{ checkout_url: string }>(`/empresas/${empresaId}/checkout-link`, data).then((r) => r.data),
+
+  createPortalLink: (empresaId: string) =>
+    api.post<{ portal_url: string }>(`/empresas/${empresaId}/portal-link`).then((r) => r.data),
 };
