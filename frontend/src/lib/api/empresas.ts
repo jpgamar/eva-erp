@@ -169,7 +169,6 @@ export const empresasApi = {
   getHistory: (empresaId: string) =>
     api.get<EmpresaHistory[]>(`/empresas/${empresaId}/history`).then((r) => r.data),
 
-<<<<<<< HEAD
   // Channel health (silent-channel-health plan)
   getAccountChannelHealth: (accountId: string) =>
     api
