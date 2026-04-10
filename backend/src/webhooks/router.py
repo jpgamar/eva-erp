@@ -23,6 +23,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["webhooks"])
 
 
+async def _report_billing(
+    category: str, severity: str, title: str, summary: str,
+    empresa_id: str | None, empresa_name: str | None, invoice_id: str | None,
+) -> None:
+    """Fire-and-forget billing issue report to monitoring dashboard."""
+    try:
+        from src.eva_platform.billing_monitor import report_billing_issue
+        await report_billing_issue(
+            category=category, severity=severity, title=title, summary=summary,
+            empresa_id=empresa_id, empresa_name=empresa_name, stripe_invoice_id=invoice_id,
+        )
+    except Exception:
+        logger.warning("Failed to report billing issue to monitoring", exc_info=True)
+
+
 @router.post("/webhooks/stripe")
 async def stripe_webhook(request: Request):
     """Handle Stripe webhook events for ERP custom deal subscriptions."""
@@ -81,9 +96,18 @@ async def stripe_webhook(request: Request):
             elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
                 await _handle_subscription_change(db, empresa_id, data_object)
             await db.commit()
-        except Exception:
+        except Exception as exc:
             logger.exception("Error handling webhook %s for empresa %s", event_type, empresa_id)
             await db.rollback()
+            from src.eva_platform.billing_monitor import report_billing_issue
+            asyncio.create_task(report_billing_issue(
+                category="billing_webhook_error",
+                severity="high",
+                title=f"Stripe webhook {event_type} failed",
+                summary=str(exc)[:500],
+                empresa_id=empresa_id,
+                context={"event_type": event_type},
+            ))
             raise HTTPException(status_code=500, detail="Webhook processing failed")
 
     # Session 2: Background CFDI stamping for invoice.paid (separate DB session)
@@ -187,6 +211,9 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
             empresa = await db.get(Empresa, empresa_id)
             if not empresa:
                 logger.warning("CFDI background: Empresa %s not found", empresa_id)
+                await _report_billing("billing_webhook_error", "high",
+                    f"Empresa not found for invoice", f"empresa_id={empresa_id} not in DB",
+                    empresa_id, None, stripe_invoice_id)
                 return
 
             # Check idempotency
@@ -215,6 +242,10 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
                         "CFDI background: Cannot determine retention for empresa %s (person_type=%s, regimen=%s). Skipping CFDI.",
                         empresa.name, empresa.person_type, empresa.regimen_fiscal,
                     )
+                    await _report_billing("billing_fiscal_incomplete", "medium",
+                        f"CFDI skipped — tipo de persona desconocido: {empresa.name}",
+                        f"person_type={empresa.person_type}, regimen={empresa.regimen_fiscal}",
+                        empresa_id, empresa.name, stripe_invoice_id)
                     return
                 retention_applicable = retention
                 amount_total = int(invoice.get("total") or invoice.get("amount_paid") or 0)
@@ -240,6 +271,10 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
                     "CFDI background: Fiscal info incomplete for empresa %s (rfc=%s). Skipping CFDI.",
                     empresa.name, empresa.rfc,
                 )
+                await _report_billing("billing_fiscal_incomplete", "medium",
+                    f"CFDI skipped — datos fiscales incompletos: {empresa.name}",
+                    f"rfc={empresa.rfc}, razon_social={empresa.razon_social}",
+                    empresa_id, empresa.name, stripe_invoice_id)
                 return
 
             # Compute quote using centralized logic
@@ -299,7 +334,7 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
                 empresa.name, result.cfdi_uuid, result.email_status,
             )
 
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "CFDI background: Failed to stamp for empresa %s invoice %s",
                 empresa_id, stripe_invoice_id,
@@ -308,6 +343,10 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
                 await db.rollback()
             except Exception:
                 pass
+            await _report_billing("billing_cfdi_failure", "critical",
+                f"CFDI stamp failed: {getattr(empresa, 'name', empresa_id)}",
+                f"invoice={stripe_invoice_id}, error={str(exc)[:300]}",
+                empresa_id, getattr(empresa, "name", None), stripe_invoice_id)
 
 
 async def _handle_payment_failed(db, empresa_id: str):

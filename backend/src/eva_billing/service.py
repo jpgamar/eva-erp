@@ -225,6 +225,20 @@ class EvaBillingService:
         if record.email_status == "sent":
             record.email_sent_at = datetime.now(timezone.utc)
             record.status = "email_sent"
+        elif record.email_status == "failed":
+            try:
+                from src.eva_platform.billing_monitor import report_billing_issue
+                await report_billing_issue(
+                    category="billing_email_failure",
+                    severity="high",
+                    title=f"Factura email failed: {payload.customer.legal_name}",
+                    summary=f"Error: {record.email_error}",
+                    empresa_id=str(payload.account_id),
+                    empresa_name=payload.customer.legal_name,
+                    stripe_invoice_id=payload.source.stripe_invoice_id,
+                )
+            except Exception:
+                logger.warning("Failed to report email failure to monitoring", exc_info=True)
         db.add(record)
         await db.flush()
         return EvaBillingStampResponse(
