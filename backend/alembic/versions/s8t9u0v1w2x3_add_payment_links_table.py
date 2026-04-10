@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.create_table(
         "payment_links",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("token", sa.String(20), nullable=False, unique=True, index=True),
+        sa.Column("token", sa.String(30), nullable=False, unique=True, index=True),
         sa.Column("empresa_id", UUID(as_uuid=True), sa.ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False),
         sa.Column("amount_minor", sa.Integer(), nullable=False),
         sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),

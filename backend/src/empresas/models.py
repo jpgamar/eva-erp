@@ -71,7 +71,7 @@ class PaymentLink(Base):
     __tablename__ = "payment_links"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    token: Mapped[str] = mapped_column(String(20), nullable=False, unique=True, index=True)
+    token: Mapped[str] = mapped_column(String(30), nullable=False, unique=True, index=True)
     empresa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MXN", server_default="MXN")

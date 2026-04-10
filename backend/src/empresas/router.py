@@ -647,7 +647,7 @@ async def create_checkout_link(
         quote = preview_checkout(empresa, amount_mxn=payload.amount_mxn)
 
         # Create PaymentLink record with short token
-        token = secrets.token_urlsafe(9)  # ~12 chars, URL-safe
+        token = secrets.token_urlsafe(16)  # ~22 chars, 128-bit entropy
         link = PaymentLink(
             token=token,
             empresa_id=empresa.id,

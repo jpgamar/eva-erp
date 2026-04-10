@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import stripe
 from fastapi import APIRouter, HTTPException
@@ -12,37 +13,24 @@ from src.common.config import settings
 from src.common.database import async_sessionmaker, engine
 from src.empresas.models import Empresa, PaymentLink
 from src.empresas.schemas import PaymentLinkPublicResponse, PreviewCheckoutResponse
-from src.eva_billing.service import _compute_quote, resolve_retention_applicable
+from src.eva_billing.service import _compute_quote
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/pay", tags=["public-pay"])
 
 
-async def _get_link_and_empresa(token: str) -> tuple:
-    """Load PaymentLink + Empresa in a fresh session. Returns (link, empresa, db)."""
-    db = async_sessionmaker(engine)()
-    result = await db.execute(
-        select(PaymentLink).where(PaymentLink.token == token)
-    )
-    link = result.scalar_one_or_none()
-    if not link:
-        await db.close()
-        raise HTTPException(status_code=404, detail="Payment link not found")
-
-    empresa = await db.get(Empresa, link.empresa_id)
-    if not empresa:
-        await db.close()
-        raise HTTPException(status_code=404, detail="Empresa not found")
-
-    return link, empresa, db
-
-
 @router.get("/{token}", response_model=PaymentLinkPublicResponse)
 async def get_payment_link(token: str):
     """Public endpoint: get payment link details for the landing page."""
-    link, empresa, db = await _get_link_and_empresa(token)
-    try:
+    async with async_sessionmaker(engine)() as db:
+        link = await _load_link(db, token)
+        empresa = await db.get(Empresa, link.empresa_id)
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Payment link not found")
+
+        _check_expiry(link)
+
         quote = _compute_quote(link.amount_minor, retention_applicable=link.retention_applicable)
         return PaymentLinkPublicResponse(
             empresa_name=empresa.name,
@@ -62,15 +50,19 @@ async def get_payment_link(token: str):
                 stripe_charges_tax=not link.retention_applicable,
             ),
         )
-    finally:
-        await db.close()
 
 
 @router.post("/{token}/checkout")
 async def create_checkout_for_link(token: str):
-    """Public endpoint: create a Stripe Checkout Session on-demand for this payment link."""
-    link, empresa, db = await _get_link_and_empresa(token)
-    try:
+    """Public endpoint: create a Stripe Checkout Session on-demand."""
+    async with async_sessionmaker(engine)() as db:
+        link = await _load_link(db, token)
+        empresa = await db.get(Empresa, link.empresa_id)
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Payment link not found")
+
+        _check_expiry(link)
+
         if link.status != "active":
             raise HTTPException(
                 status_code=409,
@@ -78,7 +70,7 @@ async def create_checkout_for_link(token: str):
             )
 
         if not settings.eva_stripe_secret_key:
-            raise HTTPException(status_code=503, detail="Stripe not configured")
+            raise HTTPException(status_code=503, detail="Payment service unavailable")
         stripe.api_key = settings.eva_stripe_secret_key
 
         # Get or reuse Stripe customer
@@ -149,7 +141,11 @@ async def create_checkout_for_link(token: str):
             session_params["billing_address_collection"] = "auto"
             session_params["customer_update"] = {"name": "auto", "address": "auto"}
 
-        session = stripe.checkout.Session.create(**session_params)
+        try:
+            session = stripe.checkout.Session.create(**session_params)
+        except stripe.error.StripeError as exc:
+            logger.exception("Stripe error for payment link %s", token)
+            raise HTTPException(status_code=502, detail="Payment processing failed") from exc
 
         link.stripe_checkout_session_id = session.id
         db.add(link)
@@ -157,11 +153,19 @@ async def create_checkout_for_link(token: str):
 
         return {"checkout_url": session.url}
 
-    except HTTPException:
-        raise
-    except Exception as exc:
-        await db.rollback()
-        logger.exception("Failed to create checkout for payment link %s", token)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    finally:
-        await db.close()
+
+async def _load_link(db, token: str) -> PaymentLink:
+    """Load a PaymentLink by token, raise 404 if not found."""
+    result = await db.execute(
+        select(PaymentLink).where(PaymentLink.token == token)
+    )
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=404, detail="Payment link not found")
+    return link
+
+
+def _check_expiry(link: PaymentLink) -> None:
+    """Raise 410 if the link has expired."""
+    if link.expires_at and datetime.now(timezone.utc) > link.expires_at:
+        raise HTTPException(status_code=410, detail="Este link de pago ha expirado")
