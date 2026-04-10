@@ -9,7 +9,8 @@ from sqlalchemy.orm import selectinload
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db, get_optional_eva_db
-from src.empresas.models import Empresa, EmpresaHistory, EmpresaItem
+from src.common.config import settings
+from src.empresas.models import Empresa, EmpresaHistory, EmpresaItem, PaymentLink
 from src.empresas.schemas import (
     CheckoutLinkRequest,
     CheckoutLinkResponse,
@@ -632,26 +633,40 @@ async def create_checkout_link(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    import secrets
+
     empresa = await db.get(Empresa, empresa_id)
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa not found")
     if empresa.stripe_subscription_id and empresa.subscription_status == "active":
         raise HTTPException(status_code=409, detail="Empresa already has an active subscription")
 
-    from src.empresas.billing_service import create_checkout_session
+    from src.empresas.billing_service import preview_checkout
 
     try:
-        url, quote = await create_checkout_session(
-            db,
-            empresa,
-            amount_mxn=payload.amount_mxn,
-            description=payload.description,
+        quote = preview_checkout(empresa, amount_mxn=payload.amount_mxn)
+
+        # Create PaymentLink record with short token
+        token = secrets.token_urlsafe(9)  # ~12 chars, URL-safe
+        link = PaymentLink(
+            token=token,
+            empresa_id=empresa.id,
+            amount_minor=int(payload.amount_mxn * 100),
+            currency="MXN",
+            description=payload.description or f"Servicio EvaAI — {empresa.name}",
             interval=payload.interval,
             recipient_email=payload.recipient_email,
+            retention_applicable=quote["retention_applicable"],
+            created_by=user.id,
         )
+        db.add(link)
+        await db.flush()
+
+        branded_url = f"{settings.eva_app_base_url.rstrip('/')}/pay/{token}"
         await db.commit()
+
         return CheckoutLinkResponse(
-            checkout_url=url,
+            checkout_url=branded_url,
             quote=PreviewCheckoutResponse(**quote),
         )
     except ValueError as exc:

@@ -60,6 +60,7 @@ class Settings(BaseSettings):
 
     # Frontend
     frontend_url: str = "https://erp.goeva.ai"
+    eva_app_base_url: str = "https://app.goeva.ai"
 
     # Environment
     environment: str = "development"

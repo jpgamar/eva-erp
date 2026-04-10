@@ -239,6 +239,17 @@ class PortalLinkResponse(BaseModel):
     portal_url: str
 
 
+class PaymentLinkPublicResponse(BaseModel):
+    empresa_name: str
+    description: str
+    amount_minor: int
+    currency: str
+    interval: str
+    retention_applicable: bool
+    status: str
+    quote: PreviewCheckoutResponse
+
+
 # ── Constancia Extraction ───────────────────────────────────────────
 
 class ConstanciaExtractedFields(BaseModel):

@@ -67,6 +67,28 @@ class EmpresaItem(Base):
     empresa: Mapped["Empresa"] = relationship("Empresa", back_populates="items")
 
 
+class PaymentLink(Base):
+    __tablename__ = "payment_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token: Mapped[str] = mapped_column(String(20), nullable=False, unique=True, index=True)
+    empresa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MXN", server_default="MXN")
+    description: Mapped[str] = mapped_column(String(500), nullable=False)
+    interval: Mapped[str] = mapped_column(String(10), nullable=False, default="month")
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    retention_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stripe_checkout_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    empresa: Mapped["Empresa"] = relationship("Empresa")
+
+
 class EmpresaHistory(Base):
     __tablename__ = "empresa_history"
 

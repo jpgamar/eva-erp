@@ -112,6 +112,10 @@ app.include_router(api_router)
 from src.webhooks.router import router as webhooks_router
 app.include_router(webhooks_router)
 
+# Public payment link endpoints (no auth required)
+from src.empresas.public_router import router as public_pay_router
+app.include_router(public_pay_router)
+
 
 async def _db_health() -> tuple[bool, str | None, bool, str | None]:
     erp_ok = False

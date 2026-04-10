@@ -96,8 +96,8 @@ async def stripe_webhook(request: Request):
 
 
 async def _handle_checkout_completed(db, empresa_id: str, session: dict):
-    """Customer completed checkout — activate subscription."""
-    from src.empresas.models import Empresa
+    """Customer completed checkout — activate subscription + mark PaymentLink as paid."""
+    from src.empresas.models import Empresa, PaymentLink
 
     empresa = await db.get(Empresa, empresa_id)
     if not empresa:
@@ -120,6 +120,23 @@ async def _handle_checkout_completed(db, empresa_id: str, session: dict):
 
     db.add(empresa)
     await db.flush()
+
+    # Mark corresponding PaymentLink as paid
+    metadata = session.get("metadata") or {}
+    link_token = metadata.get("payment_link_token")
+    if link_token:
+        result = await db.execute(
+            select(PaymentLink).where(PaymentLink.token == link_token)
+        )
+        link = result.scalar_one_or_none()
+        if link and link.status == "active":
+            link.status = "paid"
+            link.paid_at = datetime.now(timezone.utc)
+            link.stripe_checkout_session_id = session.get("id")
+            db.add(link)
+            await db.flush()
+            logger.info("PaymentLink %s marked as paid", link_token)
+
     logger.info("Empresa %s subscription activated: %s", empresa.name, subscription_id)
 
 
