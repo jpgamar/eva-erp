@@ -106,15 +106,15 @@ api_router.include_router(agent_router)
 api_router.include_router(eva_billing_router)
 api_router.include_router(empresas_router)
 
+# Public payment link endpoints (under /api/v1 so erp.goeva.ai/api/v1/public/pay works)
+from src.empresas.public_router import router as public_pay_router
+api_router.include_router(public_pay_router)
+
 app.include_router(api_router)
 
 # Stripe webhook (NOT under /api/v1 — Stripe sends raw POST to root path)
 from src.webhooks.router import router as webhooks_router
 app.include_router(webhooks_router)
-
-# Public payment link endpoints (no auth required)
-from src.empresas.public_router import router as public_pay_router
-app.include_router(public_pay_router)
 
 
 async def _db_health() -> tuple[bool, str | None, bool, str | None]:
