@@ -112,9 +112,11 @@ api_router.include_router(public_pay_router)
 
 app.include_router(api_router)
 
-# Stripe webhook (NOT under /api/v1 — Stripe sends raw POST to root path)
+# Stripe webhook — mounted under /api/v1 so the erp.goeva.ai Vercel rewrite
+# (`/api/v1/:path*` → backend) proxies it. Stripe is configured with the full
+# `https://erp.goeva.ai/api/v1/webhooks/stripe` URL.
 from src.webhooks.router import router as webhooks_router
-app.include_router(webhooks_router)
+app.include_router(webhooks_router, prefix="/api/v1")
 
 
 async def _db_health() -> tuple[bool, str | None, bool, str | None]:
