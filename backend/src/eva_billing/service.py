@@ -555,14 +555,30 @@ class EvaBillingService:
     async def _download_invoice_attachments(
         factura: "Factura", uuid_short: str
     ) -> list[dict]:
+        """Fetch the PDF and XML for a Facturapi invoice as base64 attachments.
+
+        Failures are logged at WARNING (with the HTTP status / exception)
+        rather than swallowed silently — historically the silent fallback
+        sent invoices without attachments and we only noticed when a
+        customer complained. Email is still sent without the missing
+        attachment so the customer at least gets the notification.
+        """
         import base64
 
         facturapi_id = getattr(factura, "facturapi_id", None)
         if not facturapi_id:
+            logger.warning(
+                "Cannot attach CFDI files: factura has no facturapi_id",
+                extra={"cfdi_uuid": getattr(factura, "cfdi_uuid", None)},
+            )
             return []
 
         api_key = (settings.facturapi_api_key or "").strip()
         if not api_key:
+            logger.warning(
+                "Cannot attach CFDI files: FACTURAPI_API_KEY is not configured",
+                extra={"facturapi_id": facturapi_id},
+            )
             return []
 
         attachments: list[dict] = []
@@ -574,15 +590,29 @@ class EvaBillingService:
                         headers={"Authorization": f"Bearer {api_key}"},
                         follow_redirects=True,
                     )
-                    if resp.status_code == 200:
-                        attachments.append({
-                            "content": base64.b64encode(resp.content).decode("ascii"),
-                            "type": mime,
-                            "filename": f"factura-{uuid_short}.{ext}",
-                            "disposition": "attachment",
-                        })
                 except Exception:
-                    pass  # Download failed — send email without this attachment
+                    logger.warning(
+                        "Failed to download CFDI %s from Facturapi (network/transport error) — "
+                        "email will be sent without this attachment",
+                        ext,
+                        extra={"facturapi_id": facturapi_id},
+                        exc_info=True,
+                    )
+                    continue
+                if resp.status_code == 200:
+                    attachments.append({
+                        "content": base64.b64encode(resp.content).decode("ascii"),
+                        "type": mime,
+                        "filename": f"factura-{uuid_short}.{ext}",
+                        "disposition": "attachment",
+                    })
+                else:
+                    logger.warning(
+                        "Facturapi returned HTTP %s when downloading CFDI %s — "
+                        "email will be sent without this attachment",
+                        resp.status_code, ext,
+                        extra={"facturapi_id": facturapi_id, "body_preview": resp.text[:200]},
+                    )
         return attachments
 
 
