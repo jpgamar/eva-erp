@@ -11,7 +11,12 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from src.common.config import settings
-from src.common.database import async_sessionmaker, engine
+# Use the configured `async_session` (expire_on_commit=False), NOT a fresh
+# sessionmaker built per request — fresh sessionmakers default to
+# `expire_on_commit=True`, which expires all attributes after `db.commit()`
+# and triggers MissingGreenlet on any subsequent ORM attribute access in
+# async context (e.g. logging `empresa.name` after the CFDI stamp).
+from src.common.database import async_session
 from src.eva_billing.service import (
     _compute_quote,
     is_fiscal_complete,
@@ -85,7 +90,7 @@ async def stripe_webhook(request: Request):
         return {"received": True, "handled": False}
 
     # Session 1: Handle subscription status updates (synchronous, returns 200 to Stripe)
-    async with async_sessionmaker(engine)() as db:
+    async with async_session() as db:
         try:
             if event_type == "checkout.session.completed":
                 await _handle_checkout_completed(db, empresa_id, data_object)
@@ -206,7 +211,7 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
 
     stripe_invoice_id = invoice.get("id")
 
-    async with async_sessionmaker(engine)() as db:
+    async with async_session() as db:
         try:
             empresa = await db.get(Empresa, empresa_id)
             if not empresa:

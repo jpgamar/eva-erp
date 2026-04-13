@@ -52,3 +52,33 @@ def test_stripe_webhook_rejects_missing_signature(monkeypatch):
     client = TestClient(app)
     response = client.post("/api/v1/webhooks/stripe", json={})
     assert response.status_code == 503
+
+
+def test_webhook_router_uses_configured_session_not_fresh_sessionmaker():
+    """Regression: don't create fresh sessionmakers per request.
+
+    The original bug (fmaccesorios 2026-04-13): handler did
+    `async with async_sessionmaker(engine)() as db: ...` which builds a NEW
+    sessionmaker with default `expire_on_commit=True`. After `db.commit()`,
+    every ORM attribute is expired; the next access (e.g. logging
+    `empresa.name` on the success path) triggers a lazy reload outside the
+    async greenlet → MissingGreenlet, success log line crashes, and the
+    monitoring helper that runs in the except block sees `empresa` in a
+    broken state too.
+
+    The fix imports the configured `async_session` (expire_on_commit=False)
+    from src.common.database. This test asserts the wrong import doesn't
+    sneak back in.
+    """
+    import inspect
+    from src import webhooks
+
+    source = inspect.getsource(webhooks.router)
+    assert "from src.common.database import async_session" in source, (
+        "webhooks.router must import the configured async_session "
+        "(not async_sessionmaker) — see MissingGreenlet regression on 2026-04-13"
+    )
+    assert "async_sessionmaker(engine)()" not in source, (
+        "webhooks.router must NOT build fresh sessionmakers per request — "
+        "those default to expire_on_commit=True and break ORM access after commit"
+    )

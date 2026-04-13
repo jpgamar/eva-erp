@@ -1,14 +1,46 @@
 from __future__ import annotations
 
+import re
 import uuid
 import datetime as _dt
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Empresa ──────────────────────────────────────────────────────────
+
+# Mexican RFC structure (SAT):
+#   Persona moral: 12 chars = 3 letters + YYMMDD + 3 alphanumeric homoclave
+#   Persona fisica: 13 chars = 4 letters + YYMMDD + 3 alphanumeric homoclave
+# Regression: F&M Accesorios (2026-04-13) was saved as `FAC2530067F3` —
+# month digits "30" don't exist, so Facturapi rejected the CFDI stamp
+# weeks later when their first invoice ran. Validating at input would have
+# caught it immediately.
+_RFC_PATTERN = re.compile(r"^([A-ZÑ&]{3,4})(\d{2})(\d{2})(\d{2})([A-Z0-9]{3})$")
+
+
+def _validate_mexican_rfc(value: str) -> str:
+    """Return the canonical (uppercased, stripped) RFC or raise ValueError.
+
+    Caller should treat None / empty as "not provided" and skip this.
+    """
+    rfc = value.strip().upper()
+    match = _RFC_PATTERN.match(rfc)
+    if not match:
+        raise ValueError(
+            "RFC inválido: debe tener 12 caracteres (persona moral) o 13 "
+            "(persona física), con fecha YYMMDD válida y homoclave alfanumérica"
+        )
+    _letters, _yy, mm, dd, _homoclave = match.groups()
+    month, day = int(mm), int(dd)
+    if not 1 <= month <= 12:
+        raise ValueError(f"RFC inválido: el mes '{mm}' no es válido (debe ser 01-12)")
+    if not 1 <= day <= 31:
+        raise ValueError(f"RFC inválido: el día '{dd}' no es válido (debe ser 01-31)")
+    return rfc
+
 
 class EmpresaCreate(BaseModel):
     name: str
@@ -34,6 +66,13 @@ class EmpresaCreate(BaseModel):
     # manually via the Empresa edit modal.
     eva_account_id: uuid.UUID | None = None
 
+    @field_validator("rfc")
+    @classmethod
+    def _check_rfc(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        return _validate_mexican_rfc(v)
+
 
 class EmpresaUpdate(BaseModel):
     name: str | None = None
@@ -55,6 +94,13 @@ class EmpresaUpdate(BaseModel):
     payment_day: int | None = None
     last_paid_date: _dt.date | None = None
     eva_account_id: uuid.UUID | None = None
+
+    @field_validator("rfc")
+    @classmethod
+    def _check_rfc(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        return _validate_mexican_rfc(v)
 
 
 class EmpresaItemResponse(BaseModel):
