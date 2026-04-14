@@ -1,20 +1,22 @@
+import asyncio
 import inspect
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from src.facturas.models import Factura
+from src.facturas.router import create_factura, download_pdf, download_xml, stamp_factura
 from src.facturas.router import get_current_user
 from src.facturas.router import get_db
 from src.facturas.router import router as facturas_router
-from src.facturas.router import stamp_factura
 from src.facturas.router import facturapi
-from src.facturas.schemas import FacturaResponse
+from src.facturas.schemas import FacturaCreate, FacturaLineItem, FacturaResponse
 
 
 def _get_delete_factura_route() -> APIRoute:
@@ -122,6 +124,7 @@ def test_delete_draft_factura_returns_204_without_cancellation_call(monkeypatch)
 
     monkeypatch.setattr(facturapi, "cancel_invoice", _fake_cancel_invoice)
     factura = _build_factura(status="draft")
+    factura.facturapi_id = None  # local-only draft
     fake_db = _FakeDB(factura)
     client = _build_test_client(fake_db)
 
@@ -154,3 +157,240 @@ def test_delete_valid_factura_cancels_and_returns_serialized_factura(monkeypatch
     assert payload["status"] == "cancelled"
     assert payload["cancellation_status"] == "accepted"
     assert payload["cancelled_at"] is not None
+
+
+# --- Draft mode tests ---
+
+
+class _CreateFakeDB:
+    """Fake DB for POST /facturas tests — captures the Factura passed to .add()."""
+    def __init__(self):
+        self.added: Factura | None = None
+
+    async def execute(self, _query):
+        return _FakeResult(None)
+
+    async def flush(self):
+        return None
+
+    async def refresh(self, _obj):
+        return None
+
+    def add(self, obj):
+        self.added = obj
+
+
+def _sample_create_payload() -> FacturaCreate:
+    return FacturaCreate(
+        customer_name="Cliente Demo",
+        customer_rfc="XAXX010101000",
+        customer_tax_system="601",
+        customer_zip="06600",
+        line_items=[FacturaLineItem(
+            product_key="10101504",
+            description="Servicio demo",
+            quantity=1,
+            unit_price=Decimal("100"),
+            tax_rate=Decimal("0.16"),
+        )],
+    )
+
+
+def test_create_factura_draft_true_pushes_to_facturapi_and_saves_facturapi_id(monkeypatch):
+    create_draft_calls: list[dict] = []
+
+    async def _fake_create_draft(payload):
+        create_draft_calls.append(payload)
+        return {"id": "fac_draft_abc", "total": 116.0}
+
+    async def _fake_create_invoice(*_a, **_kw):
+        raise AssertionError("create_invoice must not be called for draft=true")
+
+    monkeypatch.setattr(facturapi, "create_draft_invoice", _fake_create_draft)
+    monkeypatch.setattr(facturapi, "create_invoice", _fake_create_invoice)
+
+    db = _CreateFakeDB()
+    user = SimpleNamespace(id=uuid.uuid4())
+    asyncio.run(create_factura(_sample_create_payload(), draft=True, db=db, user=user))
+
+    assert len(create_draft_calls) == 1
+    assert db.added is not None
+    assert db.added.facturapi_id == "fac_draft_abc"
+    assert db.added.status == "draft"
+    assert db.added.total == Decimal("116.0")
+
+
+def test_create_factura_draft_true_facturapi_error_does_not_save_local(monkeypatch):
+    async def _fake_create_draft(_payload):
+        raise HTTPException(status_code=502, detail={"facturapi_error": "bad rfc"})
+
+    monkeypatch.setattr(facturapi, "create_draft_invoice", _fake_create_draft)
+
+    db = _CreateFakeDB()
+    user = SimpleNamespace(id=uuid.uuid4())
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(create_factura(_sample_create_payload(), draft=True, db=db, user=user))
+    assert exc_info.value.status_code == 502
+    assert db.added is None  # nothing staged for commit
+
+
+def test_create_factura_draft_false_does_not_call_facturapi(monkeypatch):
+    async def _fake_create_draft(*_a, **_kw):
+        raise AssertionError("create_draft_invoice must not be called when draft=false")
+
+    async def _fake_create_invoice(*_a, **_kw):
+        raise AssertionError("create_invoice must not be called on POST /facturas")
+
+    monkeypatch.setattr(facturapi, "create_draft_invoice", _fake_create_draft)
+    monkeypatch.setattr(facturapi, "create_invoice", _fake_create_invoice)
+
+    db = _CreateFakeDB()
+    user = SimpleNamespace(id=uuid.uuid4())
+    asyncio.run(create_factura(_sample_create_payload(), draft=False, db=db, user=user))
+
+    assert db.added is not None
+    assert db.added.facturapi_id is None
+    assert db.added.status == "draft"
+
+
+def test_stamp_factura_with_facturapi_id_calls_stamp_draft(monkeypatch):
+    stamp_calls: list[str] = []
+
+    async def _fake_stamp_draft(facturapi_id):
+        stamp_calls.append(facturapi_id)
+        return {
+            "id": facturapi_id,
+            "uuid": "uuid-new-123",
+            "status": "valid",
+            "total": 116.0,
+            "series": "A",
+            "folio_number": 7,
+            "xml": "https://example.com/x.xml",
+        }
+
+    async def _fake_create_invoice(*_a, **_kw):
+        raise AssertionError("create_invoice must not be called when facturapi_id exists")
+
+    monkeypatch.setattr(facturapi, "stamp_draft_invoice", _fake_stamp_draft)
+    monkeypatch.setattr(facturapi, "create_invoice", _fake_create_invoice)
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = "fac_draft_xyz"
+    factura.cfdi_uuid = None
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.post(f"/facturas/{factura.id}/stamp")
+
+    assert response.status_code == 200, response.text
+    assert stamp_calls == ["fac_draft_xyz"]
+    body = response.json()
+    assert body["cfdi_uuid"] == "uuid-new-123"
+    assert body["status"] == "valid"
+
+
+def test_stamp_factura_without_facturapi_id_calls_create_invoice(monkeypatch):
+    create_calls: list[dict] = []
+    stamp_calls: list[str] = []
+
+    async def _fake_create_invoice(payload):
+        create_calls.append(payload)
+        return {
+            "id": "fac_from_scratch",
+            "uuid": "uuid-scratch-123",
+            "status": "valid",
+            "total": 116.0,
+            "series": "A",
+            "folio_number": 8,
+        }
+
+    async def _fake_stamp_draft(facturapi_id):
+        stamp_calls.append(facturapi_id)
+        raise AssertionError("stamp_draft_invoice must not be called without facturapi_id")
+
+    monkeypatch.setattr(facturapi, "create_invoice", _fake_create_invoice)
+    monkeypatch.setattr(facturapi, "stamp_draft_invoice", _fake_stamp_draft)
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = None
+    factura.cfdi_uuid = None
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.post(f"/facturas/{factura.id}/stamp")
+
+    assert response.status_code == 200, response.text
+    assert len(create_calls) == 1
+    assert stamp_calls == []
+
+
+def test_download_pdf_draft_with_facturapi_id_succeeds(monkeypatch):
+    async def _fake_download_pdf(facturapi_id):
+        assert facturapi_id == "fac_draft_xyz"
+        return b"%PDF-1.4 fake"
+
+    monkeypatch.setattr(facturapi, "download_pdf", _fake_download_pdf)
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = "fac_draft_xyz"
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.get(f"/facturas/{factura.id}/pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF-")
+
+
+def test_download_pdf_draft_without_facturapi_id_returns_400(monkeypatch):
+    async def _fake_download_pdf(_facturapi_id):
+        raise AssertionError("must not call Facturapi when no facturapi_id")
+
+    monkeypatch.setattr(facturapi, "download_pdf", _fake_download_pdf)
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = None
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.get(f"/facturas/{factura.id}/pdf")
+
+    assert response.status_code == 400
+
+
+def test_delete_draft_with_facturapi_id_cascades_to_facturapi(monkeypatch):
+    delete_calls: list[str] = []
+
+    async def _fake_delete_draft(facturapi_id):
+        delete_calls.append(facturapi_id)
+
+    monkeypatch.setattr(facturapi, "delete_draft_invoice", _fake_delete_draft)
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = "fac_draft_to_kill"
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.delete(f"/facturas/{factura.id}")
+
+    assert response.status_code == 204
+    assert delete_calls == ["fac_draft_to_kill"]
+    assert fake_db.deleted is True
+
+
+def test_delete_local_only_draft_does_not_call_facturapi(monkeypatch):
+    async def _fake_delete_draft(_facturapi_id):
+        raise AssertionError("must not call Facturapi for local-only drafts")
+
+    monkeypatch.setattr(facturapi, "delete_draft_invoice", _fake_delete_draft)
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = None
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.delete(f"/facturas/{factura.id}")
+
+    assert response.status_code == 204
+    assert fake_db.deleted is True

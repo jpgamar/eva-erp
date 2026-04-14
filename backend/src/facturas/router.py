@@ -40,10 +40,12 @@ async def facturapi_status(user: User = Depends(get_current_user)):
 @router.post("", response_model=FacturaResponse, status_code=201)
 async def create_factura(
     data: FacturaCreate,
+    draft: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Create a draft factura (no Facturapi call). Use POST /facturas/{id}/stamp to stamp."""
+    """Create a draft factura. With ?draft=true, push to Facturapi as draft (gets preview PDF).
+    Without draft flag, stores locally only; stamp later via POST /facturas/{id}/stamp."""
     # If customer_id provided, look up customer and fill fiscal fields
     if data.customer_id:
         result = await db.execute(
@@ -96,8 +98,18 @@ async def create_factura(
             "iva_retention": float(li.iva_retention) if li.iva_retention else None,
         })
 
+    facturapi_id: str | None = None
+    total_amount = round(subtotal + tax_total - isr_ret_total - iva_ret_total, 2)
+    if draft:
+        payload = facturapi.build_facturapi_payload(data)
+        api_result = await facturapi.create_draft_invoice(payload)
+        facturapi_id = api_result.get("id")
+        api_total = api_result.get("total")
+        if api_total:
+            total_amount = Decimal(str(api_total))
+
     factura = Factura(
-        facturapi_id=None,
+        facturapi_id=facturapi_id,
         customer_name=data.customer_name,
         customer_rfc=data.customer_rfc,
         customer_id=data.customer_id,
@@ -112,7 +124,7 @@ async def create_factura(
         tax=round(tax_total, 2),
         isr_retention=round(isr_ret_total, 2),
         iva_retention=round(iva_ret_total, 2),
-        total=round(subtotal + tax_total - isr_ret_total - iva_ret_total, 2),
+        total=total_amount,
         currency=data.currency,
         status="draft",
         notes=data.notes,
@@ -131,7 +143,9 @@ async def stamp_factura(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Stamp a draft factura with the SAT via Facturapi."""
+    """Stamp a draft factura with the SAT via Facturapi.
+    If the draft was already pushed to Facturapi (has facturapi_id), stamp the existing draft.
+    Otherwise create-and-stamp in one shot."""
     result = await db.execute(select(Factura).where(Factura.id == factura_id))
     factura = result.scalar_one_or_none()
     if not factura:
@@ -139,36 +153,39 @@ async def stamp_factura(
     if factura.status != "draft":
         raise HTTPException(status_code=400, detail="Only draft facturas can be stamped")
 
-    # Rebuild FacturaCreate from stored data to build Facturapi payload
-    line_items = []
-    for li in (factura.line_items_json or []):
-        line_items.append(FacturaLineItem(
-            product_key=li["product_key"],
-            description=li["description"],
-            quantity=li.get("quantity", 1),
-            unit_price=Decimal(str(li["unit_price"])),
-            tax_rate=Decimal(str(li.get("tax_rate", "0.16"))),
-            isr_retention=Decimal(str(li["isr_retention"])) if li.get("isr_retention") else None,
-            iva_retention=Decimal(str(li["iva_retention"])) if li.get("iva_retention") else None,
-        ))
+    if factura.facturapi_id:
+        api_result = await facturapi.stamp_draft_invoice(factura.facturapi_id)
+    else:
+        # Rebuild FacturaCreate from stored data to build Facturapi payload
+        line_items = []
+        for li in (factura.line_items_json or []):
+            line_items.append(FacturaLineItem(
+                product_key=li["product_key"],
+                description=li["description"],
+                quantity=li.get("quantity", 1),
+                unit_price=Decimal(str(li["unit_price"])),
+                tax_rate=Decimal(str(li.get("tax_rate", "0.16"))),
+                isr_retention=Decimal(str(li["isr_retention"])) if li.get("isr_retention") else None,
+                iva_retention=Decimal(str(li["iva_retention"])) if li.get("iva_retention") else None,
+            ))
 
-    data = FacturaCreate(
-        customer_name=factura.customer_name,
-        customer_rfc=factura.customer_rfc,
-        customer_id=factura.customer_id,
-        account_id=factura.account_id,
-        customer_tax_system=factura.customer_tax_system,
-        customer_zip=factura.customer_zip,
-        use=factura.use,
-        payment_form=factura.payment_form,
-        payment_method=factura.payment_method,
-        line_items=line_items,
-        currency=factura.currency,
-        notes=factura.notes,
-    )
+        data = FacturaCreate(
+            customer_name=factura.customer_name,
+            customer_rfc=factura.customer_rfc,
+            customer_id=factura.customer_id,
+            account_id=factura.account_id,
+            customer_tax_system=factura.customer_tax_system,
+            customer_zip=factura.customer_zip,
+            use=factura.use,
+            payment_form=factura.payment_form,
+            payment_method=factura.payment_method,
+            line_items=line_items,
+            currency=factura.currency,
+            notes=factura.notes,
+        )
 
-    payload = facturapi.build_facturapi_payload(data)
-    api_result = await facturapi.create_invoice(payload)
+        payload = facturapi.build_facturapi_payload(data)
+        api_result = await facturapi.create_invoice(payload)
 
     # Update factura with Facturapi response
     api_total = Decimal(str(api_result.get("total", 0)))
@@ -226,7 +243,7 @@ async def download_pdf(
     if not factura:
         raise HTTPException(status_code=404, detail="Factura not found")
     if not factura.facturapi_id:
-        raise HTTPException(status_code=400, detail="Draft facturas have no PDF — stamp first")
+        raise HTTPException(status_code=400, detail="Draft must be pushed to Facturapi first")
 
     pdf_bytes = await facturapi.download_pdf(factura.facturapi_id)
     filename = f"CFDI_{factura.cfdi_uuid or factura.facturapi_id}.pdf"
@@ -272,7 +289,9 @@ async def delete_or_cancel_factura(
         raise HTTPException(status_code=404, detail="Factura not found")
 
     if factura.status == "draft":
-        # Hard-delete drafts — they never hit the SAT
+        # If pushed to Facturapi, remove the draft there too before hard-deleting locally.
+        if factura.facturapi_id:
+            await facturapi.delete_draft_invoice(factura.facturapi_id)
         await db.delete(factura)
         await db.flush()
         return Response(status_code=204)

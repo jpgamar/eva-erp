@@ -77,6 +77,50 @@ async def create_invoice(payload: dict) -> dict:
         return resp.json()
 
 
+async def create_draft_invoice(payload: dict) -> dict:
+    """POST /v2/invoices with status:"draft" — create a preview invoice without SAT stamping."""
+    _check_key()
+    draft_payload = {**payload, "status": "draft"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{FACTURAPI_BASE}/invoices",
+            json=draft_payload,
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+            raise HTTPException(status_code=502, detail={"facturapi_error": detail})
+        return resp.json()
+
+
+async def stamp_draft_invoice(facturapi_id: str) -> dict:
+    """POST /v2/invoices/{id}/stamp — promote a draft to a valid stamped CFDI."""
+    _check_key()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{FACTURAPI_BASE}/invoices/{facturapi_id}/stamp",
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+            status = 400 if resp.status_code == 400 else 502
+            raise HTTPException(status_code=status, detail={"facturapi_error": detail})
+        return resp.json()
+
+
+async def delete_draft_invoice(facturapi_id: str) -> None:
+    """DELETE /v2/invoices/{id} — remove a draft from Facturapi (no motive for drafts)."""
+    _check_key()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(
+            f"{FACTURAPI_BASE}/invoices/{facturapi_id}",
+            headers=_headers(),
+        )
+        if resp.status_code >= 400 and resp.status_code != 404:
+            detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+            raise HTTPException(status_code=502, detail={"facturapi_error": detail})
+
+
 async def create_egreso_invoice(payload: dict) -> dict:
     """POST /v2/invoices — create and stamp an egreso CFDI."""
     _check_key()

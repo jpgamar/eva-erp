@@ -3,8 +3,8 @@ import api from "./client";
 export const facturasApi = {
   list: (params?: { status?: string }) =>
     api.get("/facturas", { params }).then(r => r.data),
-  create: (data: any) =>
-    api.post("/facturas", data).then(r => r.data),
+  create: (data: any, opts?: { draft?: boolean }) =>
+    api.post("/facturas", data, { params: opts?.draft ? { draft: "true" } : undefined }).then(r => r.data),
   get: (id: string) =>
     api.get(`/facturas/${id}`).then(r => r.data),
   stamp: (id: string) =>

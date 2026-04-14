@@ -85,7 +85,7 @@ export default function FacturasPage() {
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<"draft" | "stamp" | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(MANUAL_ENTRY);
   const [customerFieldsReadOnly, setCustomerFieldsReadOnly] = useState(false);
   const [customerWarning, setCustomerWarning] = useState("");
@@ -194,8 +194,8 @@ export default function FacturasPage() {
     }));
   };
 
-  const handleCreate = async () => {
-    setSubmitting(true);
+  const handleCreate = async (mode: "draft" | "stamp") => {
+    setSubmitting(mode);
     try {
       const items = lineItems.map(li => ({
         product_key: li.product_key,
@@ -212,8 +212,13 @@ export default function FacturasPage() {
         payload.customer_id = selectedCustomerId;
       }
 
-      await facturasApi.create(payload);
-      toast.success("Draft created");
+      const created = await facturasApi.create(payload, { draft: mode === "draft" });
+      if (mode === "stamp") {
+        await facturasApi.stamp(created.id);
+        toast.success("Factura timbrada correctamente");
+      } else {
+        toast.success("Borrador guardado. Puedes descargar el preview PDF.");
+      }
       setCreateOpen(false);
       resetForm();
       await fetchFacturas();
@@ -225,7 +230,7 @@ export default function FacturasPage() {
         toast.error(typeof detail === "string" ? detail : "Failed to create factura");
       }
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   };
 
@@ -414,16 +419,25 @@ export default function FacturasPage() {
                   <div className="flex items-center justify-end gap-1">
                     {f.status === "draft" && (
                       <>
+                        {f.facturapi_id && (
+                          <Button
+                            variant="ghost" size="icon" className="h-8 w-8 text-gray-700 hover:text-gray-900"
+                            title="Descargar preview PDF"
+                            onClick={() => handleDownloadPdf(f)}
+                          >
+                            <FileDown className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-800"
-                          title="Stamp with SAT"
+                          title="Timbrar (SAT)"
                           onClick={() => setStampTarget(f)}
                         >
                           <Send className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700"
-                          title="Delete draft"
+                          title="Eliminar borrador"
                           onClick={() => handleDeleteDraft(f)}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -465,9 +479,9 @@ export default function FacturasPage() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={(v) => { if (!v) resetForm(); setCreateOpen(v); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>New CFDI Invoice</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-5">
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate("stamp"); }} className="space-y-5">
             {/* Customer picker */}
             <div>
               <p className="text-sm font-medium text-foreground border-b border-border pb-2 mb-4">Customer</p>
@@ -598,7 +612,7 @@ export default function FacturasPage() {
                           onChange={(e) => updateLineItem(idx, "description", e.target.value)} required />
                       </div>
                     </div>
-                    <div className="grid grid-cols-[4rem_1fr_5rem_1fr_1fr] gap-3">
+                    <div className="grid grid-cols-[5rem_1fr_5rem] gap-3">
                       <div>
                         <Label className="text-[11px] text-muted-foreground">Qty</Label>
                         <Input className="mt-1 rounded-lg text-sm" type="number" min="1" value={li.quantity}
@@ -614,6 +628,8 @@ export default function FacturasPage() {
                         <Input className="mt-1 rounded-lg text-sm" type="number" step="0.01" value={li.tax_rate}
                           onChange={(e) => updateLineItem(idx, "tax_rate", e.target.value)} />
                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-[11px] text-muted-foreground">Ret. ISR</Label>
                         <Select value={li.isr_retention || NO_RETENTION} onValueChange={(v) => updateLineItem(idx, "isr_retention", v === NO_RETENTION ? "" : v)}>
@@ -669,9 +685,19 @@ export default function FacturasPage() {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" className="rounded-lg" onClick={() => { resetForm(); setCreateOpen(false); }}>Cancel</Button>
-              <Button type="submit" className="rounded-lg" disabled={submitting}>
-                {submitting ? "Creating..." : "Create Draft"}
+              <Button type="button" variant="ghost" className="rounded-lg" onClick={() => { resetForm(); setCreateOpen(false); }}>Cancelar</Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-lg"
+                disabled={submitting !== null}
+                onClick={() => handleCreate("draft")}
+                title="Envía el borrador a Facturapi para poder compartir un PDF preview sin timbrar"
+              >
+                {submitting === "draft" ? "Guardando..." : "Guardar borrador (preview)"}
+              </Button>
+              <Button type="submit" className="rounded-lg" disabled={submitting !== null}>
+                {submitting === "stamp" ? "Timbrando..." : "Crear y timbrar"}
               </Button>
             </div>
           </form>
