@@ -24,18 +24,36 @@ export interface EmpresaHealth {
   whatsapp: ChannelTypeHealth;
 }
 
+export type LifecycleStage =
+  | "prospecto"
+  | "interesado"
+  | "demo"
+  | "negociacion"
+  | "implementacion"
+  | "operativo"
+  | "churn_risk"
+  | "inactivo";
+
+export type EmpresaBillingInterval = "monthly" | "annual";
+
 export interface EmpresaListItem {
   id: string;
   name: string;
   logo_url: string | null;
   status: string;
+  lifecycle_stage: LifecycleStage;
   ball_on: string | null;
   summary_note: string | null;
   monthly_amount: number | null;
+  billing_interval: EmpresaBillingInterval;
   payment_day: number | null;
   last_paid_date: string | null;
+  expected_close_date: string | null;
+  cancellation_scheduled_at: string | null;
   eva_account_id: string | null;
   auto_match_attempted: boolean;
+  grandfathered: boolean;
+  version: number;
   subscription_status: string | null;
   current_period_end: string | null;
   person_type: string | null;
@@ -95,13 +113,43 @@ export interface Empresa {
   cfdi_use: string | null;
   person_type: string | null;
   status: string;
+  lifecycle_stage: LifecycleStage;
   ball_on: string | null;
   summary_note: string | null;
   monthly_amount: number | null;
+  billing_interval: EmpresaBillingInterval;
   payment_day: number | null;
   last_paid_date: string | null;
+  expected_close_date: string | null;
+  cancellation_scheduled_at: string | null;
+  constancia_object_key: string | null;
+  version: number;
+  fiscal_sync_pending_at: string | null;
+  fiscal_sync_error: string | null;
+  grandfathered: boolean;
   eva_account_id: string | null;
   auto_match_attempted: boolean;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  subscription_status: string | null;
+  current_period_end: string | null;
+  billing_recipient_emails: string[];
+  website: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  contact_role: string | null;
+  source: string | null;
+  referred_by: string | null;
+  estimated_plan: string | null;
+  estimated_mrr_currency: string | null;
+  estimated_mrr_usd: number | null;
+  prospect_notes: string | null;
+  next_follow_up: string | null;
+  assigned_to: string | null;
+  tags: string[] | null;
+  lost_reason: string | null;
+  legacy_prospect_id: string | null;
   created_at: string;
   updated_at: string;
   items: EmpresaItem[];
@@ -133,12 +181,35 @@ export interface EmpresaCreate {
   cfdi_use?: string | null;
   person_type?: string | null;
   status?: string;
+  lifecycle_stage?: LifecycleStage;
   ball_on?: string | null;
   summary_note?: string | null;
   monthly_amount?: number | null;
+  billing_interval?: EmpresaBillingInterval;
   payment_day?: number | null;
   last_paid_date?: string | null;
+  expected_close_date?: string | null;
+  constancia_object_key?: string | null;
   eva_account_id?: string | null;
+  website?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  contact_role?: string | null;
+  source?: string | null;
+  referred_by?: string | null;
+  estimated_plan?: string | null;
+  estimated_mrr_currency?: string | null;
+  estimated_mrr_usd?: number | null;
+  prospect_notes?: string | null;
+  next_follow_up?: string | null;
+  assigned_to?: string | null;
+  tags?: string[] | null;
+  lost_reason?: string | null;
+}
+
+export interface EmpresaUpdate extends Partial<EmpresaCreate> {
+  cancellation_scheduled_at?: string | null;
 }
 
 // ── Channel health types (silent-channel-health plan) ──

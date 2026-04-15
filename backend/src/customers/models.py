@@ -52,7 +52,11 @@ class Customer(Base):
     lifetime_value_currency: Mapped[str] = mapped_column(String(3), default="MXN")
     lifetime_value_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     referral_source: Mapped[str | None] = mapped_column(Text, nullable=True)
-    prospect_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # FK added later when prospects exist
+    # prospect_id kept for 1 release; new writes use empresa_id.
+    prospect_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    empresa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("empresas.id"), nullable=True
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list | None] = mapped_column(ARRAY(Text), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

@@ -19,7 +19,9 @@ class Meeting(Base):
     attendees: Mapped[list | None] = mapped_column(ARRAY(Text), nullable=True)
     notes_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     action_items_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # prospect_id kept for 1 release to enable rollback; new writes use empresa_id.
     prospect_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("prospects.id"), nullable=True)
+    empresa_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id"), nullable=True)
     customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

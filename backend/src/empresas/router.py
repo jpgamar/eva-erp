@@ -1,8 +1,9 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from sqlalchemy import Boolean, func, select, case, literal
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -37,7 +38,27 @@ from src.eva_platform.models import (
 router = APIRouter(prefix="/empresas", tags=["empresas"])
 logger = logging.getLogger(__name__)
 
-TRACKED_FIELDS = {"status", "ball_on", "summary_note"}
+TRACKED_FIELDS = {
+    # Original audit set.
+    "status",
+    "ball_on",
+    "summary_note",
+    # Pipeline + billing fields that matter for operator history.
+    "lifecycle_stage",
+    "monthly_amount",
+    "billing_interval",
+    "payment_day",
+    "expected_close_date",
+    "eva_account_id",
+    "person_type",
+    "rfc",
+    "razon_social",
+    "regimen_fiscal",
+    "fiscal_postal_code",
+    "cfdi_use",
+}
+
+STAGES_REQUIRING_CLOSE_DATE = {"interesado", "demo", "negociacion"}
 
 
 async def _attempt_auto_match(
@@ -93,12 +114,30 @@ async def _attempt_auto_match(
 
     empresa.auto_match_attempted = True
     if len(matches) == 1:
-        empresa.eva_account_id = matches[0]
+        candidate_id = matches[0]
+        # Guard: the target Eva account may already be linked to a different
+        # empresa. The Phase 2 unique partial index enforces this at the DB
+        # layer; we mirror the check here so auto-match skips gracefully
+        # (no 409 surfaced to the operator) and the operator can dedupe
+        # manually.
+        existing = await db.execute(
+            select(Empresa.id).where(
+                Empresa.eva_account_id == candidate_id,
+                Empresa.id != empresa.id,
+            ).limit(1)
+        )
+        if existing.scalar_one_or_none():
+            logger.info(
+                "empresas.auto_match.skip_collision empresa=%s name=%r eva_account_id=%s",
+                empresa.id, normalized, candidate_id,
+            )
+            return
+        empresa.eva_account_id = candidate_id
         logger.info(
             "empresas.auto_match.linked empresa=%s name=%r → eva_account_id=%s",
             empresa.id,
             normalized,
-            matches[0],
+            candidate_id,
         )
     elif len(matches) > 1:
         logger.info(
@@ -403,15 +442,64 @@ async def list_empresas(
     ]
 
 
+def _enforce_business_rules(
+    *,
+    lifecycle_stage: str | None,
+    eva_account_id: uuid.UUID | None,
+    subscription_status: str | None,
+    expected_close_date,
+    grandfathered: bool = False,
+) -> None:
+    """Raise HTTPException if the proposed state violates business rules.
+
+    - ``operativo`` requires a linked Eva account with an active subscription
+      (grandfathered rows are exempt).
+    - Pipeline stages interesado/demo/negociacion require ``expected_close_date``.
+    """
+    if lifecycle_stage == "operativo" and not grandfathered:
+        if eva_account_id is None or subscription_status != "active":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "OperativoRequiresActiveSubscription",
+                    "message": "Operativo requires linked Eva account with active subscription.",
+                },
+            )
+    if lifecycle_stage in STAGES_REQUIRING_CLOSE_DATE and not expected_close_date:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "ExpectedCloseDateRequired",
+                "message": "Stages interesado/demo/negociacion require expected_close_date.",
+            },
+        )
+
+
 @router.post("", response_model=EmpresaResponse, status_code=201)
 async def create_empresa(
     data: EmpresaCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    _enforce_business_rules(
+        lifecycle_stage=data.lifecycle_stage,
+        eva_account_id=data.eva_account_id,
+        subscription_status=None,
+        expected_close_date=data.expected_close_date,
+        grandfathered=False,
+    )
     empresa = Empresa(**data.model_dump(), created_by=user.id)
     db.add(empresa)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "empresas_eva_account_id_uniq" in str(exc.orig):
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "already_linked", "message": "Esta cuenta de Eva ya esta vinculada a otra empresa."},
+            ) from exc
+        raise
     await db.refresh(empresa, attribute_names=["items"])
     return empresa
 
@@ -431,12 +519,16 @@ async def get_empresa(
     return empresa
 
 
+_BILLING_FIELDS_REQUIRING_STRIPE = {"monthly_amount", "billing_interval", "payment_day"}
+
+
 @router.patch("/{empresa_id}", response_model=EmpresaResponse)
 async def update_empresa(
     empresa_id: uuid.UUID,
     data: EmpresaUpdate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ):
     result = await db.execute(
         select(Empresa).where(Empresa.id == empresa_id).options(selectinload(Empresa.items))
@@ -447,7 +539,53 @@ async def update_empresa(
 
     update_data = data.model_dump(exclude_unset=True)
 
-    # Record history for tracked fields
+    # Optimistic lock — PATCH must supply If-Match: <version> unless the payload
+    # is empty (no-op). Mismatch returns 409 so the client can refetch.
+    if update_data:
+        if if_match is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"reason": "MissingIfMatchHeader", "message": "If-Match header required on PATCH."},
+            )
+        try:
+            client_version = int(if_match.strip().strip('"'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="If-Match header must be an integer version.")
+        if client_version != empresa.version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "OptimisticLockMismatch",
+                    "message": "Another user changed this empresa — reload.",
+                    "server_version": empresa.version,
+                },
+            )
+
+    # Billing-field changes when linked must go through /subscription/apply
+    # so Stripe stays in sync. Non-linked empresas can edit freely.
+    touches_billing = _BILLING_FIELDS_REQUIRING_STRIPE & update_data.keys()
+    if touches_billing and empresa.eva_account_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "UseSubscriptionApplyEndpoint",
+                "message": "Billing field changes on linked empresas must use /subscription/apply.",
+            },
+        )
+
+    # Business-rule validation on post-merge state.
+    proposed_stage = update_data.get("lifecycle_stage", empresa.lifecycle_stage)
+    proposed_eva_account_id = update_data.get("eva_account_id", empresa.eva_account_id)
+    proposed_close_date = update_data.get("expected_close_date", empresa.expected_close_date)
+    _enforce_business_rules(
+        lifecycle_stage=proposed_stage,
+        eva_account_id=proposed_eva_account_id,
+        subscription_status=empresa.subscription_status,
+        expected_close_date=proposed_close_date,
+        grandfathered=empresa.grandfathered,
+    )
+
+    # Record history for tracked fields.
     for field in TRACKED_FIELDS:
         if field in update_data:
             old_value = getattr(empresa, field)
@@ -465,7 +603,21 @@ async def update_empresa(
     for field, value in update_data.items():
         setattr(empresa, field, value)
 
+    # Increment version if anything actually changed (even non-tracked fields).
+    if update_data:
+        empresa.version = (empresa.version or 0) + 1
+
     db.add(empresa)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "empresas_eva_account_id_uniq" in str(exc.orig):
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "already_linked", "message": "Esta cuenta de Eva ya esta vinculada a otra empresa."},
+            ) from exc
+        raise
     return empresa
 
 
@@ -479,6 +631,18 @@ async def delete_empresa(
     empresa = result.scalar_one_or_none()
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa not found")
+    # Block DELETE when the linked subscription is still active. Orphaning
+    # the sub would break webhook empresa_id resolution and leave CFDIs
+    # stamping against a non-existent empresa. Operator must cancel first
+    # via the Inactivo drag (which calls /subscription/cancel).
+    if empresa.subscription_status == "active":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "ActiveSubscription",
+                "message": "Cancela la suscripcion antes de eliminar.",
+            },
+        )
     await db.delete(empresa)
 
 

@@ -40,7 +40,12 @@ def upgrade() -> None:
     if not _column_exists("empresas", "current_period_end"):
         op.add_column("empresas", sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=True))
     if not _column_exists("empresas", "billing_recipient_emails"):
-        op.add_column("empresas", sa.Column("billing_recipient_emails", JSONB, nullable=False, server_default="'[]'::jsonb"))
+        # server_default wrapped via sa.text so asyncpg doesn't try to JSON-parse
+        # the literal (Phase 2 drive-by; prod worked because it never boots from scratch).
+        op.add_column(
+            "empresas",
+            sa.Column("billing_recipient_emails", JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
+        )
 
 
 def downgrade() -> None:

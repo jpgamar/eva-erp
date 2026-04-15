@@ -42,6 +42,13 @@ def _validate_mexican_rfc(value: str) -> str:
     return rfc
 
 
+LifecycleStage = Literal[
+    "prospecto", "interesado", "demo", "negociacion",
+    "implementacion", "operativo", "churn_risk", "inactivo",
+]
+BillingIntervalLiteral = Literal["monthly", "annual"]
+
+
 class EmpresaCreate(BaseModel):
     name: str
     logo_url: str | None = None
@@ -56,15 +63,34 @@ class EmpresaCreate(BaseModel):
     cfdi_use: str | None = "G03"
     person_type: str | None = None
     status: str = "operativo"
+    lifecycle_stage: LifecycleStage = "prospecto"
     ball_on: str | None = None
     summary_note: str | None = None
-    monthly_amount: float | None = None
+    monthly_amount: Decimal | None = None
+    billing_interval: BillingIntervalLiteral = "monthly"
     payment_day: int | None = None
     last_paid_date: _dt.date | None = None
+    expected_close_date: _dt.date | None = None
+    constancia_object_key: str | None = None
     # Cross-DB link to an Eva customer account. NULL = not yet linked.
-    # Set automatically by the auto-match-by-name routine, or
-    # manually via the Empresa edit modal.
+    # Set via the searchable picker in the empresa edit dialog.
     eva_account_id: uuid.UUID | None = None
+    # Preserved prospect fields.
+    website: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_role: str | None = None
+    source: str | None = None
+    referred_by: str | None = None
+    estimated_plan: str | None = None
+    estimated_mrr_currency: str | None = None
+    estimated_mrr_usd: Decimal | None = None
+    prospect_notes: str | None = None
+    next_follow_up: _dt.date | None = None
+    assigned_to: uuid.UUID | None = None
+    tags: list[str] | None = None
+    lost_reason: str | None = None
 
     @field_validator("rfc")
     @classmethod
@@ -88,12 +114,32 @@ class EmpresaUpdate(BaseModel):
     cfdi_use: str | None = None
     person_type: str | None = None
     status: str | None = None
+    lifecycle_stage: LifecycleStage | None = None
     ball_on: str | None = None
     summary_note: str | None = None
-    monthly_amount: float | None = None
+    monthly_amount: Decimal | None = None
+    billing_interval: BillingIntervalLiteral | None = None
     payment_day: int | None = None
     last_paid_date: _dt.date | None = None
+    expected_close_date: _dt.date | None = None
+    cancellation_scheduled_at: _dt.datetime | None = None
+    constancia_object_key: str | None = None
     eva_account_id: uuid.UUID | None = None
+    website: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_role: str | None = None
+    source: str | None = None
+    referred_by: str | None = None
+    estimated_plan: str | None = None
+    estimated_mrr_currency: str | None = None
+    estimated_mrr_usd: Decimal | None = None
+    prospect_notes: str | None = None
+    next_follow_up: _dt.date | None = None
+    assigned_to: uuid.UUID | None = None
+    tags: list[str] | None = None
+    lost_reason: str | None = None
 
     @field_validator("rfc")
     @classmethod
@@ -127,11 +173,20 @@ class EmpresaResponse(BaseModel):
     cfdi_use: str | None = None
     person_type: str | None = None
     status: str
+    lifecycle_stage: str = "prospecto"
     ball_on: str | None
     summary_note: str | None
-    monthly_amount: float | None
+    monthly_amount: Decimal | None
+    billing_interval: str = "monthly"
     payment_day: int | None
     last_paid_date: _dt.date | None
+    expected_close_date: _dt.date | None = None
+    cancellation_scheduled_at: _dt.datetime | None = None
+    constancia_object_key: str | None = None
+    version: int = 0
+    fiscal_sync_pending_at: _dt.datetime | None = None
+    fiscal_sync_error: str | None = None
+    grandfathered: bool = False
     eva_account_id: uuid.UUID | None = None
     auto_match_attempted: bool = False
     stripe_customer_id: str | None = None
@@ -139,6 +194,22 @@ class EmpresaResponse(BaseModel):
     subscription_status: str | None = None
     current_period_end: _dt.datetime | None = None
     billing_recipient_emails: list[str] = []
+    website: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_role: str | None = None
+    source: str | None = None
+    referred_by: str | None = None
+    estimated_plan: str | None = None
+    estimated_mrr_currency: str | None = None
+    estimated_mrr_usd: Decimal | None = None
+    prospect_notes: str | None = None
+    next_follow_up: _dt.date | None = None
+    assigned_to: uuid.UUID | None = None
+    tags: list[str] | None = None
+    lost_reason: str | None = None
+    legacy_prospect_id: uuid.UUID | None = None
     created_at: _dt.datetime
     updated_at: _dt.datetime
     items: list[EmpresaItemResponse] = []
@@ -218,15 +289,39 @@ class EmpresaListResponse(BaseModel):
     name: str
     logo_url: str | None
     status: str
+    lifecycle_stage: str = "prospecto"
     ball_on: str | None
     summary_note: str | None
-    monthly_amount: float | None
+    monthly_amount: Decimal | None
+    billing_interval: str = "monthly"
     payment_day: int | None
     last_paid_date: _dt.date | None
+    expected_close_date: _dt.date | None = None
+    cancellation_scheduled_at: _dt.datetime | None = None
     subscription_status: str | None = None
     current_period_end: _dt.datetime | None = None
+    eva_account_id: uuid.UUID | None = None
+    grandfathered: bool = False
+    version: int = 0
     item_count: int = 0
     model_config = {"from_attributes": True}
+
+
+class EmpresaInteractionResponse(BaseModel):
+    id: uuid.UUID
+    empresa_id: uuid.UUID
+    type: str
+    summary: str
+    date: _dt.date
+    created_by: uuid.UUID
+    created_at: _dt.datetime
+    model_config = {"from_attributes": True}
+
+
+class EmpresaInteractionCreate(BaseModel):
+    type: str
+    summary: str
+    date: _dt.date
 
 
 # ── Empresa Items ────────────────────────────────────────────────────

@@ -29,8 +29,12 @@ class AccountDraft(Base):
     facturapi_org_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft / approved / failed
+    # prospect_id kept for 1 release; new writes use empresa_id.
     prospect_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("prospects.id"), nullable=True
+    )
+    empresa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("empresas.id"), nullable=True
     )
     provisioned_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
