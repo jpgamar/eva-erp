@@ -30,6 +30,21 @@ class Settings(BaseSettings):
     stripe_reconciliation_interval_seconds: int = 86400
     finance_kpi_source: str = "lifecycle"
 
+    # Canonical Stripe Products — STANDARD/PRO × persona moral/fisica.
+    # First-time Checkout reuses these instead of creating one-off Products.
+    # Populated by running Eva's bootstrap script once per environment.
+    stripe_product_standard_moral_mxn: str = ""
+    stripe_product_standard_fisica_mxn: str = ""
+    stripe_product_pro_moral_mxn: str = ""
+    stripe_product_pro_fisica_mxn: str = ""
+
+    # Feature flag — gates new Kanban UI + /subscription/apply proxy endpoints
+    # + APScheduler fiscal sync retry worker. Schema migrations always run.
+    feature_erp_empresas_pipeline: bool = False
+
+    # Supabase Storage bucket for constancia PDFs (Phase 4 F4.9).
+    supabase_bucket_constancias: str = "empresa-constancias"
+
     # EVA DB (read-only)
     eva_database_url: str = ""
 

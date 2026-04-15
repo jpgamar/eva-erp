@@ -382,6 +382,15 @@ async def _handle_subscription_change(db, empresa_id: str, subscription: dict):
     if period_end:
         empresa.current_period_end = datetime.fromtimestamp(period_end, tz=timezone.utc)
 
+    # Mirror Stripe's cancel_at_period_end state into the empresa card so the
+    # "Cancelacion programada" chip shows the right date.
+    if subscription.get("cancel_at_period_end"):
+        cancel_at = subscription.get("cancel_at") or period_end
+        if cancel_at:
+            empresa.cancellation_scheduled_at = datetime.fromtimestamp(cancel_at, tz=timezone.utc)
+    else:
+        empresa.cancellation_scheduled_at = None
+
     if status == "canceled":
         empresa.stripe_subscription_id = None
 

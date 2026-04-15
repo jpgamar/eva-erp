@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import calendar
 import logging
+from datetime import date, datetime, time
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 import stripe
@@ -21,6 +24,53 @@ from src.eva_billing.service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+PlanTierLiteral = Literal["standard", "pro"]
+
+
+def next_billing_cycle_anchor(payment_day: int, *, from_date: date | None = None) -> int:
+    """Unix timestamp of the next occurrence of ``payment_day`` (1-31).
+
+    Clamps to the last day of the target month when payment_day exceeds that
+    month's length (e.g., ``payment_day=31`` in February → Feb 28/29).
+    """
+    if payment_day < 1 or payment_day > 31:
+        raise ValueError("payment_day must be between 1 and 31")
+    if from_date is None:
+        from_date = date.today()
+
+    target_year, target_month = from_date.year, from_date.month
+    last_day = calendar.monthrange(target_year, target_month)[1]
+    day = min(payment_day, last_day)
+    candidate = date(target_year, target_month, day)
+    if candidate <= from_date:
+        target_month += 1
+        if target_month == 13:
+            target_month = 1
+            target_year += 1
+        last_day = calendar.monthrange(target_year, target_month)[1]
+        day = min(payment_day, last_day)
+        candidate = date(target_year, target_month, day)
+    return int(datetime.combine(candidate, time.min).timestamp())
+
+
+def _resolve_canonical_product(plan_tier: PlanTierLiteral, person_type: str | None) -> str | None:
+    """Return the canonical Stripe Product ID for STANDARD/PRO × moral/fisica.
+
+    Returns None when no canonical product is configured for this environment
+    (e.g., before bootstrap has been run). Callers fall back to inline
+    product_data in that case.
+    """
+    if plan_tier == "standard":
+        if person_type == "moral":
+            return settings.stripe_product_standard_moral_mxn or None
+        return settings.stripe_product_standard_fisica_mxn or None
+    if plan_tier == "pro":
+        if person_type == "moral":
+            return settings.stripe_product_pro_moral_mxn or None
+        return settings.stripe_product_pro_fisica_mxn or None
+    return None
 
 
 def _ensure_stripe() -> None:
@@ -90,6 +140,7 @@ async def create_checkout_session(
     description: str,
     interval: str,
     recipient_email: str,
+    plan_tier: PlanTierLiteral = "standard",
 ) -> tuple[str, dict]:
     """Create a Stripe Checkout Session for a recurring custom deal.
 
@@ -157,35 +208,54 @@ async def create_checkout_session(
         "cancel_url": f"{settings.frontend_url}/empresas?payment=cancelled",
     }
 
+    canonical_product_id = _resolve_canonical_product(plan_tier, empresa.person_type)
+
+    def _build_price_data(unit_amount: int) -> dict:
+        base = {
+            "currency": "mxn",
+            "unit_amount": unit_amount,
+            "recurring": {"interval": interval},
+        }
+        if canonical_product_id:
+            # Reuse the stable canonical Product across customers — prevents
+            # the Stripe Product list from filling with one-off rows.
+            base["product"] = canonical_product_id
+        else:
+            # No canonical Product configured for this env — fall back to
+            # inline product_data so checkout still works during bootstrap.
+            base["product_data"] = {"name": desc}
+        return base
+
     if quote["retention_applicable"]:
         # Persona moral: charge post-retention total (IVA baked in, retentions subtracted)
         session_params["line_items"] = [
-            {
-                "price_data": {
-                    "product_data": {"name": desc},
-                    "currency": "mxn",
-                    "unit_amount": quote["payable_total_minor"],
-                    "recurring": {"interval": interval},
-                },
-                "quantity": 1,
-            }
+            {"price_data": _build_price_data(quote["payable_total_minor"]), "quantity": 1}
         ]
     else:
         # Persona fisica: charge base amount, Stripe adds IVA via automatic_tax
         session_params["line_items"] = [
-            {
-                "price_data": {
-                    "product_data": {"name": desc},
-                    "currency": "mxn",
-                    "unit_amount": quote["base_subtotal_minor"],
-                    "recurring": {"interval": interval},
-                },
-                "quantity": 1,
-            }
+            {"price_data": _build_price_data(quote["base_subtotal_minor"]), "quantity": 1}
         ]
         session_params["automatic_tax"] = {"enabled": True}
         session_params["billing_address_collection"] = "auto"
         session_params["customer_update"] = {"name": "auto", "address": "auto"}
+
+    # Anchor subscription billing to the operator-specified payment_day when
+    # available. Stripe charges the full amount immediately at checkout; the
+    # anchor controls subsequent recurring billing.
+    if empresa.payment_day:
+        try:
+            anchor_ts = next_billing_cycle_anchor(empresa.payment_day)
+            session_params["subscription_data"]["billing_cycle_anchor"] = anchor_ts
+            # Prorate the first partial period so the operator isn't double-charged.
+            session_params["subscription_data"]["proration_behavior"] = "create_prorations"
+        except ValueError:
+            logger.warning(
+                "empresas.checkout.invalid_payment_day empresa=%s payment_day=%s",
+                empresa.id, empresa.payment_day,
+            )
+
+    session_params["subscription_data"]["metadata"]["plan_tier"] = plan_tier
 
     session = stripe.checkout.Session.create(**session_params)
     return session.url, quote

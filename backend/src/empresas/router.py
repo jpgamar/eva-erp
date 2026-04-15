@@ -26,7 +26,12 @@ from src.empresas.schemas import (
     PortalLinkResponse,
     PreviewCheckoutRequest,
     PreviewCheckoutResponse,
+    SubscriptionApplyRequest,
+    SubscriptionApplyResponse,
+    SubscriptionCancelRequest,
+    SubscriptionCancelResponse,
 )
+from src.eva_platform.eva_billing_client import EvaBillingClient, EvaBillingClientError
 from src.eva_platform.models import (
     EvaAccount,
     EvaAgent,
@@ -819,6 +824,7 @@ async def create_checkout_link(
             currency="MXN",
             description=payload.description or f"Servicio EvaAI — {empresa.name}",
             interval=payload.interval,
+            plan_tier=payload.plan_tier,
             recipient_email=payload.recipient_email,
             retention_applicable=quote["retention_applicable"],
             created_by=user.id,
@@ -858,6 +864,167 @@ async def create_portal_link(
         return PortalLinkResponse(portal_url=url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ── Phase 4: subscription proxy endpoints ────────────────────────────
+
+
+def _require_pipeline_flag() -> None:
+    if not settings.feature_erp_empresas_pipeline:
+        raise HTTPException(status_code=503, detail="FeatureNotEnabled")
+
+
+async def _load_empresa_with_eva_link(db: AsyncSession, empresa_id: uuid.UUID) -> Empresa:
+    empresa = await db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if not empresa.eva_account_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "EmpresaNotLinkedToEvaAccount",
+                "message": "Link the empresa to an Eva account before managing the subscription.",
+            },
+        )
+    return empresa
+
+
+def _apply_eva_response_to_empresa(empresa: Empresa, payload: dict) -> None:
+    if payload.get("subscription_id"):
+        empresa.stripe_subscription_id = payload["subscription_id"]
+    period_end = payload.get("current_period_end")
+    if isinstance(period_end, (int, float)):
+        from datetime import datetime, timezone
+        empresa.current_period_end = datetime.fromtimestamp(int(period_end), tz=timezone.utc)
+    empresa.subscription_status = "active"
+
+
+@router.post("/{empresa_id}/subscription/preview", response_model=SubscriptionApplyResponse)
+async def preview_subscription(
+    empresa_id: uuid.UUID,
+    data: SubscriptionApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Dry-run reprice — forwards to Eva and returns proration preview."""
+    _require_pipeline_flag()
+    empresa = await _load_empresa_with_eva_link(db, empresa_id)
+    client = EvaBillingClient()
+    try:
+        preview = await client.preview_subscription(
+            account_id=empresa.eva_account_id,
+            plan_tier=data.plan_tier,
+            billing_interval=data.billing_interval,
+            base_subtotal_minor=data.base_subtotal_minor,
+            erp_description=data.erp_description,
+            empresa_id=empresa.id,
+            proration_behavior=data.proration_behavior,
+        )
+    except EvaBillingClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return SubscriptionApplyResponse(
+        subscription_id=preview.get("subscription_id"),
+        price_id=preview.get("price_id"),
+        product_id=preview.get("product_id"),
+        base_subtotal_minor=preview.get("base_subtotal_minor", data.base_subtotal_minor),
+        payable_total_minor=preview.get("payable_total_minor", data.base_subtotal_minor),
+        retention_applicable=preview.get("retention_applicable", False),
+        person_type=preview.get("person_type"),
+        current_period_end=preview.get("current_period_end"),
+        preview=preview.get("preview_invoice"),
+    )
+
+
+@router.post("/{empresa_id}/subscription/apply", response_model=SubscriptionApplyResponse)
+async def apply_subscription(
+    empresa_id: uuid.UUID,
+    data: SubscriptionApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="X-Empresa-Idempotency-Key"),
+):
+    """Apply reprice via Eva, then sync local empresa billing cache.
+
+    NOT cross-system atomic: if the Eva call succeeds but the local commit
+    fails (network blip), the next preview call will show Eva's actual state
+    and the hourly reconcile_empresa_billing_cache beat sweeps drift.
+    """
+    _require_pipeline_flag()
+    empresa = await _load_empresa_with_eva_link(db, empresa_id)
+
+    client = EvaBillingClient()
+    try:
+        result = await client.reprice_subscription(
+            account_id=empresa.eva_account_id,
+            plan_tier=data.plan_tier,
+            billing_interval=data.billing_interval,
+            base_subtotal_minor=data.base_subtotal_minor,
+            erp_description=data.erp_description,
+            empresa_id=empresa.id,
+            proration_behavior=data.proration_behavior,
+            idempotency_key=idempotency_key,
+        )
+    except EvaBillingClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    # Sync local empresa billing cache post-apply.
+    empresa.monthly_amount = data.base_subtotal_minor / 100
+    empresa.billing_interval = data.billing_interval
+    _apply_eva_response_to_empresa(empresa, result)
+    db.add(empresa)
+    try:
+        await db.flush()
+    except Exception:
+        # Eva already applied the change — don't retry the Stripe mutation.
+        # The reconcile beat will pick this up; log and surface.
+        logger.exception("empresas.apply.local_commit_failed empresa=%s", empresa.id)
+
+    return SubscriptionApplyResponse(
+        subscription_id=result.get("subscription_id"),
+        price_id=result.get("price_id"),
+        product_id=result.get("product_id"),
+        base_subtotal_minor=result.get("base_subtotal_minor", data.base_subtotal_minor),
+        payable_total_minor=result.get("payable_total_minor", data.base_subtotal_minor),
+        retention_applicable=result.get("retention_applicable", False),
+        person_type=result.get("person_type"),
+        current_period_end=result.get("current_period_end"),
+    )
+
+
+@router.post("/{empresa_id}/subscription/cancel", response_model=SubscriptionCancelResponse)
+async def cancel_subscription(
+    empresa_id: uuid.UUID,
+    data: SubscriptionCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="X-Empresa-Idempotency-Key"),
+):
+    _require_pipeline_flag()
+    empresa = await _load_empresa_with_eva_link(db, empresa_id)
+
+    client = EvaBillingClient()
+    try:
+        result = await client.cancel_subscription(
+            account_id=empresa.eva_account_id,
+            at_period_end=data.at_period_end,
+            cancel_reason=data.cancel_reason,
+            empresa_id=empresa.id,
+            idempotency_key=idempotency_key,
+        )
+    except EvaBillingClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    scheduled_at = result.get("cancellation_scheduled_at")
+    if data.at_period_end and isinstance(scheduled_at, (int, float)):
+        from datetime import datetime, timezone
+        empresa.cancellation_scheduled_at = datetime.fromtimestamp(int(scheduled_at), tz=timezone.utc)
+    else:
+        empresa.cancellation_scheduled_at = None
+    empresa.subscription_status = result.get("subscription_status", empresa.subscription_status)
+    db.add(empresa)
+    await db.flush()
+
+    return SubscriptionCancelResponse(**result)
 
 
 @router.post("/{empresa_id}/extract-constancia", response_model=ConstanciaExtractResponse)

@@ -1,4 +1,4 @@
-"""Constancia fiscal extraction using OpenAI vision."""
+"""Constancia fiscal extraction using OpenAI vision + Supabase storage."""
 
 from __future__ import annotations
 
@@ -6,13 +6,77 @@ import base64
 import io
 import json
 import logging
+import mimetypes
 from typing import Any
+from uuid import UUID
 
+import httpx
 from openai import AsyncOpenAI
 
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# ── Supabase Storage helpers ─────────────────────────────────────────
+
+
+def _supabase_headers() -> dict[str, str]:
+    if not settings.supabase_service_role_key:
+        raise RuntimeError("supabase_service_role_key not configured")
+    return {
+        "Authorization": f"Bearer {settings.supabase_service_role_key}",
+        "apikey": settings.supabase_service_role_key,
+    }
+
+
+async def upload_constancia(
+    *, empresa_id: UUID | str, filename: str, file_bytes: bytes, content_type: str | None = None
+) -> str:
+    """Upload the constancia PDF/image to Supabase Storage and return the
+    bucket-relative object key. Never returns the signed URL — callers mint
+    one on read via ``signed_constancia_url``.
+    """
+    if not settings.supabase_url:
+        raise RuntimeError("supabase_url not configured")
+    resolved_type = content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    # Suffix a random segment so we don't overwrite earlier uploads.
+    from uuid import uuid4
+    safe_name = filename.replace("/", "_").replace("..", "_")
+    object_key = f"{empresa_id}/{uuid4().hex[:8]}_{safe_name}"
+    url = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/{settings.supabase_bucket_constancias}/{object_key}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            url,
+            headers={**_supabase_headers(), "Content-Type": resolved_type, "x-upsert": "true"},
+            content=file_bytes,
+        )
+    if resp.status_code >= 300:
+        raise RuntimeError(f"Supabase upload failed: {resp.status_code} {resp.text[:200]}")
+    return object_key
+
+
+async def signed_constancia_url(object_key: str, *, expires_in_seconds: int = 3600) -> str:
+    """Mint a time-limited signed URL for reading an uploaded constancia."""
+    if not object_key:
+        raise ValueError("object_key required")
+    url = (
+        f"{settings.supabase_url.rstrip('/')}/storage/v1/object/sign/"
+        f"{settings.supabase_bucket_constancias}/{object_key}"
+    )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            url,
+            headers={**_supabase_headers(), "Content-Type": "application/json"},
+            json={"expiresIn": expires_in_seconds},
+        )
+    if resp.status_code >= 300:
+        raise RuntimeError(f"Supabase sign URL failed: {resp.status_code} {resp.text[:200]}")
+    body = resp.json()
+    signed_path = body.get("signedURL") or body.get("signed_url")
+    if not signed_path:
+        raise RuntimeError("Supabase sign URL returned no signed path")
+    return f"{settings.supabase_url.rstrip('/')}{signed_path}"
 
 EXTRACTION_MODEL = "gpt-4o-mini"
 

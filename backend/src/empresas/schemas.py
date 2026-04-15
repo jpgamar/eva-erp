@@ -369,11 +369,48 @@ class CheckoutLinkRequest(BaseModel):
     description: str = Field(default="", max_length=500)
     interval: Literal["month", "year"] = "month"
     recipient_email: EmailStr
+    # Drives canonical Stripe Product selection in first-time Checkout.
+    plan_tier: Literal["standard", "pro"] = "standard"
 
 
 class CheckoutLinkResponse(BaseModel):
     checkout_url: str
     quote: PreviewCheckoutResponse
+
+
+# ── Phase 4: subscription proxy endpoints ────────────────────────────
+
+
+class SubscriptionApplyRequest(BaseModel):
+    plan_tier: Literal["standard", "pro"]
+    billing_interval: Literal["monthly", "annual"]
+    base_subtotal_minor: int = Field(..., ge=1, le=10_000_000)
+    erp_description: str | None = Field(default=None, max_length=500)
+    proration_behavior: Literal["always_invoice", "create_prorations", "none"] = "always_invoice"
+
+
+class SubscriptionApplyResponse(BaseModel):
+    subscription_id: str | None = None
+    price_id: str | None = None
+    product_id: str | None = None
+    base_subtotal_minor: int
+    payable_total_minor: int
+    retention_applicable: bool
+    person_type: str | None = None
+    current_period_end: int | None = None
+    preview: dict | None = None
+
+
+class SubscriptionCancelRequest(BaseModel):
+    at_period_end: bool = True
+    cancel_reason: str | None = Field(default=None, max_length=500)
+
+
+class SubscriptionCancelResponse(BaseModel):
+    subscription_id: str
+    cancel_at_period_end: bool
+    cancellation_scheduled_at: int | None = None
+    subscription_status: str
 
 
 class PortalLinkResponse(BaseModel):
