@@ -52,6 +52,7 @@ import {
   type EvaAccountForLink,
 } from "@/lib/api/empresas";
 import { CheckoutLinkModal } from "@/components/empresas/CheckoutLinkModal";
+import { EmpresasKanban } from "@/components/empresas/EmpresasKanban";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -177,6 +178,15 @@ export default function EmpresasPage() {
   const [empresas, setEmpresas] = useState<EmpresaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<"grid" | "kanban">(() => {
+    if (typeof window === "undefined") return "grid";
+    const url = new URL(window.location.href);
+    return url.searchParams.get("view") === "kanban" ? "kanban" : "grid";
+  });
+  const stageFilter = (() => {
+    if (typeof window === "undefined") return null;
+    return new URL(window.location.href).searchParams.get("stage");
+  })();
 
   // Empresa modal
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
@@ -423,10 +433,42 @@ export default function EmpresasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Empresas</h1>
-        <Button onClick={openCreateEmpresa}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva Empresa
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border border-border">
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm ${view === "grid" ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
+              onClick={() => {
+                setView("grid");
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("view");
+                  window.history.replaceState({}, "", url);
+                }
+              }}
+            >
+              Tarjetas
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm ${view === "kanban" ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
+              onClick={() => {
+                setView("kanban");
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("view", "kanban");
+                  window.history.replaceState({}, "", url);
+                }
+              }}
+            >
+              Pipeline
+            </button>
+          </div>
+          <Button onClick={openCreateEmpresa}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva Empresa
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -440,13 +482,20 @@ export default function EmpresasPage() {
         />
       </div>
 
-      {/* Cards grid */}
+      {/* Kanban or cards grid */}
       {loading ? (
         <div className="py-12 text-center text-muted-foreground">Cargando...</div>
       ) : empresas.length === 0 ? (
         <div className="py-12 text-center text-muted-foreground">
           {search ? "No se encontraron empresas" : "No hay empresas aún. Crea la primera."}
         </div>
+      ) : view === "kanban" ? (
+        <EmpresasKanban
+          empresas={empresas}
+          onChanged={loadEmpresas}
+          onCardClick={(emp) => openEditEmpresa(empresas.find((e) => e.id === emp.id) ?? emp)}
+          stageFilter={stageFilter}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {empresas.map((emp) => {
