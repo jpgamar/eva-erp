@@ -72,7 +72,10 @@ from src.tasks.router import router as task_router
 from src.tasks.router import board_router
 from src.finances.router import router as finances_router
 from src.kpis.router import router as kpis_router
-from src.prospects.router import router as prospects_router
+# Prospects router unmounted in the Empresas Pipeline unification. The import
+# is kept for 1 release so rollback by reverting main.py only is safe; a
+# follow-up PR drops the module entirely.
+from src.prospects.router import router as prospects_router  # noqa: F401  # TODO: drop in follow-up PR
 from src.meetings.router import router as meetings_router
 from src.documents.router import router as documents_router
 from src.okrs.router import router as okrs_router
@@ -93,7 +96,9 @@ api_router.include_router(task_router)
 api_router.include_router(board_router)
 api_router.include_router(finances_router)
 api_router.include_router(kpis_router)
-api_router.include_router(prospects_router)
+# Prospects router unmounted — /prospects/* now returns 404. Clients should
+# call /empresas with lifecycle_stage filter instead.
+# api_router.include_router(prospects_router)
 api_router.include_router(meetings_router)
 api_router.include_router(documents_router)
 api_router.include_router(okrs_router)

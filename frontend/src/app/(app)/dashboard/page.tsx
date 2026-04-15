@@ -330,7 +330,7 @@ export default function DashboardPage() {
             lost: "bg-red-500", inactive: "bg-gray-400",
           };
           return (
-            <Link href="/prospects" className="group flex">
+            <Link href="/empresas?stage=prospecto" className="group flex">
               <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg w-full">
                 <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-500" />
                 <div className="p-6">

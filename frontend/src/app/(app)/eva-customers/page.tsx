@@ -928,7 +928,7 @@ export default function EvaCustomersPage() {
                           {d.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm">{d.prospect_id || "\u2014"}</TableCell>
+                      <TableCell className="text-sm">{d.empresa_id || d.prospect_id || "\u2014"}</TableCell>
                       <TableCell>
                         {d.status === "draft" ? (
                           <div className="flex gap-2">

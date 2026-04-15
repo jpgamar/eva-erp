@@ -31,7 +31,7 @@ const pages = [
   { label: "Customers", icon: Users, href: "/customers", keywords: "clients mrr arr subscriptions" },
   { label: "Vault", icon: Lock, href: "/vault", keywords: "passwords credentials secrets costs" },
   { label: "Tasks", icon: CheckSquare, href: "/tasks", keywords: "kanban boards todo work" },
-  { label: "Prospects", icon: Target, href: "/prospects", keywords: "sales pipeline leads crm" },
+  { label: "Pipeline de Empresas", icon: Target, href: "/empresas?stage=prospecto", keywords: "sales pipeline leads crm prospects kanban" },
   { label: "Meetings", icon: Calendar, href: "/meetings", keywords: "calendar schedule calls" },
   { label: "Documents", icon: FolderOpen, href: "/documents", keywords: "files storage uploads" },
   { label: "OKRs", icon: Trophy, href: "/okrs", keywords: "objectives key results goals" },

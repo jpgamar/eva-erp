@@ -17,7 +17,9 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/facturas": { title: "Facturas", subtitle: "CFDI electronic invoicing" },
   "/vault": { title: "Vault", subtitle: "Secure document storage" },
   "/tasks": { title: "Tasks", subtitle: "Track and manage work" },
-  "/prospects": { title: "Prospects", subtitle: "Sales pipeline" },
+  // /prospects redirects to /empresas?stage=prospecto; metadata entry kept so
+  // the brief moment before redirect shows a sensible heading.
+  "/prospects": { title: "Pipeline", subtitle: "Redirigiendo a /empresas…" },
   "/meetings": { title: "Meetings", subtitle: "Schedule and notes" },
   "/documents": { title: "Documents", subtitle: "File management" },
   "/okrs": { title: "OKRs", subtitle: "Objectives and key results" },

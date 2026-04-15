@@ -21,7 +21,9 @@ class MeetingCreate(BaseModel):
     attendees: list[str] | None = None
     notes_markdown: str | None = None
     action_items: list[ActionItem] | None = None
+    # prospect_id kept for 1 release to support rollback; new UIs send empresa_id.
     prospect_id: uuid.UUID | None = None
+    empresa_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None
 
 
@@ -33,6 +35,7 @@ class MeetingUpdate(BaseModel):
     attendees: list[str] | None = None
     notes_markdown: str | None = None
     action_items: list[ActionItem] | None = None
+    empresa_id: uuid.UUID | None = None
 
 
 class MeetingResponse(BaseModel):
@@ -45,6 +48,7 @@ class MeetingResponse(BaseModel):
     notes_markdown: str | None
     action_items_json: list | None
     prospect_id: uuid.UUID | None
+    empresa_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None
     created_by: uuid.UUID
     created_at: _dt.datetime

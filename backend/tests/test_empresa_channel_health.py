@@ -127,13 +127,28 @@ class _FakeEvaDB:
 
 
 class _FakeLocalDB:
-    """Local DB session — auto-match doesn't query through it, only flushes."""
+    """Local DB session — auto-match now also checks for collisions.
 
-    def __init__(self) -> None:
+    ``execute`` returns an empty scalar result by default so the collision
+    guard finds no existing empresa linked to the same Eva account. Tests
+    that care about the collision path can override ``existing_linked_id``.
+    """
+
+    def __init__(self, existing_linked_id: uuid.UUID | None = None) -> None:
         self.flushed = False
+        self._existing = existing_linked_id
 
     async def flush(self) -> None:
         self.flushed = True
+
+    async def execute(self, _stmt: Any) -> Any:  # type: ignore[override]
+        parent = self
+
+        class _Scalar:
+            def scalar_one_or_none(self_inner) -> Any:
+                return parent._existing
+
+        return _Scalar()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -223,6 +238,22 @@ def test_auto_match_does_not_mark_attempted_on_eva_db_error():
     # Did NOT mark attempted — will retry next page load when eva_db
     # is reachable again.
     assert empresa.auto_match_attempted is False
+    assert empresa.eva_account_id is None
+
+
+def test_auto_match_skips_when_candidate_already_linked_to_another_empresa():
+    """Guard against creating two empresas linked to the same Eva account
+    (which the Phase 2 unique partial index would reject at DB layer).
+    """
+    target_id = uuid.uuid4()
+    other_empresa_id = uuid.uuid4()
+    empresa = _make_empresa("Lucky Telecom")
+    eva_db = _FakeEvaDB([[target_id]])
+    local_db = _FakeLocalDB(existing_linked_id=other_empresa_id)
+    asyncio.run(_attempt_auto_match(local_db, eva_db, empresa))
+    # auto_match_attempted stays True (we set it before the collision check),
+    # but eva_account_id stays None because candidate is already taken.
+    assert empresa.auto_match_attempted is True
     assert empresa.eva_account_id is None
 
 

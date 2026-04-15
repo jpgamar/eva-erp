@@ -49,6 +49,7 @@ async def create_meeting(
         notes_markdown=data.notes_markdown,
         action_items_json=action_items_json,
         prospect_id=data.prospect_id,
+        empresa_id=data.empresa_id,
         customer_id=data.customer_id,
         created_by=user.id,
     )

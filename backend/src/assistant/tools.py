@@ -11,7 +11,7 @@ from src.finances.recurrence import extract_income_recurrence, income_monthly_mr
 from src.kpis.models import KPISnapshot
 from src.meetings.models import Meeting
 from src.okrs.models import KeyResult, OKRPeriod, Objective
-from src.prospects.models import Prospect
+from src.empresas.models import Empresa
 from src.tasks.models import Task
 from src.vault.models import Credential
 
@@ -70,12 +70,22 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "query_prospects",
-            "description": "Query sales prospects.",
+            "name": "query_empresas_by_stage",
+            "description": "Query empresas (companies) in the unified pipeline.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "description": "Filter by pipeline status"},
+                    "lifecycle_stage": {
+                        "type": "string",
+                        "description": (
+                            "Filter by pipeline stage: prospecto, interesado, demo, "
+                            "negociacion, implementacion, operativo, churn_risk, inactivo"
+                        ),
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "DEPRECATED alias for lifecycle_stage (kept 1 release).",
+                    },
                 },
             },
         },
@@ -238,15 +248,20 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
             for e in items
         ])
 
-    elif name == "query_prospects":
-        q = select(Prospect).order_by(Prospect.created_at.desc()).limit(30)
-        if args.get("status"):
-            q = q.where(Prospect.status == args["status"])
+    elif name in ("query_empresas_by_stage", "query_prospects"):
+        # query_prospects is a deprecated alias kept for 1 release.
+        q = select(Empresa).order_by(Empresa.created_at.desc()).limit(30)
+        stage = args.get("lifecycle_stage") or args.get("status")
+        if stage:
+            q = q.where(Empresa.lifecycle_stage == stage)
         result = await db.execute(q)
         items = result.scalars().all()
         return json.dumps([
-            {"company": p.company_name, "contact": p.contact_name, "status": p.status,
-             "source": p.source, "estimated_mrr": _dec(p.estimated_mrr), "next_follow_up": str(p.next_follow_up) if p.next_follow_up else None}
+            {"company": p.name, "contact": p.contact_name,
+             "lifecycle_stage": p.lifecycle_stage, "status": p.status,
+             "source": p.source,
+             "estimated_mrr": _dec(p.monthly_amount),
+             "next_follow_up": str(p.next_follow_up) if p.next_follow_up else None}
             for p in items
         ])
 

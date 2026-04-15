@@ -31,7 +31,7 @@ from src.finances.recurrence import (
     income_monthly_mrr_equivalent,
 )
 from src.meetings.models import Meeting
-from src.prospects.models import Prospect
+from src.empresas.models import Empresa
 from src.tasks.models import Task
 from src.vault.models import Credential
 
@@ -200,7 +200,12 @@ async def dashboard_summary(
         ),
         "all_income": select(IncomeEntry).where(IncomeEntry.date < next_month_start),
         "all_expenses": select(Expense).where(Expense.date < next_month_start),
-        "all_prospects": select(Prospect).where(func.date(Prospect.created_at) < next_month_start),
+        # Pipeline stages that represent the pre-operativo funnel (legacy
+        # prospect analogs). Operativo/churn_risk/inactivo are excluded.
+        "all_prospects": select(Empresa).where(
+            func.date(Empresa.created_at) < next_month_start,
+            Empresa.lifecycle_stage.in_(("prospecto", "interesado", "demo", "negociacion")),
+        ),
         "tasks_active": select(Task).where(
             Task.status.in_(["todo", "in_progress"]),
             func.date(Task.created_at) < next_month_start,
@@ -317,12 +322,13 @@ async def dashboard_summary(
             - expense_total_period_by_currency.get(currency, Decimal("0"))
         ).quantize(Decimal("0.01"))
 
-    # Process prospects
+    # Process prospects — now sourced from empresas filtered by pipeline stage.
+    # Widget keys preserved so the frontend contract doesn't break.
     prospects = r["all_prospects"].scalars().all()
     prospect_by_status: dict[str, int] = {}
     urgency = {"urgent": 0, "soso": 0, "can_wait": 0}
     for p in prospects:
-        prospect_by_status[p.status] = prospect_by_status.get(p.status, 0) + 1
+        prospect_by_status[p.lifecycle_stage] = prospect_by_status.get(p.lifecycle_stage, 0) + 1
         tags = p.tags or []
         if "priority_high" in tags:
             urgency["urgent"] += 1

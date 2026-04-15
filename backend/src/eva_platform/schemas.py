@@ -81,7 +81,9 @@ class AccountDraftCreate(BaseModel):
     is_billable: bool = True
     facturapi_org_api_key: str | None = None
     notes: str | None = None
+    # prospect_id kept for 1 release; new UIs send empresa_id.
     prospect_id: uuid.UUID | None = None
+    empresa_id: uuid.UUID | None = None
 
 
 class AccountDraftUpdate(BaseModel):
@@ -115,6 +117,7 @@ class AccountDraftResponse(BaseModel):
     notes: str | None
     status: str
     prospect_id: uuid.UUID | None
+    empresa_id: uuid.UUID | None = None
     provisioned_account_id: uuid.UUID | None
     created_by: uuid.UUID
     approved_by: uuid.UUID | None

@@ -408,6 +408,7 @@ export interface AccountDraft {
   notes: string | null;
   status: string;
   prospect_id: string | null;
+  empresa_id: string | null;
   provisioned_account_id: string | null;
   created_by: string;
   approved_by: string | null;

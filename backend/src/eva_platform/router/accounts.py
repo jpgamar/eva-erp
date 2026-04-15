@@ -563,6 +563,7 @@ async def create_draft(
         facturapi_org_api_key=data.facturapi_org_api_key,
         notes=data.notes,
         prospect_id=data.prospect_id,
+        empresa_id=getattr(data, "empresa_id", None),
         created_by=user.id,
     )
     db.add(draft)
