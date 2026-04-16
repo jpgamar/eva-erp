@@ -65,6 +65,21 @@ TRACKED_FIELDS = {
 
 STAGES_REQUIRING_CLOSE_DATE = {"interesado", "demo", "negociacion"}
 
+# Fields whose mutation triggers a re-check of _enforce_business_rules.
+# Unrelated edits (billing emails, phone, industry, summary_note, etc.)
+# must remain possible on empresas whose current state violates the rule.
+BUSINESS_RULE_GATED_FIELDS = frozenset({"lifecycle_stage", "eva_account_id", "expected_close_date"})
+
+
+def _should_enforce_business_rules(update_data: dict) -> bool:
+    """True when the PATCH touches any field that changes rule inputs.
+
+    Scoped so unrelated edits (e.g., billing_recipient_emails) can proceed
+    on empresas whose current state would fail the rule (operativo but
+    unlinked/inactive sub — the Acabados payment-link case, Apr 2026).
+    """
+    return any(field in update_data for field in BUSINESS_RULE_GATED_FIELDS)
+
 
 async def _attempt_auto_match(
     db: AsyncSession,
@@ -578,17 +593,19 @@ async def update_empresa(
             },
         )
 
-    # Business-rule validation on post-merge state.
-    proposed_stage = update_data.get("lifecycle_stage", empresa.lifecycle_stage)
-    proposed_eva_account_id = update_data.get("eva_account_id", empresa.eva_account_id)
-    proposed_close_date = update_data.get("expected_close_date", empresa.expected_close_date)
-    _enforce_business_rules(
-        lifecycle_stage=proposed_stage,
-        eva_account_id=proposed_eva_account_id,
-        subscription_status=empresa.subscription_status,
-        expected_close_date=proposed_close_date,
-        grandfathered=empresa.grandfathered,
-    )
+    # Business-rule validation on post-merge state, scoped to the fields
+    # that actually change the rule inputs (see _should_enforce_business_rules).
+    if _should_enforce_business_rules(update_data):
+        proposed_stage = update_data.get("lifecycle_stage", empresa.lifecycle_stage)
+        proposed_eva_account_id = update_data.get("eva_account_id", empresa.eva_account_id)
+        proposed_close_date = update_data.get("expected_close_date", empresa.expected_close_date)
+        _enforce_business_rules(
+            lifecycle_stage=proposed_stage,
+            eva_account_id=proposed_eva_account_id,
+            subscription_status=empresa.subscription_status,
+            expected_close_date=proposed_close_date,
+            grandfathered=empresa.grandfathered,
+        )
 
     # Record history for tracked fields.
     for field in TRACKED_FIELDS:

@@ -467,10 +467,32 @@ export default function EmpresasPage() {
       loadEmpresas();
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
-      if (detail?.reason === "OptimisticLockMismatch") {
+      const reason = detail?.reason;
+      const message = detail?.message;
+      if (reason === "OptimisticLockMismatch") {
         toast.error("Otra persona cambió esta empresa. Recarga e inténtalo de nuevo.");
+      } else if (reason === "OperativoRequiresActiveSubscription") {
+        toast.error(
+          message ??
+            "Para marcar esta empresa como Operativo necesita estar vinculada a una cuenta de Eva con suscripción activa."
+        );
+      } else if (reason === "ExpectedCloseDateRequired") {
+        toast.error(message ?? "Define la fecha de cierre esperada antes de guardar.");
+      } else if (reason === "UseSubscriptionApplyEndpoint") {
+        toast.error(
+          message ??
+            "Cambios al monto/intervalo/día de pago en empresas vinculadas se hacen desde el panel de suscripción."
+        );
+      } else if (reason === "already_linked") {
+        toast.error(message ?? "Esa cuenta de Eva ya está vinculada a otra empresa.");
+      } else if (reason === "MissingIfMatchHeader") {
+        toast.error("Error interno: falta el encabezado de versión. Recarga la página.");
+      } else if (typeof detail === "string") {
+        toast.error(detail);
+      } else if (message) {
+        toast.error(message);
       } else {
-        toast.error(typeof detail === "string" ? detail : "Error al guardar empresa");
+        toast.error("Error al guardar empresa");
       }
     }
   };

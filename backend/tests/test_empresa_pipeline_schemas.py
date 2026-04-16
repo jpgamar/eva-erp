@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 
-from src.empresas.router import _enforce_business_rules
+from src.empresas.router import _enforce_business_rules, _should_enforce_business_rules
 from src.empresas.schemas import (
     EmpresaCreate,
     EmpresaInteractionCreate,
@@ -142,6 +142,39 @@ class TestBusinessRules:
             subscription_status=None,
             expected_close_date=None,
         )
+
+
+class TestPatchScopingForBusinessRules:
+    """The PATCH endpoint (router.update_empresa) only invokes
+    ``_enforce_business_rules`` when the payload actually touches
+    ``lifecycle_stage``, ``eva_account_id``, or ``expected_close_date``.
+
+    These tests pin the scoping predicate so a future refactor can't
+    quietly re-introduce the regression that blocked email-only edits on
+    operativo empresas whose sub hadn't yet gone active (the Acabados
+    payment-link case, Apr 2026).
+    """
+
+    def test_email_only_edit_skips_enforcement(self):
+        assert _should_enforce_business_rules({"billing_recipient_emails": ["a@b.com"]}) is False
+
+    def test_phone_industry_summary_note_skip_enforcement(self):
+        assert _should_enforce_business_rules({"phone": "1234", "industry": "x", "summary_note": "n"}) is False
+
+    def test_lifecycle_stage_change_triggers_enforcement(self):
+        assert _should_enforce_business_rules({"lifecycle_stage": "operativo"}) is True
+
+    def test_eva_account_id_change_triggers_enforcement(self):
+        assert _should_enforce_business_rules({"eva_account_id": "11111111-1111-1111-1111-111111111111"}) is True
+
+    def test_expected_close_date_change_triggers_enforcement(self):
+        assert _should_enforce_business_rules({"expected_close_date": "2026-05-01"}) is True
+
+    def test_mixed_payload_triggers_when_any_gated_field_present(self):
+        assert _should_enforce_business_rules({"billing_recipient_emails": [], "lifecycle_stage": "demo"}) is True
+
+    def test_empty_payload_skips_enforcement(self):
+        assert _should_enforce_business_rules({}) is False
 
 
 class TestEmpresaInteractionSchema:
