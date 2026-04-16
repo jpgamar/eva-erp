@@ -255,12 +255,22 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
                 retention_applicable = retention
                 amount_total = int(invoice.get("total") or invoice.get("amount_paid") or 0)
                 if retention_applicable:
-                    # Reverse-compute base from payable total
+                    # Reverse-compute base from payable total. Factor must
+                    # include any state-level cedular that applies to this
+                    # customer's ZIP — otherwise the recomputed base drifts
+                    # from Stripe's actual subtotal and stamp validation
+                    # fails with >100 centavo mismatch.
                     from decimal import Decimal, ROUND_HALF_UP
-                    from src.eva_billing.service import IVA_RATE, ISR_RETENTION_RATE, IVA_RETENTION_RATE
-                    factor = (Decimal("1.00") + IVA_RATE - ISR_RETENTION_RATE - IVA_RETENTION_RATE).quantize(
-                        Decimal("0.000001"), rounding=ROUND_HALF_UP
-                    )
+                    from src.eva_billing.service import IVA_RATE, ISR_RETENTION_RATE, IVA_RETENTION_RATE, PROVIDER_REGIME
+                    from src.eva_billing.cedular import cedular_rate as _cedular_rate
+                    from src.eva_billing.cedular import resolve_cedular as _resolve_cedular
+                    factor = Decimal("1.00") + IVA_RATE - ISR_RETENTION_RATE - IVA_RETENTION_RATE
+                    cedular_rule = _resolve_cedular(empresa.fiscal_postal_code, PROVIDER_REGIME)
+                    if cedular_rule:
+                        cr = _cedular_rate(cedular_rule, PROVIDER_REGIME)
+                        if cr is not None:
+                            factor -= cr
+                    factor = factor.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
                     base_subtotal_minor = int(
                         (Decimal(amount_total) / factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
                     )
