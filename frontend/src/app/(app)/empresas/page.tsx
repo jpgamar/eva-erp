@@ -85,6 +85,10 @@ const VALUE_LABELS: Record<string, string> = {
   cliente: "Cliente",
 };
 
+const MAX_BILLING_RECIPIENTS = 5;
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const EMPTY_EMPRESA: EmpresaCreate = {
   name: "",
   logo_url: null,
@@ -105,6 +109,7 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   payment_day: null,
   last_paid_date: null,
   eva_account_id: null,
+  billing_recipient_emails: [],
 };
 
 // ── Channel health UI helpers ──────────────────────────────────────
@@ -172,6 +177,114 @@ const PAYMENT_STATUS_CONFIG: Record<string, { label: string; className: string }
   overdue: { label: "Vencido", className: "text-red-600" },
 };
 
+// ── Billing recipients chip input ──────────────────────────────────
+
+function BillingRecipientsInput({
+  emails,
+  onChange,
+}: {
+  emails: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const tryAdd = (raw: string): boolean => {
+    const cleaned = raw.trim().toLowerCase();
+    if (!cleaned) return false;
+    if (!EMAIL_REGEX.test(cleaned)) {
+      toast.error("Correo inválido");
+      return false;
+    }
+    if (emails.some((e) => e.toLowerCase() === cleaned)) {
+      toast.error("Ese correo ya está en la lista");
+      return false;
+    }
+    if (emails.length >= MAX_BILLING_RECIPIENTS) {
+      toast.error(`Máximo ${MAX_BILLING_RECIPIENTS} correos`);
+      return false;
+    }
+    onChange([...emails, cleaned]);
+    return true;
+  };
+
+  const commit = () => {
+    if (tryAdd(draft)) setDraft("");
+  };
+
+  const makePrimary = (idx: number) => {
+    if (idx <= 0 || idx >= emails.length) return;
+    const next = [...emails];
+    const [picked] = next.splice(idx, 1);
+    next.unshift(picked);
+    onChange(next);
+  };
+
+  const remove = (idx: number) => {
+    const next = emails.filter((_, i) => i !== idx);
+    onChange(next);
+  };
+
+  return (
+    <div className="rounded-md border border-input bg-transparent px-2 py-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        {emails.map((email, idx) => {
+          const isPrimary = idx === 0;
+          return (
+            <span
+              key={`${email}-${idx}`}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                isPrimary
+                  ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                  : "bg-muted text-foreground"
+              }`}
+            >
+              {isPrimary && <span className="text-[10px] font-semibold uppercase tracking-wide">Principal</span>}
+              <span className="break-all">{email}</span>
+              {!isPrimary && (
+                <button
+                  type="button"
+                  onClick={() => makePrimary(idx)}
+                  className="text-[10px] text-muted-foreground hover:text-primary"
+                  title="Hacer principal"
+                >
+                  ★
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => remove(idx)}
+                className="text-muted-foreground hover:text-red-600"
+                title="Quitar"
+                aria-label="Quitar correo"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          );
+        })}
+        <input
+          type="email"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "," || e.key === " ") {
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Backspace" && !draft && emails.length > 0) {
+              remove(emails.length - 1);
+            }
+          }}
+          onBlur={() => {
+            if (draft.trim()) commit();
+          }}
+          placeholder={emails.length === 0 ? "correo@ejemplo.com" : "Añadir otro…"}
+          className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────
 
 export default function EmpresasPage() {
@@ -192,6 +305,7 @@ export default function EmpresasPage() {
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
   const [empresaForm, setEmpresaForm] = useState<EmpresaCreate>(EMPTY_EMPRESA);
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
+  const [editingEmpresaVersion, setEditingEmpresaVersion] = useState<number>(0);
   const [extractingConstancia, setExtractingConstancia] = useState(false);
 
   // History modal
@@ -260,6 +374,7 @@ export default function EmpresasPage() {
   const openCreateEmpresa = () => {
     setEmpresaForm(EMPTY_EMPRESA);
     setEditingEmpresaId(null);
+    setEditingEmpresaVersion(0);
     setEmpresaModalOpen(true);
     void ensureEvaAccountsLoaded();
   };
@@ -267,6 +382,12 @@ export default function EmpresasPage() {
   const openEditEmpresa = async (emp: EmpresaListItem) => {
     try {
       const full = await empresasApi.get(emp.id);
+      const seededRecipients =
+        full.billing_recipient_emails && full.billing_recipient_emails.length > 0
+          ? full.billing_recipient_emails
+          : full.email
+          ? [full.email]
+          : [];
       setEmpresaForm({
         name: full.name,
         logo_url: full.logo_url,
@@ -287,8 +408,10 @@ export default function EmpresasPage() {
         payment_day: full.payment_day,
         last_paid_date: full.last_paid_date,
         eva_account_id: full.eva_account_id,
+        billing_recipient_emails: seededRecipients,
       });
       setEditingEmpresaId(full.id);
+      setEditingEmpresaVersion(full.version ?? 0);
       setEmpresaModalOpen(true);
       void ensureEvaAccountsLoaded();
     } catch {
@@ -324,18 +447,31 @@ export default function EmpresasPage() {
       toast.error("El nombre es requerido");
       return;
     }
+    const recipients = empresaForm.billing_recipient_emails ?? [];
+    const payload: EmpresaCreate = {
+      ...empresaForm,
+      billing_recipient_emails: recipients,
+      // Mirror primary recipient into legacy empresa.email so old code paths
+      // (fallback read, historic reports) stay consistent.
+      email: recipients[0] ?? empresaForm.email ?? null,
+    };
     try {
       if (editingEmpresaId) {
-        await empresasApi.update(editingEmpresaId, empresaForm);
+        await empresasApi.update(editingEmpresaId, payload, editingEmpresaVersion);
         toast.success("Empresa actualizada");
       } else {
-        await empresasApi.create(empresaForm);
+        await empresasApi.create(payload);
         toast.success("Empresa creada");
       }
       setEmpresaModalOpen(false);
       loadEmpresas();
-    } catch {
-      toast.error("Error al guardar empresa");
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      if (detail?.reason === "OptimisticLockMismatch") {
+        toast.error("Otra persona cambió esta empresa. Recarga e inténtalo de nuevo.");
+      } else {
+        toast.error(typeof detail === "string" ? detail : "Error al guardar empresa");
+      }
     }
   };
 
@@ -1139,15 +1275,6 @@ export default function EmpresasPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Email</label>
-                    <Input
-                      value={empresaForm.email ?? ""}
-                      onChange={(e) =>
-                        setEmpresaForm({ ...empresaForm, email: e.target.value || null })
-                      }
-                    />
-                  </div>
-                  <div>
                     <label className="text-sm font-medium">Telefono</label>
                     <Input
                       value={empresaForm.phone ?? ""}
@@ -1165,6 +1292,19 @@ export default function EmpresasPage() {
                       }
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Correos para facturas</label>
+                  <BillingRecipientsInput
+                    emails={empresaForm.billing_recipient_emails ?? []}
+                    onChange={(next) =>
+                      setEmpresaForm({ ...empresaForm, billing_recipient_emails: next })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    El primer correo es el principal (se usa para Stripe y como remitente del CFDI).
+                    Todos reciben el PDF y XML de cada factura. Máximo {MAX_BILLING_RECIPIENTS}.
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Direccion</label>

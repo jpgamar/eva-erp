@@ -206,6 +206,7 @@ export interface EmpresaCreate {
   assigned_to?: string | null;
   tags?: string[] | null;
   lost_reason?: string | null;
+  billing_recipient_emails?: string[] | null;
 }
 
 export interface EmpresaUpdate extends Partial<EmpresaCreate> {
@@ -259,7 +260,12 @@ export const empresasApi = {
 
   create: (data: EmpresaCreate) => api.post<Empresa>("/empresas", data).then((r) => r.data),
 
-  update: (id: string, data: Partial<EmpresaCreate>) => api.patch<Empresa>(`/empresas/${id}`, data).then((r) => r.data),
+  update: (id: string, data: Partial<EmpresaCreate>, version?: number) =>
+    api
+      .patch<Empresa>(`/empresas/${id}`, data, {
+        headers: version !== undefined ? { "If-Match": String(version) } : undefined,
+      })
+      .then((r) => r.data),
 
   delete: (id: string) => api.delete(`/empresas/${id}`),
 

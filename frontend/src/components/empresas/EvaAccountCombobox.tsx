@@ -6,7 +6,7 @@ import { Plus, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { api } from "@/lib/api/client";
+import api from "@/lib/api/client";
 import type { EvaAccountForLink } from "@/lib/api/empresas";
 
 interface Props {

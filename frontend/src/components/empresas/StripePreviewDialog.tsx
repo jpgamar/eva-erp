@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { api } from "@/lib/api/client";
+import api from "@/lib/api/client";
 
 interface PreviewPayload {
   plan_tier: "standard" | "pro";

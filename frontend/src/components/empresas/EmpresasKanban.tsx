@@ -6,18 +6,18 @@ import { toast } from "sonner";
 import { KanbanBoardWithGuard, type ColumnDef } from "@/components/kanban/kanban-board-with-guard";
 import { EmpresaCard } from "@/components/empresas/EmpresaCard";
 import { CancelSubscriptionDialog } from "@/components/empresas/CancelSubscriptionDialog";
-import { api } from "@/lib/api/client";
+import api from "@/lib/api/client";
 import type { EmpresaListItem } from "@/lib/api/empresas";
 
 const COLUMNS: ColumnDef[] = [
-  { id: "prospecto", title: "Prospecto", color: "bg-slate-400" },
-  { id: "interesado", title: "Interesado", color: "bg-blue-400" },
-  { id: "demo", title: "Demo", color: "bg-indigo-400" },
-  { id: "negociacion", title: "Negociación", color: "bg-violet-400" },
-  { id: "implementacion", title: "Implementación", color: "bg-purple-400" },
-  { id: "operativo", title: "Operativo", color: "bg-emerald-500" },
-  { id: "churn_risk", title: "Churn Risk", color: "bg-amber-500" },
-  { id: "inactivo", title: "Inactivo", color: "bg-rose-500" },
+  { id: "prospecto", label: "Prospecto", color: "bg-slate-400" },
+  { id: "interesado", label: "Interesado", color: "bg-blue-400" },
+  { id: "demo", label: "Demo", color: "bg-indigo-400" },
+  { id: "negociacion", label: "Negociación", color: "bg-violet-400" },
+  { id: "implementacion", label: "Implementación", color: "bg-purple-400" },
+  { id: "operativo", label: "Operativo", color: "bg-emerald-500" },
+  { id: "churn_risk", label: "Churn Risk", color: "bg-amber-500" },
+  { id: "inactivo", label: "Inactivo", color: "bg-rose-500" },
 ];
 
 interface Props {
@@ -82,7 +82,9 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
     if (args.to !== "inactivo") return true;
 
     const empresa = empresas.find((e) => e.id === args.itemId);
-    if (!empresa || !empresa.stripe_subscription_id) {
+    const hasActiveSub =
+      empresa?.subscription_status === "active" || empresa?.subscription_status === "trialing";
+    if (!empresa || !hasActiveSub) {
       // No active subscription — just move the card.
       return true;
     }

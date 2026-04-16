@@ -140,6 +140,26 @@ class EmpresaUpdate(BaseModel):
     assigned_to: uuid.UUID | None = None
     tags: list[str] | None = None
     lost_reason: str | None = None
+    billing_recipient_emails: list[str] | None = None
+
+    @field_validator("billing_recipient_emails")
+    @classmethod
+    def _normalize_billing_recipients(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        seen: set[str] = set()
+        out: list[str] = []
+        for raw in v:
+            if not isinstance(raw, str):
+                continue
+            cleaned = raw.strip().lower()
+            if not cleaned or cleaned in seen:
+                continue
+            if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
+                continue
+            seen.add(cleaned)
+            out.append(cleaned)
+        return out
 
     @field_validator("rfc")
     @classmethod
