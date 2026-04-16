@@ -469,14 +469,21 @@ def _enforce_business_rules(
     subscription_status: str | None,
     expected_close_date,
     grandfathered: bool = False,
+    check_operativo: bool = True,
+    check_close_date: bool = True,
 ) -> None:
     """Raise HTTPException if the proposed state violates business rules.
 
     - ``operativo`` requires a linked Eva account with an active subscription
       (grandfathered rows are exempt).
     - Pipeline stages interesado/demo/negociacion require ``expected_close_date``.
+
+    Callers may disable individual checks when the PATCH isn't actually
+    mutating the inputs for that rule — e.g., an operator editing only
+    ``expected_close_date`` on an already-operativo empresa shouldn't be
+    blocked by the operativo invariant (they're not changing the stage).
     """
-    if lifecycle_stage == "operativo" and not grandfathered:
+    if check_operativo and lifecycle_stage == "operativo" and not grandfathered:
         if eva_account_id is None or subscription_status != "active":
             raise HTTPException(
                 status_code=409,
@@ -485,7 +492,7 @@ def _enforce_business_rules(
                     "message": "Operativo requires linked Eva account with active subscription.",
                 },
             )
-    if lifecycle_stage in STAGES_REQUIRING_CLOSE_DATE and not expected_close_date:
+    if check_close_date and lifecycle_stage in STAGES_REQUIRING_CLOSE_DATE and not expected_close_date:
         raise HTTPException(
             status_code=400,
             detail={
@@ -593,9 +600,16 @@ async def update_empresa(
             },
         )
 
-    # Business-rule validation on post-merge state, scoped to the fields
-    # that actually change the rule inputs (see _should_enforce_business_rules).
-    if _should_enforce_business_rules(update_data):
+    # Business-rule validation on post-merge state, scoped per-rule.
+    # - Operativo invariant fires only when stage or link is being mutated
+    #   (editing close_date on an already-operativo empresa does not trigger).
+    # - Close-date invariant fires only when stage or close_date is being
+    #   mutated (editing link alone on a demo empresa with missing close_date
+    #   does not retroactively 400).
+    stage_changing = "lifecycle_stage" in update_data
+    link_changing = "eva_account_id" in update_data
+    close_changing = "expected_close_date" in update_data
+    if stage_changing or link_changing or close_changing:
         proposed_stage = update_data.get("lifecycle_stage", empresa.lifecycle_stage)
         proposed_eva_account_id = update_data.get("eva_account_id", empresa.eva_account_id)
         proposed_close_date = update_data.get("expected_close_date", empresa.expected_close_date)
@@ -605,6 +619,8 @@ async def update_empresa(
             subscription_status=empresa.subscription_status,
             expected_close_date=proposed_close_date,
             grandfathered=empresa.grandfathered,
+            check_operativo=stage_changing or link_changing,
+            check_close_date=stage_changing or close_changing,
         )
 
     # Record history for tracked fields.
