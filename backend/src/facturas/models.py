@@ -37,6 +37,13 @@ class Factura(Base):
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     isr_retention: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     iva_retention: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    # State-level retention (e.g., Guanajuato cedular 2%). Lives in the CFDI's
+    # Impuestos Locales 1.0 complement, not in the federal Impuestos node.
+    local_retention: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=0, server_default="0"
+    )
+    local_retention_state: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    local_retention_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MXN")
 

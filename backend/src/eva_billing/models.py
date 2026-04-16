@@ -31,6 +31,9 @@ class EvaBillingRecord(Base):
     tax: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     isr_retention: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     iva_retention: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # State-level cedular (mirrors facturas.local_retention). Always stored
+    # in major units to match the rest of this table.
+    cedular_retention: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MXN")
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

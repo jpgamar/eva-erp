@@ -31,7 +31,11 @@ async def get_payment_link(token: str):
 
         _check_expiry(link)
 
-        quote = _compute_quote(link.amount_minor, retention_applicable=link.retention_applicable)
+        quote = _compute_quote(
+            link.amount_minor,
+            retention_applicable=link.retention_applicable,
+            customer_zip=empresa.fiscal_postal_code,
+        )
         return PaymentLinkPublicResponse(
             empresa_name=empresa.name,
             description=link.description,
@@ -48,6 +52,8 @@ async def get_payment_link(token: str):
                 iva_retention_minor=quote.iva_retention_minor,
                 payable_total_minor=quote.payable_total_minor,
                 stripe_charges_tax=not link.retention_applicable,
+                cedular_retention_minor=quote.cedular_retention_minor,
+                cedular_state_code=quote.cedular_state_code,
             ),
         )
 
@@ -113,7 +119,11 @@ async def create_checkout_for_link(token: str):
         }
 
         if link.retention_applicable:
-            quote = _compute_quote(link.amount_minor, retention_applicable=True)
+            quote = _compute_quote(
+                link.amount_minor,
+                retention_applicable=True,
+                customer_zip=empresa.fiscal_postal_code,
+            )
             session_params["line_items"] = [
                 {
                     "price_data": {

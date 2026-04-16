@@ -382,6 +382,10 @@ class PreviewCheckoutResponse(BaseModel):
     iva_retention_minor: int
     payable_total_minor: int
     stripe_charges_tax: bool
+    # State-level cedular retention info (e.g., Guanajuato 2%). Zero/None
+    # when customer state isn't in the cedular matrix.
+    cedular_retention_minor: int = 0
+    cedular_state_code: str | None = None
 
 
 class CheckoutLinkRequest(BaseModel):

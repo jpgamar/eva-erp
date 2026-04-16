@@ -54,6 +54,11 @@ class EvaBillingQuoteResponse(BaseModel):
     iva_retention_minor: int
     payable_total_minor: int
     display_lines: list[EvaBillingDisplayLine]
+    # State-level cedular retention (e.g., Guanajuato 2% for RESICO-PF→PM).
+    # Zero/None when customer state isn't in the cedular matrix.
+    cedular_retention_minor: int = 0
+    cedular_state_code: str | None = None
+    cedular_rate: Decimal | None = None
 
 
 class EvaBillingStampSource(BaseModel):

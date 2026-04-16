@@ -14,6 +14,11 @@ class FacturaLineItem(BaseModel):
     tax_rate: Decimal = Decimal("0.16")
     isr_retention: Decimal | None = None   # e.g. 0.0125 for RESICO
     iva_retention: Decimal | None = None   # e.g. 0.106667 for 2/3 IVA
+    # State-level cedular retention (e.g., Guanajuato 2%). Emitted in the
+    # CFDI's SAT "Impuestos Locales 1.0" complement via Facturapi's
+    # ``local_taxes`` field on the product.
+    cedular_rate: Decimal | None = None
+    cedular_label: str | None = None  # e.g. "Cedular GTO" — shown on CFDI PDF
 
 
 class FacturaCreate(BaseModel):
@@ -49,6 +54,12 @@ class FacturaResponse(BaseModel):
     tax: Decimal
     isr_retention: Decimal
     iva_retention: Decimal
+    # New columns default to 0/NULL in the DB. The ``| None`` tolerates
+    # Python-constructed Factura instances that haven't been flushed yet
+    # (ORM attrs are None until server_default kicks in on INSERT).
+    local_retention: Decimal | None = None
+    local_retention_state: str | None = None
+    local_retention_rate: Decimal | None = None
     total: Decimal
     currency: str
     status: str

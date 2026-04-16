@@ -107,26 +107,38 @@ def preview_checkout(empresa: Empresa, *, amount_mxn: Decimal) -> dict:
         raise ValueError("Amount must be greater than zero")
 
     if retention:
-        # Persona moral: compute full quote with retentions
-        quote = _compute_quote(base_minor, retention_applicable=True)
+        # Persona moral: compute full quote with federal + state-level retentions.
+        quote = _compute_quote(
+            base_minor,
+            retention_applicable=True,
+            customer_zip=empresa.fiscal_postal_code,
+        )
         return {
             "retention_applicable": True,
             "base_subtotal_minor": quote.base_subtotal_minor,
             "iva_minor": quote.iva_minor,
             "isr_retention_minor": quote.isr_retention_minor,
             "iva_retention_minor": quote.iva_retention_minor,
+            "cedular_retention_minor": quote.cedular_retention_minor,
+            "cedular_state_code": quote.cedular_state_code,
             "payable_total_minor": quote.payable_total_minor,
             "stripe_charges_tax": False,
         }
     else:
-        # Persona fisica: base only, Stripe adds IVA via automatic_tax
-        quote = _compute_quote(base_minor, retention_applicable=False)
+        # Persona fisica: base only, Stripe adds IVA via automatic_tax.
+        quote = _compute_quote(
+            base_minor,
+            retention_applicable=False,
+            customer_zip=empresa.fiscal_postal_code,
+        )
         return {
             "retention_applicable": False,
             "base_subtotal_minor": base_minor,
             "iva_minor": quote.iva_minor,
             "isr_retention_minor": 0,
             "iva_retention_minor": 0,
+            "cedular_retention_minor": 0,
+            "cedular_state_code": None,
             "payable_total_minor": quote.payable_total_minor,
             "stripe_charges_tax": True,
         }

@@ -15,7 +15,12 @@ def _headers() -> dict[str, str]:
 
 
 def build_facturapi_payload(data: FacturaCreate) -> dict:
-    """Transform our schema into Facturapi's expected payload."""
+    """Transform our schema into Facturapi's expected payload.
+
+    Federal retentions (ISR/IVA) ride on ``product.taxes``; state-level
+    cedular (e.g., Guanajuato Art. 37-D LHEG 2%) rides on
+    ``product.local_taxes`` — the SAT "Impuestos Locales 1.0" complement.
+    """
     items = []
     for li in data.line_items:
         taxes = [{"type": "IVA", "rate": float(li.tax_rate)}]
@@ -23,18 +28,29 @@ def build_facturapi_payload(data: FacturaCreate) -> dict:
             taxes.append({"type": "ISR", "rate": float(li.isr_retention), "withholding": True})
         if li.iva_retention:
             taxes.append({"type": "IVA", "rate": float(li.iva_retention), "withholding": True})
-        items.append(
-            {
-                "product": {
-                    "description": li.description,
-                    "product_key": li.product_key,
-                    "price": float(li.unit_price),
-                    "tax_included": False,
-                    "taxes": taxes,
-                },
-                "quantity": li.quantity,
-            }
-        )
+
+        product: dict = {
+            "description": li.description,
+            "product_key": li.product_key,
+            "price": float(li.unit_price),
+            "tax_included": False,
+            "taxes": taxes,
+        }
+
+        if li.cedular_rate:
+            # Facturapi accepts ``type`` as a free-form label that SAT will
+            # render in ``implocal:ImpLocRetenido`` on the CFDI. Use the
+            # human-readable cedular label when provided so the PDF line
+            # reads e.g. "Cedular GTO 2.00%".
+            product["local_taxes"] = [
+                {
+                    "type": li.cedular_label or "Cedular",
+                    "rate": float(li.cedular_rate),
+                    "withholding": True,
+                }
+            ]
+
+        items.append({"product": product, "quantity": li.quantity})
 
     payload: dict = {
         "customer": {

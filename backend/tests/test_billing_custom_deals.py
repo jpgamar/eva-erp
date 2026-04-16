@@ -150,18 +150,38 @@ class TestPreviewCheckout:
         emp.name = kwargs.get("name", "Test Empresa")
         return emp
 
-    def test_persona_moral_preview(self):
+    def test_persona_moral_preview_non_cedular_state(self):
+        """PM customer outside a cedular state → only federal retentions."""
         from src.empresas.billing_service import preview_checkout
 
-        emp = self._make_empresa(person_type="persona_moral")
+        # CDMX ZIP (06600) — no cedular in CDMX.
+        emp = self._make_empresa(person_type="persona_moral", fiscal_postal_code="06600")
         result = preview_checkout(emp, amount_mxn=Decimal("2000"))
         assert result["retention_applicable"] is True
         assert result["base_subtotal_minor"] == 200_000
         assert result["iva_minor"] == 32_000
         assert result["isr_retention_minor"] == 2_500
         assert result["iva_retention_minor"] == 21_333
-        assert result["payable_total_minor"] == 208_167
+        assert result["cedular_retention_minor"] == 0
+        assert result["cedular_state_code"] is None
+        assert result["payable_total_minor"] == 208_167  # 2000+320-25-213.33
         assert result["stripe_charges_tax"] is False
+
+    def test_persona_moral_preview_gto_applies_cedular(self):
+        """PM customer in GTO → federal retentions + 2% cedular (Art. 37-D LHEG)."""
+        from src.empresas.billing_service import preview_checkout
+
+        emp = self._make_empresa(person_type="persona_moral", fiscal_postal_code="37266")
+        result = preview_checkout(emp, amount_mxn=Decimal("2000"))
+        assert result["retention_applicable"] is True
+        assert result["base_subtotal_minor"] == 200_000
+        assert result["iva_minor"] == 32_000
+        assert result["isr_retention_minor"] == 2_500
+        assert result["iva_retention_minor"] == 21_333
+        assert result["cedular_retention_minor"] == 4_000  # 2% of 2000 = 40 MXN
+        assert result["cedular_state_code"] == "GTO"
+        # Payable = 2000 + 320 - 25 - 213.33 - 40 = 2041.67
+        assert result["payable_total_minor"] == 204_167
 
     def test_persona_fisica_preview(self):
         from src.empresas.billing_service import preview_checkout
@@ -170,6 +190,7 @@ class TestPreviewCheckout:
         result = preview_checkout(emp, amount_mxn=Decimal("2000"))
         assert result["retention_applicable"] is False
         assert result["base_subtotal_minor"] == 200_000
+        assert result["cedular_retention_minor"] == 0
         assert result["stripe_charges_tax"] is True
 
     def test_unknown_person_type_raises(self):

@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.config import settings
+from src.eva_billing.cedular import CedularRule, resolve_cedular
 from src.eva_billing.models import EvaBillingRecord
 from src.eva_billing.schemas import (
     EvaBillingCustomer,
@@ -34,6 +35,11 @@ IVA_RATE = Decimal("0.16")
 ISR_RETENTION_RATE = Decimal("0.0125")
 IVA_RETENTION_RATE = Decimal("0.106667")
 SERVICE_PRODUCT_KEY = "81112100"
+
+# Provider regime (the issuer of the CFDI). Today EvaAI is Gustavo Zermeño
+# operating as persona física under RESICO. If we incorporate as a moral
+# entity we'll move this to config.
+PROVIDER_REGIME = "resico_pf"
 
 # Regimen fiscal codes that indicate persona moral
 PERSONA_MORAL_REGIMENES = frozenset({"601", "603", "610", "620", "622", "623", "624", "628"})
@@ -89,28 +95,86 @@ def _major_to_minor(amount_major: Decimal) -> int:
     return int((amount_major * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-def _compute_quote(base_subtotal_minor: int, *, retention_applicable: bool) -> EvaBillingQuoteResponse:
+def _compute_quote(
+    base_subtotal_minor: int,
+    *,
+    retention_applicable: bool,
+    customer_zip: str | None = None,
+    provider_regime: str = PROVIDER_REGIME,
+) -> EvaBillingQuoteResponse:
+    """Compute all retentions + final payable.
+
+    Federal retentions (ISR 1.25% + IVA 2/3) always apply when the customer
+    is a persona moral (``retention_applicable=True``).
+
+    State-level cedular retention (e.g., Guanajuato 2%) applies when:
+      - ``retention_applicable`` is True (PM customer), AND
+      - ``customer_zip`` falls inside a state with a verified cedular rule
+        for the provider's regime (see ``eva_billing.cedular``).
+
+    Passing ``customer_zip=None`` (or a non-cedular ZIP) yields the legacy
+    two-retention behavior — callers that don't know the ZIP are
+    unaffected.
+    """
     base_major = _minor_to_major(base_subtotal_minor)
     iva_major = (base_major * IVA_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     isr_major = Decimal("0.00")
     iva_ret_major = Decimal("0.00")
+    cedular_major = Decimal("0.00")
+    cedular_rule: CedularRule | None = None
+
     if retention_applicable:
         isr_major = (base_major * ISR_RETENTION_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         iva_ret_major = (base_major * IVA_RETENTION_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    total_major = (base_major + iva_major - isr_major - iva_ret_major).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cedular_rule = resolve_cedular(customer_zip, provider_regime)
+        if cedular_rule and cedular_rule.rate_resico_pf is not None:
+            # ``resolve_cedular`` already returns None when the rate is None
+            # for the given regime; this guard is belt-and-suspenders.
+            rate = (
+                cedular_rule.rate_resico_pf
+                if provider_regime == "resico_pf"
+                else cedular_rule.rate_general_pf
+            )
+            if rate is not None:
+                cedular_major = (base_major * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    total_major = (base_major + iva_major - isr_major - iva_ret_major - cedular_major).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     payable_minor = _major_to_minor(total_major)
     iva_minor = _major_to_minor(iva_major)
     isr_minor = _major_to_minor(isr_major)
     iva_ret_minor = _major_to_minor(iva_ret_major)
+    cedular_minor = _major_to_minor(cedular_major)
+
     display_lines = [
         EvaBillingDisplayLine(label="Plan base", amount_minor=base_subtotal_minor),
         EvaBillingDisplayLine(label="IVA", amount_minor=iva_minor),
     ]
     if retention_applicable:
+        total_retentions_minor = isr_minor + iva_ret_minor + cedular_minor
         display_lines.append(
-            EvaBillingDisplayLine(label="Retenciones aplicables", amount_minor=-(isr_minor + iva_ret_minor))
+            EvaBillingDisplayLine(label="Retenciones aplicables", amount_minor=-total_retentions_minor)
         )
+        if cedular_rule and cedular_minor > 0:
+            # Extra transparency line when cedular applies so the operator
+            # can see exactly which state levied it.
+            display_lines.append(
+                EvaBillingDisplayLine(
+                    label=f"  · Cedular {cedular_rule.label} ({cedular_rule.legal_article})",
+                    amount_minor=-cedular_minor,
+                )
+            )
     display_lines.append(EvaBillingDisplayLine(label="Total a pagar", amount_minor=payable_minor))
+
+    cedular_rate_out: Decimal | None = None
+    if cedular_rule and cedular_minor > 0:
+        cedular_rate_out = (
+            cedular_rule.rate_resico_pf
+            if provider_regime == "resico_pf"
+            else cedular_rule.rate_general_pf
+        )
+
     return EvaBillingQuoteResponse(
         retention_applicable=retention_applicable,
         currency="MXN",
@@ -120,6 +184,9 @@ def _compute_quote(base_subtotal_minor: int, *, retention_applicable: bool) -> E
         iva_retention_minor=iva_ret_minor,
         payable_total_minor=payable_minor,
         display_lines=display_lines,
+        cedular_retention_minor=cedular_minor,
+        cedular_state_code=cedular_rule.state_code if cedular_rule and cedular_minor > 0 else None,
+        cedular_rate=cedular_rate_out,
     )
 
 
@@ -141,7 +208,11 @@ class EvaBillingService:
 
     def quote(self, payload: EvaBillingQuoteRequest) -> EvaBillingQuoteResponse:
         retention_applicable = payload.customer.person_type == "persona_moral"
-        return _compute_quote(payload.charge.base_subtotal_minor, retention_applicable=retention_applicable)
+        return _compute_quote(
+            payload.charge.base_subtotal_minor,
+            retention_applicable=retention_applicable,
+            customer_zip=payload.customer.postal_code,
+        )
 
     async def stamp(self, db: AsyncSession, payload: EvaBillingStampRequest) -> EvaBillingStampResponse:
         existing = await self._find_existing_record(db, payload)
@@ -157,7 +228,11 @@ class EvaBillingService:
                     email_status=existing.email_status,
                 )
 
-        quote = _compute_quote(payload.charge.base_subtotal_minor, retention_applicable=payload.charge.retention_applicable)
+        quote = _compute_quote(
+            payload.charge.base_subtotal_minor,
+            retention_applicable=payload.charge.retention_applicable,
+            customer_zip=payload.customer.postal_code,
+        )
         if abs(quote.payable_total_minor - payload.charge.payable_total_minor) > 100:
             raise ValueError(
                 f"Quote total ({quote.payable_total_minor}) does not match Stripe payable amount "
@@ -165,6 +240,9 @@ class EvaBillingService:
             )
         recipient_emails = self._resolve_recipient_emails(payload.owner_email, payload.recipient_emails)
 
+        # Resolve the cedular rule (if any) so we can label the local_taxes
+        # line cleanly on the CFDI (e.g., "Cedular GTO" instead of "ISR").
+        cedular_rule = resolve_cedular(payload.customer.postal_code, PROVIDER_REGIME)
         line_items = [
             FacturaLineItem(
                 product_key=SERVICE_PRODUCT_KEY,
@@ -174,6 +252,8 @@ class EvaBillingService:
                 tax_rate=IVA_RATE,
                 isr_retention=ISR_RETENTION_RATE if payload.charge.retention_applicable else None,
                 iva_retention=IVA_RETENTION_RATE if payload.charge.retention_applicable else None,
+                cedular_rate=quote.cedular_rate if quote.cedular_retention_minor > 0 else None,
+                cedular_label=cedular_rule.facturapi_type if cedular_rule and quote.cedular_retention_minor > 0 else None,
             )
         ]
         factura_data = FacturaCreate(
@@ -208,11 +288,15 @@ class EvaBillingService:
         record.tax = _minor_to_major(quote.iva_minor)
         record.isr_retention = _minor_to_major(quote.isr_retention_minor)
         record.iva_retention = _minor_to_major(quote.iva_retention_minor)
+        record.cedular_retention = _minor_to_major(quote.cedular_retention_minor) if quote.cedular_retention_minor else None
         record.total = _minor_to_major(quote.payable_total_minor)
         record.metadata_json = {
             "description": payload.charge.description,
             "retention_applicable": payload.charge.retention_applicable,
             "recipient_emails": recipient_emails,
+            "cedular_retention_minor": quote.cedular_retention_minor,
+            "cedular_state_code": quote.cedular_state_code,
+            "cedular_rate": str(quote.cedular_rate) if quote.cedular_rate is not None else None,
         }
         db.add(record)
         await db.flush()
@@ -436,6 +520,9 @@ class EvaBillingService:
         tax_total = Decimal("0.00")
         isr_ret_total = Decimal("0.00")
         iva_ret_total = Decimal("0.00")
+        cedular_total = Decimal("0.00")
+        cedular_state: str | None = None
+        cedular_rate_seen: Decimal | None = None
         line_items_store = []
         for li in data.line_items:
             line_sub = li.unit_price * li.quantity
@@ -446,6 +533,14 @@ class EvaBillingService:
                 isr_ret_total += line_sub * li.isr_retention
             if li.iva_retention:
                 iva_ret_total += line_sub * li.iva_retention
+            if li.cedular_rate:
+                cedular_total += line_sub * li.cedular_rate
+                cedular_rate_seen = li.cedular_rate
+                # Pull the state code from the label ("Cedular GTO" → "GTO")
+                if li.cedular_label and " " in li.cedular_label:
+                    candidate = li.cedular_label.split()[-1].upper()
+                    if len(candidate) == 3:
+                        cedular_state = candidate
             line_items_store.append(
                 {
                     "product_key": li.product_key,
@@ -455,6 +550,8 @@ class EvaBillingService:
                     "tax_rate": float(li.tax_rate),
                     "isr_retention": float(li.isr_retention) if li.isr_retention else None,
                     "iva_retention": float(li.iva_retention) if li.iva_retention else None,
+                    "cedular_rate": float(li.cedular_rate) if li.cedular_rate else None,
+                    "cedular_label": li.cedular_label,
                 }
             )
         factura = Factura(
@@ -473,7 +570,10 @@ class EvaBillingService:
             tax=round(tax_total, 2),
             isr_retention=round(isr_ret_total, 2),
             iva_retention=round(iva_ret_total, 2),
-            total=round(subtotal + tax_total - isr_ret_total - iva_ret_total, 2),
+            local_retention=round(cedular_total, 2),
+            local_retention_state=cedular_state,
+            local_retention_rate=cedular_rate_seen,
+            total=round(subtotal + tax_total - isr_ret_total - iva_ret_total - cedular_total, 2),
             currency=data.currency,
             status="draft",
             notes=data.notes,

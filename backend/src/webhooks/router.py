@@ -282,8 +282,13 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
                     empresa_id, empresa.name, stripe_invoice_id)
                 return
 
-            # Compute quote using centralized logic
-            quote = _compute_quote(base_subtotal_minor, retention_applicable=retention_applicable)
+            # Compute quote using centralized logic (includes state-level cedular
+            # retention when customer ZIP falls in a cedular state).
+            quote = _compute_quote(
+                base_subtotal_minor,
+                retention_applicable=retention_applicable,
+                customer_zip=empresa.fiscal_postal_code,
+            )
             description = subscription_metadata.get("description") or f"Servicio EvaAI — {empresa.name}"
             sub_id = invoice.get("subscription")
 
