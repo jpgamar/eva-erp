@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # + APScheduler fiscal sync retry worker. Schema migrations always run.
     feature_erp_empresas_pipeline: bool = False
 
+    # Feature flag — when an operator edits an empresa's ZIP and the resulting
+    # cedular rule would change the payable (customer moved into/out of GTO,
+    # for example), auto-reprice the Stripe subscription (new Price + item
+    # swap, proration_behavior=none). Off by default while we validate in
+    # staging. The quote math always updates regardless of this flag.
+    enable_cedular_auto_reprice: bool = False
+
     # Supabase Storage bucket for constancia PDFs (Phase 4 F4.9).
     supabase_bucket_constancias: str = "empresa-constancias"
 

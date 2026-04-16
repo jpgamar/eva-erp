@@ -285,3 +285,121 @@ async def create_portal_session(empresa: Empresa) -> str:
         return_url=f"{settings.frontend_url}/empresas",
     )
     return session.url
+
+
+async def maybe_reprice_subscription_for_zip_change(
+    empresa: Empresa,
+    *,
+    old_zip: str | None,
+    new_zip: str | None,
+) -> dict | None:
+    """Auto-reprice the empresa's Stripe sub when a ZIP change flips the cedular.
+
+    Runs ONLY when ``settings.enable_cedular_auto_reprice`` is True. The quote
+    math itself always picks up the new ZIP on the next invoice (via the
+    webhook path); this function is the convenience that also updates the
+    Stripe Price so the next auto-generated invoice charges the new amount.
+
+    Returns a dict describing the reprice when it runs, or ``None`` when it
+    is skipped (no sub, no monthly_amount, ZIPs produce identical payable,
+    flag off, etc.). Never raises — Stripe errors are logged; the empresa
+    save must still succeed.
+    """
+    if not settings.enable_cedular_auto_reprice:
+        return None
+    if not empresa.stripe_subscription_id or not empresa.stripe_customer_id:
+        return None
+    if empresa.subscription_status != "active":
+        return None
+    if not empresa.monthly_amount or empresa.monthly_amount <= 0:
+        return None
+    if (old_zip or "") == (new_zip or ""):
+        return None
+
+    base_minor = int(Decimal(str(empresa.monthly_amount)) * 100)
+    retention = resolve_retention_applicable(empresa.person_type, empresa.regimen_fiscal)
+    if retention is None:
+        return None
+
+    old_quote = _compute_quote(
+        base_minor, retention_applicable=retention, customer_zip=old_zip
+    )
+    new_quote = _compute_quote(
+        base_minor, retention_applicable=retention, customer_zip=new_zip
+    )
+    if abs(old_quote.payable_total_minor - new_quote.payable_total_minor) <= 100:
+        # No meaningful change — skip to avoid noise on Stripe.
+        return None
+
+    _ensure_stripe()
+
+    canonical_product = _resolve_canonical_product(
+        "standard", empresa.person_type.split("_")[-1] if empresa.person_type else None
+    )
+    product_param = (
+        {"product": canonical_product}
+        if canonical_product
+        else {
+            "product_data": {
+                "name": f"Servicio EvaAI — {empresa.name}",
+            }
+        }
+    )
+
+    try:
+        new_price = stripe.Price.create(
+            currency="mxn",
+            unit_amount=new_quote.payable_total_minor,
+            recurring={"interval": "month"},
+            nickname=f"{empresa.name} — cedular-aware reprice ({new_zip or 'no-zip'})",
+            metadata={
+                "source": "cedular_auto_reprice",
+                "empresa_id": str(empresa.id),
+                "old_zip": old_zip or "",
+                "new_zip": new_zip or "",
+                "cedular_state_code": new_quote.cedular_state_code or "",
+            },
+            **product_param,
+        )
+    except stripe.StripeError as exc:
+        logger.warning(
+            "cedular_auto_reprice: failed to create new Price for empresa %s: %s",
+            empresa.id,
+            exc,
+        )
+        return None
+
+    sub = stripe.Subscription.retrieve(empresa.stripe_subscription_id)
+    items = sub.get("items", {}).get("data", []) if isinstance(sub, dict) else sub["items"]["data"]
+    if not items:
+        logger.warning("cedular_auto_reprice: subscription %s has no items", empresa.stripe_subscription_id)
+        return None
+    sub_item_id = items[0]["id"] if isinstance(items[0], dict) else items[0].id
+
+    try:
+        stripe.SubscriptionItem.modify(
+            sub_item_id,
+            price=new_price.id,
+            proration_behavior="none",
+        )
+    except stripe.StripeError as exc:
+        logger.warning(
+            "cedular_auto_reprice: failed to swap sub item for empresa %s: %s",
+            empresa.id,
+            exc,
+        )
+        return None
+
+    logger.info(
+        "cedular_auto_reprice: empresa=%s old_payable=%s new_payable=%s price_id=%s",
+        empresa.id,
+        old_quote.payable_total_minor,
+        new_quote.payable_total_minor,
+        new_price.id,
+    )
+    return {
+        "new_stripe_price_id": new_price.id,
+        "old_payable_minor": old_quote.payable_total_minor,
+        "new_payable_minor": new_quote.payable_total_minor,
+        "cedular_state_code": new_quote.cedular_state_code,
+    }

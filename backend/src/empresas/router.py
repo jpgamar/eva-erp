@@ -638,6 +638,9 @@ async def update_empresa(
                 )
                 db.add(history)
 
+    # Capture the pre-update ZIP so we can detect a cedular-relevant change.
+    old_zip = empresa.fiscal_postal_code
+
     for field, value in update_data.items():
         setattr(empresa, field, value)
 
@@ -656,6 +659,25 @@ async def update_empresa(
                 detail={"reason": "already_linked", "message": "Esta cuenta de Eva ya esta vinculada a otra empresa."},
             ) from exc
         raise
+
+    # Auto-reprice the Stripe sub when ZIP changes flip the cedular rule
+    # (gated on settings.enable_cedular_auto_reprice — off by default).
+    if "fiscal_postal_code" in update_data:
+        from src.empresas.billing_service import maybe_reprice_subscription_for_zip_change
+
+        try:
+            await maybe_reprice_subscription_for_zip_change(
+                empresa,
+                old_zip=old_zip,
+                new_zip=empresa.fiscal_postal_code,
+            )
+        except Exception:  # pragma: no cover - defensive
+            # Never block the PATCH on Stripe issues; just log.
+            import logging
+            logging.getLogger(__name__).exception(
+                "cedular_auto_reprice failed for empresa %s", empresa.id
+            )
+
     return empresa
 
 
