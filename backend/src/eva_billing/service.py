@@ -12,7 +12,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.config import settings
-from src.eva_billing.cedular import CedularRule, resolve_cedular
+from src.common.mx_postal_codes import state_from_zip
+from src.eva_billing.cedular import CedularRule, cedular_rate, resolve_cedular
 from src.eva_billing.models import EvaBillingRecord
 from src.eva_billing.schemas import (
     EvaBillingCustomer,
@@ -127,14 +128,11 @@ def _compute_quote(
         isr_major = (base_major * ISR_RETENTION_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         iva_ret_major = (base_major * IVA_RETENTION_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         cedular_rule = resolve_cedular(customer_zip, provider_regime)
-        if cedular_rule and cedular_rule.rate_resico_pf is not None:
-            # ``resolve_cedular`` already returns None when the rate is None
-            # for the given regime; this guard is belt-and-suspenders.
-            rate = (
-                cedular_rule.rate_resico_pf
-                if provider_regime == "resico_pf"
-                else cedular_rule.rate_general_pf
-            )
+        if cedular_rule:
+            # ``resolve_cedular`` only returns a rule when the rate for the
+            # given regime is non-None, so ``cedular_rate`` here is always
+            # a valid Decimal.
+            rate = cedular_rate(cedular_rule, provider_regime)
             if rate is not None:
                 cedular_major = (base_major * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -169,11 +167,7 @@ def _compute_quote(
 
     cedular_rate_out: Decimal | None = None
     if cedular_rule and cedular_minor > 0:
-        cedular_rate_out = (
-            cedular_rule.rate_resico_pf
-            if provider_regime == "resico_pf"
-            else cedular_rule.rate_general_pf
-        )
+        cedular_rate_out = cedular_rate(cedular_rule, provider_regime)
 
     return EvaBillingQuoteResponse(
         retention_applicable=retention_applicable,
@@ -536,11 +530,11 @@ class EvaBillingService:
             if li.cedular_rate:
                 cedular_total += line_sub * li.cedular_rate
                 cedular_rate_seen = li.cedular_rate
-                # Pull the state code from the label ("Cedular GTO" → "GTO")
-                if li.cedular_label and " " in li.cedular_label:
-                    candidate = li.cedular_label.split()[-1].upper()
-                    if len(candidate) == 3:
-                        cedular_state = candidate
+                # Derive the state code from the customer's ZIP (authoritative
+                # source — never from the free-form label, which could be
+                # localized/reworded and silently mis-persist the state).
+                if cedular_state is None:
+                    cedular_state = state_from_zip(data.customer_zip)
             line_items_store.append(
                 {
                     "product_key": li.product_key,
