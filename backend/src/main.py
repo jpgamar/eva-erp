@@ -96,6 +96,7 @@ from src.customers.router import router as customers_router
 from src.agent.router import router as agent_router
 from src.eva_billing.router import router as eva_billing_router
 from src.empresas.router import router as empresas_router
+from src.declaracion.router import router as declaracion_router
 from src.facturas_recibidas.router import router as gastos_router
 
 api_router.include_router(auth_router)
@@ -121,6 +122,7 @@ api_router.include_router(agent_router)
 api_router.include_router(eva_billing_router)
 api_router.include_router(empresas_router)
 api_router.include_router(gastos_router)
+api_router.include_router(declaracion_router)
 
 # Public payment link endpoints (under /api/v1 so erp.goeva.ai/api/v1/public/pay works)
 from src.empresas.public_router import router as public_pay_router
