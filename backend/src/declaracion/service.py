@@ -151,12 +151,17 @@ async def _collect_warnings(
             )
         )
 
-    # Warning: any stamp_failed facturas this month
+    # Warning: any stamp_failed facturas created during this month. We
+    # filter by ``created_at``, NOT ``issued_at`` — stamp_failed rows
+    # never got issued_at populated (they never reached FacturAPI
+    # successfully), so filtering on issued_at would silently drop
+    # every row we wanted to warn about. ``created_at`` is the intent
+    # timestamp (when the operator created the draft for this period).
     failed_stmt = (
         select(func.count(Factura.id))
         .where(Factura.status == "stamp_failed")
-        .where(extract("year", Factura.issued_at) == year)
-        .where(extract("month", Factura.issued_at) == month)
+        .where(extract("year", Factura.created_at) == year)
+        .where(extract("month", Factura.created_at) == month)
     )
     failed_facturas = int((await db.execute(failed_stmt)).scalar_one() or 0)
     if failed_facturas:

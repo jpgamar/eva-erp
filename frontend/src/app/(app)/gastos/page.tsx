@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Upload, FileDown, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, FileDown, CheckCircle2, AlertCircle, CalendarPlus } from "lucide-react";
 import { toast } from "sonner";
 import {
   gastosApi,
@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 const MONTHS = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -105,6 +106,8 @@ export default function GastosPage() {
     return out;
   };
 
+  const pendingCount = rows.filter((r) => r.payment_date === null).length;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between">
@@ -165,6 +168,16 @@ export default function GastosPage() {
         </Card>
       )}
 
+      {pendingCount > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div>
+            {pendingCount} CFDI(s) tipo PPD sin fecha de pago.
+            Márcalos como pagados para que cuenten como IVA acreditable este mes.
+          </div>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">CFDIs recibidos</CardTitle>
@@ -198,38 +211,7 @@ export default function GastosPage() {
                 </TableRow>
               ) : (
                 rows.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-mono text-xs">
-                      {fmtDate(r.payment_date)}
-                    </TableCell>
-                    <TableCell className="max-w-[220px] truncate">
-                      {r.issuer_legal_name}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{r.issuer_rfc}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {r.cfdi_type === "I" ? "Ingreso" : r.cfdi_type === "E" ? "Egreso" : r.cfdi_type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {fmtMoney(r.subtotal)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {fmtMoney(r.tax_iva)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {fmtMoney(r.total)}
-                    </TableCell>
-                    <TableCell>
-                      {r.is_acreditable ? (
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-xs">
-                          Sí
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-xs">No</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                  <GastoRow key={r.id} gasto={r} onUpdated={load} />
                 ))
               )}
             </TableBody>
@@ -239,6 +221,138 @@ export default function GastosPage() {
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} onDone={load} />
     </div>
+  );
+}
+
+function GastoRow({
+  gasto,
+  onUpdated,
+}: {
+  gasto: FacturaRecibida;
+  onUpdated: () => void;
+}) {
+  const isPendingPayment = gasto.payment_date === null;
+  const [editingDate, setEditingDate] = useState(false);
+  const [dateValue, setDateValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const savePaymentDate = async () => {
+    if (!dateValue) return;
+    setSaving(true);
+    try {
+      await gastosApi.update(gasto.id, { payment_date: dateValue });
+      toast.success("Fecha de pago registrada");
+      setEditingDate(false);
+      onUpdated();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || e.message || "Error al actualizar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleAcreditable = async () => {
+    try {
+      await gastosApi.update(gasto.id, { is_acreditable: !gasto.is_acreditable });
+      onUpdated();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || e.message || "Error al actualizar");
+    }
+  };
+
+  return (
+    <TableRow className={cn(isPendingPayment && "bg-amber-50/60")}>
+      <TableCell className="font-mono text-xs">
+        {editingDate ? (
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={dateValue}
+              onChange={(e) => setDateValue(e.target.value)}
+              className="rounded border border-border bg-background px-1 py-0.5 text-xs"
+              disabled={saving}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              onClick={savePaymentDate}
+              disabled={saving || !dateValue}
+            >
+              OK
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1 text-xs"
+              onClick={() => setEditingDate(false)}
+              disabled={saving}
+            >
+              ×
+            </Button>
+          </div>
+        ) : isPendingPayment ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-xs gap-1"
+            onClick={() => {
+              setDateValue(new Date().toISOString().slice(0, 10));
+              setEditingDate(true);
+            }}
+          >
+            <CalendarPlus className="h-3 w-3" />
+            Marcar pago
+          </Button>
+        ) : (
+          fmtDate(gasto.payment_date)
+        )}
+      </TableCell>
+      <TableCell className="max-w-[220px] truncate">
+        {gasto.issuer_legal_name}
+      </TableCell>
+      <TableCell className="font-mono text-xs">{gasto.issuer_rfc}</TableCell>
+      <TableCell>
+        <Badge variant="outline" className="text-xs">
+          {gasto.cfdi_type === "I"
+            ? "Ingreso"
+            : gasto.cfdi_type === "E"
+              ? "Egreso"
+              : gasto.cfdi_type}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm">
+        {fmtMoney(gasto.subtotal)}
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm">
+        {fmtMoney(gasto.tax_iva)}
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm">
+        {fmtMoney(gasto.total)}
+      </TableCell>
+      <TableCell>
+        <button
+          type="button"
+          onClick={toggleAcreditable}
+          className="text-left"
+          title={
+            gasto.is_acreditable
+              ? "Clic para marcar como NO acreditable"
+              : "Clic para marcar como acreditable"
+          }
+        >
+          {gasto.is_acreditable ? (
+            <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-xs cursor-pointer">
+              Sí
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs cursor-pointer">
+              No
+            </Badge>
+          )}
+        </button>
+      </TableCell>
+    </TableRow>
   );
 }
 

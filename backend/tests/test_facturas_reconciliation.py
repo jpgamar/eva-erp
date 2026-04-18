@@ -32,41 +32,51 @@ class _FakeScalarResult:
 
 
 class _ReconDB:
-    """DB stand-in that answers by facturapi_id lookup.
+    """DB stand-in that answers by facturapi_id OR idempotency_key.
 
-    Reconciliation calls ``db.scalar(select(Factura).where(facturapi_id == id))``
-    per invoice. We map facturapi_id → Factura here to let tests seed the
-    ERP's current state.
+    Reconciliation's heal path now first queries by facturapi_id; if no
+    match it falls back to idempotency_key (the F-4 recovery path).
+    The fake DB supports both.
     """
 
     def __init__(self, seed: list[Factura] | None = None):
-        self.rows: dict[str, Factura] = {}
+        self.by_facturapi_id: dict[str, Factura] = {}
+        self.by_idempotency_key: dict[str, Factura] = {}
         for factura in (seed or []):
             if factura.facturapi_id:
-                self.rows[factura.facturapi_id] = factura
+                self.by_facturapi_id[factura.facturapi_id] = factura
+            if factura.facturapi_idempotency_key:
+                self.by_idempotency_key[factura.facturapi_idempotency_key] = factura
         self.added: list[Factura] = []
         self.committed = False
 
     async def scalar(self, stmt):
-        # SQLAlchemy Select exposes compare_value via _where_criteria; for
-        # tests, we cheat and read the bound parameter directly from the
-        # compiled statement. Simpler: rely on the fact that reconciliation
-        # builds exactly one where clause ``Factura.facturapi_id == X``.
         compiled = stmt.compile(compile_kwargs={"literal_binds": True})
         sql = str(compiled)
-        # Parse out the literal facturapi_id in the WHERE clause.
-        # Cheaper than wiring a real Postgres for unit tests.
         import re
 
-        m = re.search(r"facturapi_id\s*=\s*'([^']+)'", sql)
-        if not m:
-            return None
-        return self.rows.get(m.group(1))
+        m_id = re.search(r"facturapi_id\s*=\s*'([^']+)'", sql)
+        if m_id:
+            return self.by_facturapi_id.get(m_id.group(1))
+        m_key = re.search(
+            r"facturapi_idempotency_key\s*=\s*'([^']+)'", sql
+        )
+        if m_key:
+            return self.by_idempotency_key.get(m_key.group(1))
+        return None
+
+    # Backwards-compat for old tests that read `db.rows`.
+    @property
+    def rows(self) -> dict[str, Factura]:
+        return self.by_facturapi_id
 
     def add(self, obj):
         self.added.append(obj)
-        if isinstance(obj, Factura) and obj.facturapi_id:
-            self.rows[obj.facturapi_id] = obj
+        if isinstance(obj, Factura):
+            if obj.facturapi_id:
+                self.by_facturapi_id[obj.facturapi_id] = obj
+            if obj.facturapi_idempotency_key:
+                self.by_idempotency_key[obj.facturapi_idempotency_key] = obj
 
     async def flush(self):
         return None
@@ -194,6 +204,69 @@ async def test_reconciliation_heals_pending_stamp_row():
     assert factura.folio_number == 4
     assert factura.last_stamp_error is None
     assert factura.next_retry_at is None
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_heals_orphan_pending_stamp_by_idempotency_key():
+    """The real F-4 scenario: outbox crashed BETWEEN FacturAPI 200 and DB
+    commit. The local row is ``pending_stamp`` with ``facturapi_id=NULL``
+    (because the response never committed). FacturAPI has the CFDI
+    under its own id. Reconciliation must find the orphan row by
+    ``facturapi_idempotency_key`` and heal it — adopting a fresh row
+    would leave the orphan stuck, and the next outbox retry would then
+    blow up on the unique constraint over ``facturapi_id``.
+    """
+    idem_key = "erp-factura-uuid-orphan-001"
+    orphan = Factura(
+        id=uuid.uuid4(),
+        # Critical: facturapi_id is NULL (commit failed after stamp).
+        facturapi_id=None,
+        cfdi_uuid=None,
+        customer_name="SERVIACERO COMERCIAL",
+        customer_rfc="SCO8007138GA",
+        use="G03",
+        payment_form="04",
+        payment_method="PUE",
+        subtotal=Decimal("3999.00"),
+        tax=Decimal("639.84"),
+        isr_retention=Decimal("49.99"),
+        iva_retention=Decimal("426.56"),
+        local_retention=Decimal("0.00"),
+        total=Decimal("4162.29"),
+        currency="MXN",
+        status="pending_stamp",
+        facturapi_idempotency_key=idem_key,
+        stamp_retry_count=3,
+        last_stamp_error="Connection reset after stamp returned 200",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db = _ReconDB(seed=[orphan])
+    stats = {
+        "fetched": 0, "adopted": 0, "healed": 0, "cancelled_synced": 0,
+        "matched": 0, "skipped": 0, "failed": 0,
+    }
+
+    # FacturAPI returns the CFDI with the echoed idempotency_key.
+    fxapi_response = {
+        **_f4_fixture(),
+        "idempotency_key": idem_key,
+    }
+
+    await reconciliation._adopt_or_heal(db, fxapi_response, stats)
+
+    # MUST heal (not adopt) — otherwise the orphan stays stuck and
+    # the outbox retry collides on facturapi_id.
+    assert stats["healed"] == 1, f"expected heal, got stats={stats}"
+    assert stats["adopted"] == 0, (
+        "adopted a duplicate row even though the orphan existed — this "
+        "is the exact P1 regression Codex caught on 2026-04-18."
+    )
+    # Orphan now carries the FacturAPI data.
+    assert orphan.facturapi_id == "69c0ed31bbe7908eb8bc9a24"
+    assert orphan.cfdi_uuid == "0B7DD523-8189-4131-A584-BEB731A54CA3"
+    assert orphan.status == "valid"
+    assert orphan.last_stamp_error is None
 
 
 @pytest.mark.asyncio

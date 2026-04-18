@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import and_, extract, func, select
+from sqlalchemy import and_, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.facturas_recibidas.models import FacturaRecibida
@@ -112,9 +112,25 @@ async def list_gastos(
 ) -> list[FacturaRecibida]:
     stmt = select(FacturaRecibida).order_by(FacturaRecibida.issue_date.desc())
     conditions = []
-    if year is not None:
+    if year is not None and month is not None:
+        # When filtering by a specific month, also surface rows with
+        # payment_date=NULL. Those are PPD gastos the operator hasn't
+        # yet marked as paid — hiding them means the operator never
+        # sees them, and the IVA acreditable never reaches the
+        # declaración. (Codex P2, 2026-04-18.)
+        period_match = and_(
+            extract("year", FacturaRecibida.payment_date) == year,
+            extract("month", FacturaRecibida.payment_date) == month,
+        )
+        conditions.append(
+            or_(
+                period_match,
+                FacturaRecibida.payment_date.is_(None),
+            )
+        )
+    elif year is not None:
         conditions.append(extract("year", FacturaRecibida.payment_date) == year)
-    if month is not None:
+    elif month is not None:
         conditions.append(extract("month", FacturaRecibida.payment_date) == month)
     if category:
         conditions.append(FacturaRecibida.category == category)

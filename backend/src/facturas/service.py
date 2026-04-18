@@ -212,39 +212,95 @@ def build_payment_complement_payload(
 
     Tax rebuild
     -----------
-    SAT needs the base + rate for each tax on the portion paid. For PUE
-    invoices this isn't required, but for P we have to decompose the
-    payment into (subtotal × taxes) proportional to the original CFDI.
-    We compute: ``base = payment_amount / (1 + tax_rate)``.
+    SAT needs base + rate for each tax on the portion paid. The naive
+    formula ``base = payment_amount / (1 + tax_rate)`` only holds when
+    the invoice had no retentions — i.e. when cash received equals
+    subtotal + IVA. For invoices that include ISR + IVA retentions
+    (persona-moral clients like F-4), cash received is
+    ``subtotal + IVA - ISR_ret - IVA_ret`` and the naive formula
+    under-reports the base to SAT (e.g. F-4's $4,162.29 would become
+    base=3588.18 instead of 3999.00). Either of those wrongly under-
+    reports the IVA the client is entitled to acreditar.
 
-    Only IVA 16% handled here explicitly; other rates (0%, 8% frontera)
-    fall through with their stored rate. Retentions (ISR/IVA/cedular)
-    are NOT re-declared on the complement — they applied once at
-    stamping of the original PPD invoice.
+    Correct approach: prorate the original ``subtotal`` / IVA / retention
+    amounts by ``payment_amount / factura.total``. For a full payment
+    this returns the untouched originals; for a partial it splits each
+    tax line proportionally. This preserves the fiscal equivalence that
+    base + IVA − retentions = payment_amount.
     """
-    tax_rate = Decimal("0.16")
-    # Try to infer tax_rate from the original line_items (they're all the
-    # same in practice for our SaaS billing).
-    items = factura.line_items_json or []
-    if items:
-        tr = items[0].get("tax_rate")
-        if tr is not None:
-            tax_rate = Decimal(str(tr))
-    base_amount = (Decimal(str(payment.payment_amount)) / (Decimal("1") + tax_rate)).quantize(
+    factura_total = Decimal(str(factura.total or 0))
+    if factura_total <= 0:
+        # Defensive — a valid factura always has total > 0. Fall back to
+        # the naive calc so we at least emit *something* rather than crash.
+        factura_total = Decimal(str(payment.payment_amount))
+    proportion = (Decimal(str(payment.payment_amount)) / factura_total).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
+
+    factura_subtotal = Decimal(str(factura.subtotal or 0))
+    factura_iva = Decimal(str(factura.tax or 0))
+    factura_isr_ret = Decimal(str(factura.isr_retention or 0))
+    factura_iva_ret = Decimal(str(factura.iva_retention or 0))
+    factura_local_ret = Decimal(str(factura.local_retention or 0))
+
+    base_amount = (factura_subtotal * proportion).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
+    iva_amount = (factura_iva * proportion).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    isr_retained = (factura_isr_ret * proportion).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    iva_retained = (factura_iva_ret * proportion).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    local_retained = (factura_local_ret * proportion).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    # Infer the effective IVA rate from the original invoice. For
+    # 0%-rated or exento items we'd want a different rate; detect from
+    # the ratio (handles the common 16% / 8% frontera / 0% cases).
+    tax_rate = Decimal("0.16")
+    if factura_subtotal > 0:
+        computed = (factura_iva / factura_subtotal).quantize(
+            Decimal("0.0001"), rounding=ROUND_HALF_UP
+        )
+        # Snap to the nearest SAT rate to avoid float noise breaking the
+        # CFDI validation (SAT rounds to 6 decimals: 0.160000, 0.080000).
+        if abs(computed - Decimal("0.16")) < Decimal("0.005"):
+            tax_rate = Decimal("0.16")
+        elif abs(computed - Decimal("0.08")) < Decimal("0.005"):
+            tax_rate = Decimal("0.08")
+        elif computed == Decimal("0"):
+            tax_rate = Decimal("0")
+        else:
+            tax_rate = computed
+
+    taxes_block: list[dict] = [
+        {"base": float(base_amount), "type": "IVA", "rate": float(tax_rate)},
+    ]
+    if isr_retained > 0:
+        taxes_block.append({
+            "base": float(base_amount),
+            "type": "ISR",
+            "rate": float((factura_isr_ret / factura_subtotal).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if factura_subtotal > 0 else 0.0,
+            "withholding": True,
+        })
+    if iva_retained > 0:
+        taxes_block.append({
+            "base": float(base_amount),
+            "type": "IVA",
+            "rate": float((factura_iva_ret / factura_subtotal).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if factura_subtotal > 0 else 0.0,
+            "withholding": True,
+        })
 
     related_doc: dict = {
         "uuid": factura.cfdi_uuid,
         "amount": float(payment.payment_amount),
         "installment": int(payment.installment),
-        "taxes": [
-            {
-                "base": float(base_amount),
-                "type": "IVA",
-                "rate": float(tax_rate),
-            }
-        ],
+        "taxes": taxes_block,
     }
     if payment.last_balance is not None:
         related_doc["last_balance"] = float(payment.last_balance)

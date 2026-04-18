@@ -155,7 +155,22 @@ def _extract_facturapi_fields(inv: dict) -> dict:
 
 
 async def _adopt_or_heal(db: AsyncSession, inv: dict, stats: dict) -> None:
-    """Decide what to do for one FacturAPI invoice."""
+    """Decide what to do for one FacturAPI invoice.
+
+    Row lookup is a two-step process:
+      1. Match by ``facturapi_id`` — the normal case (already adopted on
+         a prior pass, or the outbox stamped + committed successfully).
+      2. If step 1 misses, try ``facturapi_idempotency_key`` matching
+         the invoice's ``idempotency_key`` attribute echoed back by
+         FacturAPI. This is the load-bearing recovery path for the
+         F-4-class bug: a ``pending_stamp`` row whose outbox crashed
+         between "FacturAPI 200" and "DB commit" has ``facturapi_id``
+         NULL but *did* send its idempotency_key on the POST, and
+         FacturAPI persists that key on the invoice. Correlating here
+         lets us heal in place instead of adopting a duplicate row
+         that would blow up the next outbox retry on the unique
+         constraint over ``facturapi_id``.
+    """
     facturapi_id = inv.get("id")
     if not facturapi_id:
         stats["skipped"] += 1
@@ -164,6 +179,16 @@ async def _adopt_or_heal(db: AsyncSession, inv: dict, stats: dict) -> None:
     existing = await db.scalar(
         select(Factura).where(Factura.facturapi_id == facturapi_id)
     )
+
+    # F-4-style recovery path: fall back to idempotency_key.
+    if existing is None:
+        echoed_key = inv.get("idempotency_key")
+        if echoed_key:
+            existing = await db.scalar(
+                select(Factura).where(
+                    Factura.facturapi_idempotency_key == echoed_key
+                )
+            )
 
     fields = _extract_facturapi_fields(inv)
 
@@ -207,7 +232,8 @@ async def _adopt_or_heal(db: AsyncSession, inv: dict, stats: dict) -> None:
 
     # Heal: the row is in a bad state but FacturAPI has the truth.
     healed = False
-    if existing.status in ("pending_stamp", "stamp_failed") and fields["status"] == "valid":
+    prev_status = existing.status
+    if prev_status in ("pending_stamp", "stamp_failed") and fields["status"] == "valid":
         existing.facturapi_id = fields["facturapi_id"]
         existing.cfdi_uuid = fields["cfdi_uuid"]
         existing.status = "valid"
@@ -224,9 +250,9 @@ async def _adopt_or_heal(db: AsyncSession, inv: dict, stats: dict) -> None:
             "Reconciliation healed factura %s (was %s, now valid) — "
             "likely an outbox commit-after-stamp failure",
             existing.id,
-            existing.status,
+            prev_status,
         )
-    elif existing.status == "valid" and fields["status"] == "cancelled":
+    elif prev_status == "valid" and fields["status"] == "cancelled":
         existing.status = "cancelled"
         existing.cancelled_at = existing.cancelled_at or datetime.now(timezone.utc)
         healed = True

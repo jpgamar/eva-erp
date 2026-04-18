@@ -131,10 +131,82 @@ def test_build_payment_complement_payload_shape():
     assert rel["amount"] == 5800.00
     assert rel["installment"] == 1
     assert rel["last_balance"] == 10000.00
-    # Tax rebuild: base = amount / 1.16 = 5000, IVA rate = 0.16
+    # Proportional rebuild: factura.subtotal=8620.69, factura.total=10000.
+    # proportion=5800/10000=0.58 → base=8620.69*0.58=5000.00, IVA 16%.
     assert rel["taxes"][0]["type"] == "IVA"
     assert rel["taxes"][0]["rate"] == 0.16
     assert rel["taxes"][0]["base"] == 5000.00
+
+
+def test_build_payment_complement_payload_preserves_retentions():
+    """Regression for the P1 math bug (Codex review, 2026-04-18): PPD
+    invoices with federal retentions (persona-moral client like F-4)
+    cannot use the naive ``base = payment_amount / (1 + tax_rate)``
+    formula, because cash received = subtotal + IVA − retenciones.
+    The correct base is a proportional slice of the original
+    factura.subtotal.
+
+    For the F-4-shaped scenario ($3,999 subtotal + 16% IVA − 1.25% ISR −
+    10.6667% IVA retention = $4,162.29 cash), a full payment of
+    4162.29 must produce base=3999.00 (not the naive 3588.18).
+    """
+    factura = Factura(
+        id=uuid.uuid4(),
+        facturapi_id="fac_f4_like",
+        cfdi_uuid="UUID-F4-LIKE",
+        customer_name="Cliente PM",
+        customer_rfc="CPM200101XXX",
+        customer_tax_system="601",
+        customer_zip="06600",
+        use="G03",
+        payment_form="99",
+        payment_method="PPD",
+        line_items_json=[],
+        subtotal=Decimal("3999.00"),
+        tax=Decimal("639.84"),
+        isr_retention=Decimal("49.99"),
+        iva_retention=Decimal("426.56"),
+        local_retention=Decimal("0.00"),
+        total=Decimal("4162.29"),
+        currency="MXN",
+        status="valid",
+        total_paid=Decimal("0"),
+        payment_status="unpaid",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    payment = CfdiPayment(
+        id=uuid.uuid4(),
+        factura_id=factura.id,
+        payment_date=date(2026, 4, 15),
+        payment_form="28",
+        currency="MXN",
+        payment_amount=Decimal("4162.29"),  # full payment
+        last_balance=Decimal("4162.29"),
+        installment=1,
+        status="pending_stamp",
+    )
+
+    payload = facturapi_service.build_payment_complement_payload(
+        factura=factura,
+        payment=payment,
+        idempotency_key="pago:test-retentions",
+    )
+
+    rel = payload["complements"][0]["data"][0]["related_documents"][0]
+    # Base must recover the original subtotal on a full payment.
+    assert rel["taxes"][0]["base"] == 3999.00
+    assert rel["taxes"][0]["rate"] == 0.16
+
+    # Retentions on the complement must mirror the factura's (both as
+    # withholding=True entries with their SAT-registered rates).
+    withholdings = [t for t in rel["taxes"] if t.get("withholding")]
+    isr = next(t for t in withholdings if t["type"] == "ISR")
+    iva_ret = next(t for t in withholdings if t["type"] == "IVA")
+    assert isr["base"] == 3999.00
+    assert abs(isr["rate"] - 0.0125) < 1e-6
+    assert iva_ret["base"] == 3999.00
+    assert abs(iva_ret["rate"] - 0.106667) < 1e-4
 
 
 class _NoOpDB:
