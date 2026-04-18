@@ -112,26 +112,60 @@ Every factura, gasto, and payment currently in `facturas.currency` /
 The UI exposes a USD selector but Gustavo has never used it. The
 bug activates only on the first non-MXN row.
 
-### Plan to close
+### Plan to close — full multi-currency e2e
 
-Separate PR:
+This is actually a bigger plan than declaración math alone. End-to-end
+multi-currency requires every layer to carry the rate:
 
-1. Extend models with `exchange_rate_at_issue` (the FX rate snapshotted
-   at emission time — SAT needs this for the declaración, not the
-   live rate at aggregation time).
-2. Add `to_mxn(value, currency, rate)` helper in `src/common/money.py`.
-3. Rewrite the three aggregators in `declaracion/service.py` to
-   project everything to MXN before summing.
-4. Backfill `exchange_rate_at_issue` for non-MXN historical rows via
-   a one-off script using DOF FIX rates.
-5. Regression test: a mixed USD + MXN period matches hand-computed
-   totals.
+1. **Migration** — add `exchange_rate` to `facturas`, `cfdi_payments`,
+   and `facturas_recibidas`. Numeric(12, 6), nullable (NULL = MXN).
+2. **Model** — mirror the new column on ORM classes.
+3. **Router** (`backend/src/facturas/router.py`) — `create_factura`
+   reads `data.exchange_rate` and persists to the row.
+4. **Outbox rebuild** (`backend/src/facturas/outbox.py`
+   `_rebuild_factura_create`) — include `exchange_rate=factura.exchange_rate`
+   so async stamping of stored USD rows doesn't trip the new
+   `FacturaCreate` validator.
+5. **Frontend** (`frontend/src/app/(app)/facturas/page.tsx`) — add
+   an `exchange_rate` input that becomes visible when currency != MXN.
+   Pull a default from DOF FIX for the invoice date (Banxico API).
+6. **Declaración aggregators** (`backend/src/declaracion/service.py`)
+   — project every non-MXN row to MXN using its stored rate before
+   summing ingresos / IVA / retenciones.
+7. **Backfill** — existing NULL rows are MXN by construction; no
+   backfill needed since production is 100% MXN today.
+8. **Regression test** — a mixed USD + MXN period matches hand-computed
+   totals; outbox can stamp a stored USD invoice without tripping
+   the schema validator.
 
-Estimated effort: 1-2 days.
+Estimated effort: 2-3 days.
+
+### Current state — what the 2026-04-18 PR did and did not do
+
+**Did:**
+- Close the FacturAPI serialization gap on tipo-I CFDI (currency +
+  exchange on the stamp payload).
+- Close the FacturAPI serialization gap on tipo-P complement
+  (currency + exchange on the pago data block).
+- Add schema-layer validator that REJECTS USD `FacturaCreate` without
+  an explicit `exchange_rate`. This turns a silent "stamp at rate
+  1.0" footgun into an explicit 422 at the POST /facturas boundary
+  — safer than the pre-PR behavior.
+
+**Did not:**
+- Add `exchange_rate` as a persisted column on `Factura`.
+- Expose `exchange_rate` in the frontend USD flow.
+- Teach the outbox rebuild to carry the stored rate.
+- Project non-MXN rows to MXN in declaración math.
+
+**Safe to defer because:** 100% of production CFDIs are MXN today.
+The UI currency selector exists but no operator has ever clicked
+USD. The failure mode for the USD path is now "explicit 422" (safe
+rejection), not "silent wrong CFDI stamped at SAT" (the pre-PR bug).
 
 ### Related
 
-- `frontend/src/app/(app)/facturas/page.tsx` already exposes `USD`
-  on the currency selector — the backend serialization fix in the
-  2026-04-18 PR is what made that selector actually stamp correctly.
+- `frontend/src/app/(app)/facturas/page.tsx` exposes `USD` on the
+  currency selector — the 2026-04-18 PR tightened the validator so
+  that path now fails fast instead of stamping a broken CFDI.
 - SAT Anexo 20 requires `TipoCambio` on non-MXN CFDIs.
