@@ -1,3 +1,5 @@
+from decimal import Decimal, ROUND_HALF_UP
+
 import httpx
 from fastapi import HTTPException
 
@@ -14,12 +16,21 @@ def _headers() -> dict[str, str]:
     }
 
 
-def build_facturapi_payload(data: FacturaCreate) -> dict:
+def build_facturapi_payload(
+    data: FacturaCreate,
+    *,
+    idempotency_key: str | None = None,
+) -> dict:
     """Transform our schema into Facturapi's expected payload.
 
     Federal retentions (ISR/IVA) ride on ``product.taxes``; state-level
     cedular (e.g., Guanajuato Art. 37-D LHEG 2%) rides on
     ``product.local_taxes`` — the SAT "Impuestos Locales 1.0" complement.
+
+    ``idempotency_key`` (if provided) is sent as a top-level body field
+    per Facturapi's async-safe retry protocol. Required by the outbox
+    worker so a retry after a "stamped but not committed" crash returns
+    the same CFDI instead of creating a duplicate.
     """
     items = []
     for li in data.line_items:
@@ -64,6 +75,8 @@ def build_facturapi_payload(data: FacturaCreate) -> dict:
         "payment_form": data.payment_form,
         "payment_method": data.payment_method,
     }
+    if idempotency_key:
+        payload["idempotency_key"] = idempotency_key
     # Note: Facturapi no longer accepts the "comments" field.
     # data.notes is internal metadata (e.g. "Eva billing source=subscription_invoice")
     # and is not needed on the CFDI itself.
@@ -178,6 +191,87 @@ async def download_pdf(facturapi_id: str) -> bytes:
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail="Failed to download PDF from Facturapi")
         return resp.content
+
+
+def build_payment_complement_payload(
+    *,
+    factura: "Factura",  # noqa: F821 - forward ref; imported only for typing
+    payment,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Build the FacturAPI body for a CFDI tipo P.
+
+    Spec reference: https://docs.facturapi.io/en/docs/guides/invoices/pago/
+
+    Structure
+    ---------
+    ``type: "P"`` + customer block + ``complements[{type:"pago", data:[...]}]``.
+    The data entry references the original PPD CFDI by UUID and declares
+    the amount paid, installment number, running balance, and the tax
+    breakdown so SAT can recompute the tax acreditable for that payment.
+
+    Tax rebuild
+    -----------
+    SAT needs the base + rate for each tax on the portion paid. For PUE
+    invoices this isn't required, but for P we have to decompose the
+    payment into (subtotal × taxes) proportional to the original CFDI.
+    We compute: ``base = payment_amount / (1 + tax_rate)``.
+
+    Only IVA 16% handled here explicitly; other rates (0%, 8% frontera)
+    fall through with their stored rate. Retentions (ISR/IVA/cedular)
+    are NOT re-declared on the complement — they applied once at
+    stamping of the original PPD invoice.
+    """
+    tax_rate = Decimal("0.16")
+    # Try to infer tax_rate from the original line_items (they're all the
+    # same in practice for our SaaS billing).
+    items = factura.line_items_json or []
+    if items:
+        tr = items[0].get("tax_rate")
+        if tr is not None:
+            tax_rate = Decimal(str(tr))
+    base_amount = (Decimal(str(payment.payment_amount)) / (Decimal("1") + tax_rate)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    related_doc: dict = {
+        "uuid": factura.cfdi_uuid,
+        "amount": float(payment.payment_amount),
+        "installment": int(payment.installment),
+        "taxes": [
+            {
+                "base": float(base_amount),
+                "type": "IVA",
+                "rate": float(tax_rate),
+            }
+        ],
+    }
+    if payment.last_balance is not None:
+        related_doc["last_balance"] = float(payment.last_balance)
+
+    complement: dict = {
+        "type": "pago",
+        "data": [
+            {
+                "payment_form": payment.payment_form,
+                "related_documents": [related_doc],
+            }
+        ],
+    }
+
+    payload: dict = {
+        "type": "P",
+        "customer": {
+            "legal_name": factura.customer_name,
+            "tax_id": factura.customer_rfc,
+            "tax_system": factura.customer_tax_system,
+            "address": {"zip": factura.customer_zip},
+        },
+        "complements": [complement],
+    }
+    if idempotency_key:
+        payload["idempotency_key"] = idempotency_key
+    return payload
 
 
 async def download_xml(facturapi_id: str) -> bytes:

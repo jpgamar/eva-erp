@@ -21,6 +21,8 @@ import {
   Building2,
   Handshake,
   Server,
+  Receipt,
+  CalendarCheck,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,6 +59,8 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Finances", icon: DollarSign, href: "/finances", phase: 3 },
       { label: "Facturas", icon: FileText, href: "/facturas", phase: 7 },
+      { label: "Gastos", icon: Receipt, href: "/gastos", phase: 7 },
+      { label: "Declaración", icon: CalendarCheck, href: "/declaracion", phase: 7 },
     ],
   },
   {
