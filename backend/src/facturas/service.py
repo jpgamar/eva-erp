@@ -295,6 +295,23 @@ def build_payment_complement_payload(
             "rate": float((factura_iva_ret / factura_subtotal).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if factura_subtotal > 0 else 0.0,
             "withholding": True,
         })
+    # State-level cedular (e.g., GTO 2% under Art. 37-D LHEG). If the
+    # original PPD invoice carried a cedular, the complement must carry
+    # it too in ``local_taxes`` — otherwise SAT sees a short tax profile
+    # and the client's IVA acreditable disagrees with our record.
+    # (Codex round-2 P2, 2026-04-18.)
+    local_taxes_block: list[dict] = []
+    if local_retained > 0 and factura_subtotal > 0:
+        local_taxes_block.append({
+            "base": float(base_amount),
+            "type": factura.local_retention_state or "Cedular",
+            "rate": float(
+                (factura_local_ret / factura_subtotal).quantize(
+                    Decimal("0.000001"), rounding=ROUND_HALF_UP
+                )
+            ),
+            "withholding": True,
+        })
 
     related_doc: dict = {
         "uuid": factura.cfdi_uuid,
@@ -302,6 +319,8 @@ def build_payment_complement_payload(
         "installment": int(payment.installment),
         "taxes": taxes_block,
     }
+    if local_taxes_block:
+        related_doc["local_taxes"] = local_taxes_block
     if payment.last_balance is not None:
         related_doc["last_balance"] = float(payment.last_balance)
 

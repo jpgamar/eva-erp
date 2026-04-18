@@ -370,6 +370,69 @@ async def test_stamp_pending_payment_success(monkeypatch):
     assert captured["idempotency_key"] == f"pago:{payment.id}"
 
 
+def test_build_payment_complement_payload_emits_cedular():
+    """Codex round-2 P2: PPD invoices with a state cedular retention
+    (e.g., GTO 2%) must carry that retention on the tipo-P complement
+    too, under ``local_taxes``. Otherwise the complement's tax profile
+    is short and SAT rejects it or the client's IVA acreditable drifts.
+    """
+    factura = Factura(
+        id=uuid.uuid4(),
+        facturapi_id="fac_cedular_ppd",
+        cfdi_uuid="UUID-CEDULAR-PPD",
+        customer_name="Cliente GTO",
+        customer_rfc="CGT200101XXX",
+        customer_tax_system="601",
+        customer_zip="37160",  # GTO zip
+        use="G03",
+        payment_form="99",
+        payment_method="PPD",
+        line_items_json=[],
+        subtotal=Decimal("3999.00"),
+        tax=Decimal("639.84"),
+        isr_retention=Decimal("49.99"),
+        iva_retention=Decimal("426.56"),
+        local_retention=Decimal("79.98"),  # 2% of 3999
+        local_retention_state="GTO",
+        local_retention_rate=Decimal("0.02"),
+        total=Decimal("4082.31"),
+        currency="MXN",
+        status="valid",
+        total_paid=Decimal("0"),
+        payment_status="unpaid",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    payment = CfdiPayment(
+        id=uuid.uuid4(),
+        factura_id=factura.id,
+        payment_date=date(2026, 4, 15),
+        payment_form="28",
+        currency="MXN",
+        payment_amount=Decimal("4082.31"),
+        installment=1,
+        status="pending_stamp",
+    )
+
+    payload = facturapi_service.build_payment_complement_payload(
+        factura=factura,
+        payment=payment,
+        idempotency_key="pago:test-cedular",
+    )
+
+    rel = payload["complements"][0]["data"][0]["related_documents"][0]
+    assert "local_taxes" in rel, (
+        "Complement for a cedular-state PPD must carry local_taxes; "
+        "missing this leaves SAT's tax profile short and breaks the "
+        "client's IVA acreditable."
+    )
+    local = rel["local_taxes"][0]
+    assert local["type"] == "GTO"
+    assert local["withholding"] is True
+    assert abs(local["rate"] - 0.02) < 1e-6
+    assert local["base"] == 3999.00
+
+
 @pytest.mark.asyncio
 async def test_stamp_pending_payment_without_original_uuid_fails_fast():
     """A complement can't reference an unstamped PPD — mark failed, don't retry.
@@ -394,6 +457,49 @@ async def test_stamp_pending_payment_without_original_uuid_fails_fast():
 
     assert payment.status == "stamp_failed"
     assert "unstamped" in (payment.last_stamp_error or "")
+
+
+@pytest.mark.asyncio
+async def test_stamp_failed_rolls_back_factura_total_paid(monkeypatch):
+    """Codex round-2 P1 regression: when a payment transitions to
+    stamp_failed after retries, the parent factura's total_paid +
+    payment_status must be unwound — otherwise subsequent registrations
+    get false "exceeds outstanding balance" errors.
+    """
+    from fastapi import HTTPException
+
+    async def _permanent_fail(*_a, **_kw):
+        # Permanent error classification triggers immediate stamp_failed.
+        raise HTTPException(
+            status_code=502,
+            detail={"facturapi_error": {"message": "tax_id is invalid"}},
+        )
+
+    monkeypatch.setattr(facturapi_service, "create_invoice", _permanent_fail)
+
+    factura = _make_ppd_factura(total="10000.00", paid="0.00")
+    # Simulate what register_payment() already bumped before stamping.
+    factura.total_paid = Decimal("500.00")
+    factura.payment_status = "partial"
+
+    payment = CfdiPayment(
+        id=uuid.uuid4(),
+        factura_id=factura.id,
+        payment_date=date(2026, 4, 15),
+        payment_form="28",
+        currency="MXN",
+        payment_amount=Decimal("500.00"),
+        installment=1,
+        status="pending_stamp",
+    )
+
+    db = _OutboxDB(factura=factura)
+    await outbox.stamp_pending_payment(db, payment)
+
+    assert payment.status == "stamp_failed"
+    # Rollback: total_paid should be back to 0 and status back to unpaid.
+    assert factura.total_paid == Decimal("0.00")
+    assert factura.payment_status == "unpaid"
 
 
 @pytest.mark.asyncio

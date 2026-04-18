@@ -321,12 +321,46 @@ async def _report_stamp_failed(factura: Factura) -> None:
         logger.exception("Failed to report stamp_failed for factura %s", factura.id)
 
 
+def _rollback_payment_optimistic_bump(
+    factura: Factura, payment: CfdiPayment, db: AsyncSession
+) -> None:
+    """Undo the ``factura.total_paid`` + ``payment_status`` bump that
+    ``register_payment`` applied optimistically when the user registered
+    the payment.
+
+    Called when a complemento transitions to ``stamp_failed`` — at that
+    point the cash never actually landed in the fiscal sense, so leaving
+    the factura looking "partially paid" would block subsequent payment
+    registrations with a false "exceeds outstanding balance" error.
+    (Codex round-2 P1, 2026-04-18.)
+    """
+    from src.facturas.payment_complements import _derive_payment_status
+
+    current_total = Decimal(str(factura.total_paid or 0))
+    new_total = (current_total - Decimal(str(payment.payment_amount))).quantize(
+        Decimal("0.01")
+    )
+    if new_total < Decimal("0"):
+        new_total = Decimal("0")
+    factura.total_paid = new_total
+    factura.payment_status = _derive_payment_status(factura.total, new_total)
+    db.add(factura)
+
+
 async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiPayment:
     """Stamp a single Complemento de Pago. Same contract as
     ``stamp_pending_factura``: mutate the row, don't commit here.
 
     Needs to fetch the related Factura to build the type P payload
     (customer block + original UUID reference).
+
+    On permanent failure (``stamp_failed``) we roll back the optimistic
+    ``factura.total_paid`` / ``payment_status`` bumps that
+    ``payment_complements.register_payment`` applied. Without the
+    rollback, subsequent payments against the same factura would hit a
+    false "exceeds outstanding balance" error because total_paid would
+    keep growing for complementos that never made it to SAT.
+    (Codex round-2 P1, 2026-04-18.)
     """
     payment.stamp_attempted_at = datetime.now(timezone.utc)
     if not payment.facturapi_idempotency_key:
@@ -341,6 +375,8 @@ async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiP
         )
         payment.status = "stamp_failed"
         payment.next_retry_at = None
+        if factura is not None:
+            _rollback_payment_optimistic_bump(factura, payment, db)
         return payment
 
     try:
@@ -357,6 +393,7 @@ async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiP
         if permanent or payment.stamp_retry_count >= settings.facturapi_outbox_max_retries:
             payment.status = "stamp_failed"
             payment.next_retry_at = None
+            _rollback_payment_optimistic_bump(factura, payment, db)
             asyncio.create_task(_report_payment_failed(factura, payment))
         else:
             delay = _next_retry_delay(payment.stamp_retry_count - 1)
