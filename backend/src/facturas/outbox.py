@@ -52,6 +52,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +63,39 @@ from src.facturas.models import CfdiPayment, Factura
 from src.facturas.schemas import FacturaCreate, FacturaLineItem
 
 logger = logging.getLogger(__name__)
+
+
+def _is_permanent_facturapi_error(exc: BaseException) -> bool:
+    """Return True for errors the worker should NOT retry.
+
+    ``facturas.service.create_invoice`` wraps FacturAPI 4xx responses as
+    ``HTTPException(502, detail={'facturapi_error': ...})``. The upstream
+    4xx itself is hidden inside the detail. For permanent-failure
+    classification we look at the detail string for the well-known SAT /
+    FacturAPI validation markers — anything matching those means the
+    payload is broken and will fail identically on every retry, so we
+    skip the backoff and go straight to ``stamp_failed`` for human
+    intervention.
+
+    Transient errors (5xx, timeout, network reset) default to retry.
+    """
+    if not isinstance(exc, HTTPException):
+        return False
+    detail = getattr(exc, "detail", "")
+    detail_str = str(detail).lower() if detail else ""
+    permanent_markers = (
+        "tax_id",            # invalid RFC
+        "rfc",               # invalid RFC (alternate wording)
+        "invalid",           # generic "X is invalid"
+        "validation",        # validation error
+        "bad request",
+        "unprocessable",
+        "schema",
+        "uso",               # uso de cfdi invalid
+        "tax_system",        # regimen fiscal invalid
+        "postal",            # postal code / zip invalid
+    )
+    return any(marker in detail_str for marker in permanent_markers)
 
 
 # Backoff steps per retry attempt. Index 0 = first retry (after the initial
@@ -154,7 +188,8 @@ async def stamp_pending_factura(db: AsyncSession, factura: Factura) -> Factura:
     except Exception as exc:  # pragma: no cover - branching per error type below
         factura.stamp_retry_count = (factura.stamp_retry_count or 0) + 1
         factura.last_stamp_error = str(exc)[:2000]
-        if factura.stamp_retry_count >= settings.facturapi_outbox_max_retries:
+        permanent = _is_permanent_facturapi_error(exc)
+        if permanent or factura.stamp_retry_count >= settings.facturapi_outbox_max_retries:
             factura.status = "stamp_failed"
             factura.next_retry_at = None
             # Fire-and-forget alert so one row's failure doesn't block the worker loop.
@@ -163,10 +198,12 @@ async def stamp_pending_factura(db: AsyncSession, factura: Factura) -> Factura:
             delay = _next_retry_delay(factura.stamp_retry_count - 1)
             factura.next_retry_at = datetime.now(timezone.utc) + delay
         logger.warning(
-            "Outbox stamp attempt %s/%s failed for factura %s: %s",
+            "Outbox stamp %s failed for factura %s (attempt %s/%s, permanent=%s): %s",
+            "PERMANENT" if permanent else "transient",
+            factura.id,
             factura.stamp_retry_count,
             settings.facturapi_outbox_max_retries,
-            factura.id,
+            permanent,
             exc,
         )
         return factura
@@ -316,7 +353,8 @@ async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiP
     except Exception as exc:
         payment.stamp_retry_count = (payment.stamp_retry_count or 0) + 1
         payment.last_stamp_error = str(exc)[:2000]
-        if payment.stamp_retry_count >= settings.facturapi_outbox_max_retries:
+        permanent = _is_permanent_facturapi_error(exc)
+        if permanent or payment.stamp_retry_count >= settings.facturapi_outbox_max_retries:
             payment.status = "stamp_failed"
             payment.next_retry_at = None
             asyncio.create_task(_report_payment_failed(factura, payment))
@@ -324,11 +362,13 @@ async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiP
             delay = _next_retry_delay(payment.stamp_retry_count - 1)
             payment.next_retry_at = datetime.now(timezone.utc) + delay
         logger.warning(
-            "Outbox complemento attempt %s/%s failed for payment %s (factura %s): %s",
-            payment.stamp_retry_count,
-            settings.facturapi_outbox_max_retries,
+            "Outbox complemento %s failed for payment %s (factura %s, attempt %s/%s, permanent=%s): %s",
+            "PERMANENT" if permanent else "transient",
             payment.id,
             payment.factura_id,
+            payment.stamp_retry_count,
+            settings.facturapi_outbox_max_retries,
+            permanent,
             exc,
         )
         return payment

@@ -131,11 +131,19 @@ def parse_cfdi_xml(xml_bytes: bytes | str) -> ParsedCfdi:
     issue_date_str = root.get("Fecha")
     if not issue_date_str:
         raise CfdiParseError("Comprobante missing Fecha attribute")
-    issue_date = datetime.fromisoformat(issue_date_str).replace(
-        tzinfo=timezone.utc
-    ) if "+" not in issue_date_str and "Z" not in issue_date_str else datetime.fromisoformat(
-        issue_date_str.replace("Z", "+00:00")
-    )
+    # SAT Anexo 20 stores "Fecha" as local Mexico City time without a tz
+    # suffix. Some CFDIs (mostly test fixtures) do include Z or ±HH:MM.
+    # Normalize both cases: parse what's there, then stamp UTC when the
+    # source was naive. Shifting a naive timestamp to UTC keeps the
+    # wall-clock but adds a timezone — fine for audit trails and enough
+    # resolution for declaración math (which aggregates by date only).
+    iso_str = issue_date_str.replace("Z", "+00:00")
+    try:
+        issue_date = datetime.fromisoformat(iso_str)
+    except ValueError as exc:
+        raise CfdiParseError(f"Invalid Fecha attribute: {issue_date_str!r}") from exc
+    if issue_date.tzinfo is None:
+        issue_date = issue_date.replace(tzinfo=timezone.utc)
     cfdi_type = root.get("TipoDeComprobante") or "I"
     payment_form = root.get("FormaPago")
     payment_method = root.get("MetodoPago")

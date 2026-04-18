@@ -279,6 +279,51 @@ def test_rebuild_factura_create_preserves_all_fields():
 
 
 @pytest.mark.asyncio
+async def test_stamp_pending_factura_permanent_error_skips_retry(monkeypatch):
+    """FacturAPI 400-class errors (invalid RFC, bad postal code, etc.) are
+    permanent — retrying will fail identically. The worker must flip to
+    stamp_failed immediately instead of burning through the 5-attempt budget.
+    """
+    from fastapi import HTTPException
+
+    async def _perm_fail(*_a, **_kw):
+        raise HTTPException(
+            status_code=502,
+            detail={"facturapi_error": {"message": "tax_id is invalid"}},
+        )
+
+    monkeypatch.setattr(facturapi_service, "create_invoice", _perm_fail)
+
+    factura = _new_pending_factura()
+    db = _NoOpDB()
+
+    await outbox.stamp_pending_factura(db, factura)
+
+    # One attempt only, no backoff scheduled, straight to stamp_failed.
+    assert factura.status == "stamp_failed"
+    assert factura.stamp_retry_count == 1
+    assert factura.next_retry_at is None
+
+
+@pytest.mark.asyncio
+async def test_stamp_pending_factura_transient_error_retries(monkeypatch):
+    """Network / 5xx errors look transient — schedule retry, don't give up."""
+    async def _transient_fail(*_a, **_kw):
+        raise RuntimeError("connection reset by peer")
+
+    monkeypatch.setattr(facturapi_service, "create_invoice", _transient_fail)
+
+    factura = _new_pending_factura()
+    db = _NoOpDB()
+
+    await outbox.stamp_pending_factura(db, factura)
+
+    assert factura.status == "pending_stamp"
+    assert factura.stamp_retry_count == 1
+    assert factura.next_retry_at is not None
+
+
+@pytest.mark.asyncio
 async def test_stamp_pending_factura_sets_attempted_at(monkeypatch):
     """Even on failure we want to know when the last attempt happened,
     for the operator dashboard. ``stamp_attempted_at`` is set at the top
