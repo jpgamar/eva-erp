@@ -75,6 +75,14 @@ def build_facturapi_payload(
         "payment_form": data.payment_form,
         "payment_method": data.payment_method,
     }
+    # Only emit `currency` when the caller picked a non-MXN invoice. SAT
+    # defaults to MXN at exchange 1.0, so adding it for every MXN CFDI
+    # would add noise without value. A USD/EUR invoice without this
+    # field would stamp as if MXN — broken conversion everywhere.
+    # (Codex round-5 P2, 2026-04-18.)
+    invoice_currency = (data.currency or "MXN").upper()
+    if invoice_currency != "MXN":
+        payload["currency"] = invoice_currency
     if idempotency_key:
         payload["idempotency_key"] = idempotency_key
     # Note: Facturapi no longer accepts the "comments" field.

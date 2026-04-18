@@ -71,6 +71,34 @@ class TestFacturapiLocalTaxes:
         assert ("ISR", True) in types   # retención 1.25%
         assert ("IVA", True) in types   # retención 2/3
 
+    def test_mxn_default_omits_currency_field(self):
+        """Default MXN invoices should NOT emit `currency` on the payload —
+        SAT's implicit default is MXN. Adding it unnecessarily would put a
+        ``currency="MXN"`` key on every CFDI in production."""
+        item = _line_item()
+        payload = build_facturapi_payload(_factura(item))
+        assert "currency" not in payload
+
+    def test_non_mxn_factura_emits_currency(self):
+        """Codex round-5 P2: A USD/EUR factura must serialize its currency
+        onto the FacturAPI payload. Without it SAT stamps as MXN at
+        exchange 1.0 and the whole conversion is wrong.
+        """
+        item = _line_item()
+        data = FacturaCreate(
+            customer_name="US Client Inc",
+            customer_rfc="XEXX010101000",
+            customer_tax_system="616",
+            customer_zip="06600",
+            use="G03",
+            payment_form="04",
+            payment_method="PUE",
+            currency="USD",
+            line_items=[item],
+        )
+        payload = build_facturapi_payload(data)
+        assert payload["currency"] == "USD"
+
 
 class TestFacturaStateDerivation:
     """Ensure local_retention_state is derived from customer_zip, not from the label.

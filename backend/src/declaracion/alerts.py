@@ -84,7 +84,15 @@ async def compute_alerts(
         )
 
     # --- Rule 1 & 2: Declaración cycle for PREV month.
-    ingresos_rows = int(
+    # A month has a filing obligation when EITHER:
+    #   * at least one PUE factura was emitted in prev_month (ingreso
+    #     counted at emission for PUE), OR
+    #   * at least one CfdiPayment was registered in prev_month (ingreso
+    #     counted at cobro for PPD).
+    # Counting only PUE facturas would miss PPD-only months and silently
+    # skip the reminder, even though SAT still expects a declaración.
+    # (Codex round-5 P2, 2026-04-18.)
+    pue_count = int(
         (
             await db.execute(
                 select(func.count(Factura.id))
@@ -96,6 +104,18 @@ async def compute_alerts(
         ).scalar_one()
         or 0
     )
+    ppd_payment_count = int(
+        (
+            await db.execute(
+                select(func.count(CfdiPayment.id))
+                .where(CfdiPayment.status.in_(("valid", "pending_stamp")))
+                .where(extract("year", CfdiPayment.payment_date) == prev_year)
+                .where(extract("month", CfdiPayment.payment_date) == prev_month)
+            )
+        ).scalar_one()
+        or 0
+    )
+    ingresos_rows = pue_count + ppd_payment_count
     if ingresos_rows:
         if today.day < 17:
             days_left = 17 - today.day

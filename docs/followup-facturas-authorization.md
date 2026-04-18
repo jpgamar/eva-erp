@@ -1,4 +1,9 @@
-# Follow-up: Factura object-level authorization (BOLA)
+# Follow-up: Factura authorization + multi-currency completeness
+
+This doc tracks two items that reviewers flagged but that are out of
+scope for the 2026-04-18 CFDI atomicity + RESICO tax module PR.
+
+## 1. Factura object-level authorization (BOLA)
 
 **Status:** tracked, not exploitable in current single-operator production.
 **Severity:** P1 when we onboard a second non-admin user.
@@ -74,3 +79,59 @@ Estimated effort: 2-3 days.
 - CLAUDE.md multi-industry / multi-tenant notes
 - The `empresas` module already has account-scoping patterns to
   mirror (see `backend/src/empresas/router.py`)
+
+---
+
+## 2. Multi-currency declaración math
+
+**Status:** tracked, not exploitable today (100% of Gustavo's invoicing is MXN).
+**Severity:** P2 the first time a non-MXN factura is emitted/received.
+**Discovered:** Codex review round 5 on the 2026-04-18 PR.
+
+### The gap
+
+The 2026-04-18 PR closed the serialization gap on the FacturAPI
+payload (invoice `currency` + complement `currency`/`exchange`), so
+the stamped CFDI will be fiscally correct in any currency. But the
+ERP's declaración aggregator still sums raw `Decimal` values from
+`facturas.subtotal`, `cfdi_payments.payment_amount`, and
+`facturas_recibidas.tax_iva` without any currency conversion
+(`backend/src/declaracion/service.py` `_sum_pue_ingresos`,
+`_sum_ppd_payments`, `_sum_iva_acreditable`).
+
+If the operator stamps one MXN factura of $10,000 and one USD
+factura of $500, the declaración will report "$10,500 ingresos"
+instead of "$10,000 MXN + $9,875 MXN conversion = $19,875". SAT
+filings accept a single MXN total, so the declaración would
+under-report ingresos and under-pay ISR.
+
+### Why it's not exploitable today
+
+Every factura, gasto, and payment currently in `facturas.currency` /
+`cfdi_payments.currency` / `facturas_recibidas.currency` is `MXN`.
+The UI exposes a USD selector but Gustavo has never used it. The
+bug activates only on the first non-MXN row.
+
+### Plan to close
+
+Separate PR:
+
+1. Extend models with `exchange_rate_at_issue` (the FX rate snapshotted
+   at emission time — SAT needs this for the declaración, not the
+   live rate at aggregation time).
+2. Add `to_mxn(value, currency, rate)` helper in `src/common/money.py`.
+3. Rewrite the three aggregators in `declaracion/service.py` to
+   project everything to MXN before summing.
+4. Backfill `exchange_rate_at_issue` for non-MXN historical rows via
+   a one-off script using DOF FIX rates.
+5. Regression test: a mixed USD + MXN period matches hand-computed
+   totals.
+
+Estimated effort: 1-2 days.
+
+### Related
+
+- `frontend/src/app/(app)/facturas/page.tsx` already exposes `USD`
+  on the currency selector — the backend serialization fix in the
+  2026-04-18 PR is what made that selector actually stamp correctly.
+- SAT Anexo 20 requires `TipoCambio` on non-MXN CFDIs.
