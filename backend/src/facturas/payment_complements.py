@@ -37,8 +37,19 @@ async def register_payment(
     Raises HTTPException on invalid preconditions so the router returns
     a helpful 4xx. Commits are the caller's responsibility (the router
     dependency ``get_db`` handles that at request end).
+
+    Concurrency: acquires ``SELECT ... FOR UPDATE`` on the factura row so
+    two simultaneous payment registrations against the same invoice
+    serialize at the DB level. Without this, both requests could read a
+    stale ``total_paid``, both pass the outstanding-balance check, and
+    clobber each other's write — reintroducing an over-register /
+    cached-balance-corruption bug. (Codex round-3 P1, 2026-04-18.)
     """
-    factura = await db.get(Factura, factura_id)
+    stmt = (
+        select(Factura).where(Factura.id == factura_id).with_for_update()
+    )
+    result = await db.execute(stmt)
+    factura = result.scalar_one_or_none()
     if factura is None:
         raise HTTPException(status_code=404, detail="Factura not found")
     if factura.status != "valid":

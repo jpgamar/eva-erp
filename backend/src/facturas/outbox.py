@@ -321,7 +321,7 @@ async def _report_stamp_failed(factura: Factura) -> None:
         logger.exception("Failed to report stamp_failed for factura %s", factura.id)
 
 
-def _rollback_payment_optimistic_bump(
+async def _rollback_payment_optimistic_bump(
     factura: Factura, payment: CfdiPayment, db: AsyncSession
 ) -> None:
     """Undo the ``factura.total_paid`` + ``payment_status`` bump that
@@ -333,18 +333,40 @@ def _rollback_payment_optimistic_bump(
     the factura looking "partially paid" would block subsequent payment
     registrations with a false "exceeds outstanding balance" error.
     (Codex round-2 P1, 2026-04-18.)
+
+    Concurrency: re-fetch the factura with ``SELECT ... FOR UPDATE``
+    so two workers rolling back two different failed payments against
+    the same factura can't race and clobber each other's decrement.
+    The outer worker loop already holds a ``FOR UPDATE SKIP LOCKED``
+    on the ``cfdi_payments`` row, so lock acquisition order is
+    cfdi_payments → facturas here. ``register_payment`` takes the
+    locks in the reverse order but only INSERTs the payment (no lock
+    on it), so there's no deadlock. (Codex round-3 P2, 2026-04-18.)
     """
     from src.facturas.payment_complements import _derive_payment_status
 
-    current_total = Decimal(str(factura.total_paid or 0))
-    new_total = (current_total - Decimal(str(payment.payment_amount))).quantize(
-        Decimal("0.01")
+    locked = await db.execute(
+        select(Factura).where(Factura.id == factura.id).with_for_update()
     )
+    factura_locked = locked.scalar_one_or_none()
+    if factura_locked is None:
+        logger.warning(
+            "Rollback: factura %s disappeared before lock; skipping",
+            factura.id,
+        )
+        return
+
+    current_total = Decimal(str(factura_locked.total_paid or 0))
+    new_total = (
+        current_total - Decimal(str(payment.payment_amount))
+    ).quantize(Decimal("0.01"))
     if new_total < Decimal("0"):
         new_total = Decimal("0")
-    factura.total_paid = new_total
-    factura.payment_status = _derive_payment_status(factura.total, new_total)
-    db.add(factura)
+    factura_locked.total_paid = new_total
+    factura_locked.payment_status = _derive_payment_status(
+        factura_locked.total, new_total
+    )
+    db.add(factura_locked)
 
 
 async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiPayment:
@@ -376,7 +398,7 @@ async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiP
         payment.status = "stamp_failed"
         payment.next_retry_at = None
         if factura is not None:
-            _rollback_payment_optimistic_bump(factura, payment, db)
+            await _rollback_payment_optimistic_bump(factura, payment, db)
         return payment
 
     try:
@@ -393,7 +415,7 @@ async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiP
         if permanent or payment.stamp_retry_count >= settings.facturapi_outbox_max_retries:
             payment.status = "stamp_failed"
             payment.next_retry_at = None
-            _rollback_payment_optimistic_bump(factura, payment, db)
+            await _rollback_payment_optimistic_bump(factura, payment, db)
             asyncio.create_task(_report_payment_failed(factura, payment))
         else:
             delay = _next_retry_delay(payment.stamp_retry_count - 1)

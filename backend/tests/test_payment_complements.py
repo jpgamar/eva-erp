@@ -209,13 +209,32 @@ def test_build_payment_complement_payload_preserves_retentions():
     assert abs(iva_ret["rate"] - 0.106667) < 1e-4
 
 
+class _ExecResult:
+    """Minimal stand-in for SQLAlchemy's Result with scalar_one_or_none."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
 class _NoOpDB:
+    """Fake session that returns the seeded factura on both ``db.get``
+    and ``db.execute(select(Factura).with_for_update())`` — the latter
+    matters because register_payment + rollback now acquire row locks."""
+
     def __init__(self, factura: Factura | None = None):
         self._factura = factura
         self.added: list = []
 
     async def get(self, _cls, _id):
         return self._factura
+
+    async def execute(self, _stmt):
+        # register_payment + rollback query for `select(Factura).with_for_update()`.
+        # Single-factura fake just returns the seeded one on any SELECT.
+        return _ExecResult(self._factura)
 
     async def scalar(self, *_a, **_k):
         return None
@@ -314,13 +333,18 @@ async def test_register_payment_marks_paid_when_balance_zero():
 
 
 class _OutboxDB:
-    """DB stand-in for outbox.stamp_pending_payment tests."""
+    """DB stand-in for outbox.stamp_pending_payment tests. Supports
+    both ``db.get`` and ``db.execute(select().with_for_update())`` so
+    the rollback helper's re-lock works in unit tests."""
 
     def __init__(self, factura: Factura | None = None):
         self._factura = factura
 
     async def get(self, _cls, _id):
         return self._factura
+
+    async def execute(self, _stmt):
+        return _ExecResult(self._factura)
 
     async def scalar(self, *_a, **_k):
         return None
