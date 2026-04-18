@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 import datetime as _dt
 from decimal import Decimal
-from pydantic import BaseModel
+from typing import Annotated
+from pydantic import BaseModel, Field
 
 
 class FacturaLineItem(BaseModel):
@@ -34,6 +35,45 @@ class FacturaCreate(BaseModel):
     line_items: list[FacturaLineItem]
     currency: str = "MXN"
     notes: str | None = None
+
+
+class CfdiPaymentCreate(BaseModel):
+    """Payload to register a payment against a PPD factura.
+
+    ``factura_id`` is supplied as a path parameter; everything else is
+    the content of the Complemento de Pago.
+    """
+    payment_date: _dt.date
+    payment_form: Annotated[str, Field(min_length=2, max_length=5)]
+    payment_amount: Annotated[Decimal, Field(gt=0)]
+    currency: str = "MXN"
+    exchange_rate: Decimal | None = None  # required if currency != MXN
+    installment: int = 1
+    last_balance: Decimal | None = None
+    notes: str | None = None
+
+
+class CfdiPaymentResponse(BaseModel):
+    id: uuid.UUID
+    factura_id: uuid.UUID
+    facturapi_id: str | None
+    cfdi_uuid: str | None
+    payment_date: _dt.date
+    payment_form: str
+    payment_amount: Decimal
+    currency: str
+    exchange_rate: Decimal | None
+    installment: int
+    last_balance: Decimal | None
+    status: str
+    stamp_retry_count: int
+    last_stamp_error: str | None
+    next_retry_at: _dt.datetime | None
+    pdf_url: str | None
+    xml_url: str | None
+    created_at: _dt.datetime
+    updated_at: _dt.datetime
+    model_config = {"from_attributes": True}
 
 
 class FacturaResponse(BaseModel):
@@ -73,4 +113,13 @@ class FacturaResponse(BaseModel):
     cancelled_at: _dt.datetime | None
     created_at: _dt.datetime
     updated_at: _dt.datetime
+    # Outbox fields (may be None on pre-migration rows)
+    facturapi_idempotency_key: str | None = None
+    stamp_retry_count: int = 0
+    last_stamp_error: str | None = None
+    next_retry_at: _dt.datetime | None = None
+    stamp_attempted_at: _dt.datetime | None = None
+    # Payment tracking (PPD)
+    total_paid: Decimal = Decimal("0")
+    payment_status: str = "unpaid"
     model_config = {"from_attributes": True}

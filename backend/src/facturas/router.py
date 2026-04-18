@@ -13,9 +13,16 @@ from src.auth.models import User
 from src.common.config import settings
 from src.common.database import get_db
 from src.customers.models import Customer
+from src.facturas import payment_complements
 from src.facturas import reconciliation as facturapi_reconciliation
-from src.facturas.models import Factura
-from src.facturas.schemas import FacturaCreate, FacturaLineItem, FacturaResponse
+from src.facturas.models import CfdiPayment, Factura
+from src.facturas.schemas import (
+    CfdiPaymentCreate,
+    CfdiPaymentResponse,
+    FacturaCreate,
+    FacturaLineItem,
+    FacturaResponse,
+)
 from src.facturas import service as facturapi
 
 router = APIRouter(prefix="/facturas", tags=["facturas"])
@@ -282,6 +289,52 @@ async def download_xml(
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post(
+    "/{factura_id}/payments",
+    response_model=CfdiPaymentResponse,
+    status_code=202,
+)
+async def register_payment(
+    factura_id: uuid.UUID,
+    data: CfdiPaymentCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Register a payment against a PPD factura.
+
+    Creates a ``cfdi_payments`` row in ``pending_stamp``. The outbox
+    worker will emit the CFDI tipo P (Complemento de Pago) asynchronously.
+    Returns 202 Accepted immediately; poll ``GET /facturas/{id}/payments``
+    for status updates.
+
+    Validates: factura exists, is valid, is PPD, outstanding balance is
+    sufficient. Bumps ``factura.total_paid`` and ``factura.payment_status``
+    optimistically.
+    """
+    payment = await payment_complements.register_payment(
+        db=db, factura_id=factura_id, data=data, user_id=user.id
+    )
+    await db.refresh(payment)
+    return payment
+
+
+@router.get(
+    "/{factura_id}/payments",
+    response_model=list[CfdiPaymentResponse],
+)
+async def list_payments(
+    factura_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return all Complementos de Pago registered against a factura."""
+    # Ensure the factura exists before leaking an empty list.
+    factura = await db.get(Factura, factura_id)
+    if factura is None:
+        raise HTTPException(status_code=404, detail="Factura not found")
+    return await payment_complements.list_payments_for_factura(db, factura_id)
 
 
 @router.delete("/{factura_id}", response_model=FacturaResponse)

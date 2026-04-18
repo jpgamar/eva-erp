@@ -58,7 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.config import settings
 from src.common.database import async_session
 from src.facturas import service as facturapi
-from src.facturas.models import Factura
+from src.facturas.models import CfdiPayment, Factura
 from src.facturas.schemas import FacturaCreate, FacturaLineItem
 
 logger = logging.getLogger(__name__)
@@ -284,12 +284,104 @@ async def _report_stamp_failed(factura: Factura) -> None:
         logger.exception("Failed to report stamp_failed for factura %s", factura.id)
 
 
+async def stamp_pending_payment(db: AsyncSession, payment: CfdiPayment) -> CfdiPayment:
+    """Stamp a single Complemento de Pago. Same contract as
+    ``stamp_pending_factura``: mutate the row, don't commit here.
+
+    Needs to fetch the related Factura to build the type P payload
+    (customer block + original UUID reference).
+    """
+    payment.stamp_attempted_at = datetime.now(timezone.utc)
+    if not payment.facturapi_idempotency_key:
+        payment.facturapi_idempotency_key = f"pago:{payment.id}"
+
+    factura = await db.get(Factura, payment.factura_id)
+    if factura is None or not factura.cfdi_uuid:
+        # Can't stamp a complement without the original CFDI's UUID.
+        payment.stamp_retry_count = (payment.stamp_retry_count or 0) + 1
+        payment.last_stamp_error = (
+            "Original factura missing or unstamped — cannot build complemento"
+        )
+        payment.status = "stamp_failed"
+        payment.next_retry_at = None
+        return payment
+
+    try:
+        payload = facturapi.build_payment_complement_payload(
+            factura=factura,
+            payment=payment,
+            idempotency_key=payment.facturapi_idempotency_key,
+        )
+        api_result = await facturapi.create_invoice(payload)
+    except Exception as exc:
+        payment.stamp_retry_count = (payment.stamp_retry_count or 0) + 1
+        payment.last_stamp_error = str(exc)[:2000]
+        if payment.stamp_retry_count >= settings.facturapi_outbox_max_retries:
+            payment.status = "stamp_failed"
+            payment.next_retry_at = None
+            asyncio.create_task(_report_payment_failed(factura, payment))
+        else:
+            delay = _next_retry_delay(payment.stamp_retry_count - 1)
+            payment.next_retry_at = datetime.now(timezone.utc) + delay
+        logger.warning(
+            "Outbox complemento attempt %s/%s failed for payment %s (factura %s): %s",
+            payment.stamp_retry_count,
+            settings.facturapi_outbox_max_retries,
+            payment.id,
+            payment.factura_id,
+            exc,
+        )
+        return payment
+
+    payment.facturapi_id = api_result["id"]
+    payment.cfdi_uuid = api_result.get("uuid")
+    payment.status = "valid"
+    payment.pdf_url = api_result.get("pdf_custom_section")
+    payment.xml_url = api_result.get("xml")
+    payment.last_stamp_error = None
+    payment.next_retry_at = None
+    logger.info(
+        "Outbox stamped complemento %s for factura %s (cfdi_uuid=%s)",
+        payment.id,
+        payment.factura_id,
+        payment.cfdi_uuid,
+    )
+    return payment
+
+
+async def _report_payment_failed(factura: Factura, payment: CfdiPayment) -> None:
+    try:
+        from src.eva_platform.billing_monitor import report_billing_issue
+
+        await report_billing_issue(
+            category="billing_cfdi_failure",
+            severity="critical",
+            title=f"Complemento de pago failed after retries: {factura.customer_name}",
+            summary=(
+                f"payment={payment.id} factura={factura.id} "
+                f"amount={payment.payment_amount} payment_date={payment.payment_date} "
+                f"retries={payment.stamp_retry_count} "
+                f"last_error={(payment.last_stamp_error or '')[:500]}"
+            ),
+            empresa_id=str(factura.account_id) if factura.account_id else None,
+            empresa_name=factura.customer_name,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to report stamp_failed for payment %s", payment.id
+        )
+
+
 async def process_pending_facturas_once(db: AsyncSession) -> dict[str, int]:
-    """One worker pass. Returns statistics for the run."""
+    """One worker pass for both pending facturas AND pending payments.
+
+    Facturas go first (a complement can't stamp before its original), then
+    payments. Both use ``FOR UPDATE SKIP LOCKED`` so multiple workers
+    (if we ever scale out) don't contend on the same row.
+    """
     now = datetime.now(timezone.utc)
-    # ORDER BY next_retry_at NULLS FIRST → first-time stamps go before retries.
-    # FOR UPDATE SKIP LOCKED → lets multiple workers coexist without contention.
-    stmt = (
+
+    fact_stmt = (
         select(Factura)
         .where(Factura.status == "pending_stamp")
         .where((Factura.next_retry_at.is_(None)) | (Factura.next_retry_at <= now))
@@ -297,21 +389,55 @@ async def process_pending_facturas_once(db: AsyncSession) -> dict[str, int]:
         .limit(_BATCH_SIZE)
         .with_for_update(skip_locked=True)
     )
-    result = await db.execute(stmt)
-    pending = list(result.scalars().all())
+    fact_result = await db.execute(fact_stmt)
+    pending_facturas = list(fact_result.scalars().all())
 
-    stats = {"picked": len(pending), "stamped": 0, "retried": 0, "failed": 0}
+    # SAT 5-day rule for Complementos de Pago: oldest payment_date first
+    # so near-deadline rows get priority even under backlog.
+    pay_stmt = (
+        select(CfdiPayment)
+        .where(CfdiPayment.status == "pending_stamp")
+        .where((CfdiPayment.next_retry_at.is_(None)) | (CfdiPayment.next_retry_at <= now))
+        .order_by(
+            CfdiPayment.payment_date.asc(),
+            CfdiPayment.next_retry_at.asc().nulls_first(),
+        )
+        .limit(_BATCH_SIZE)
+        .with_for_update(skip_locked=True)
+    )
+    pay_result = await db.execute(pay_stmt)
+    pending_payments = list(pay_result.scalars().all())
 
-    for factura in pending:
+    stats = {
+        "facturas_picked": len(pending_facturas),
+        "facturas_stamped": 0,
+        "facturas_retried": 0,
+        "facturas_failed": 0,
+        "payments_picked": len(pending_payments),
+        "payments_stamped": 0,
+        "payments_retried": 0,
+        "payments_failed": 0,
+    }
+
+    for factura in pending_facturas:
         await stamp_pending_factura(db, factura)
         if factura.status == "valid":
-            stats["stamped"] += 1
+            stats["facturas_stamped"] += 1
         elif factura.status == "stamp_failed":
-            stats["failed"] += 1
+            stats["facturas_failed"] += 1
         else:
-            stats["retried"] += 1
+            stats["facturas_retried"] += 1
 
-    if pending:
+    for payment in pending_payments:
+        await stamp_pending_payment(db, payment)
+        if payment.status == "valid":
+            stats["payments_stamped"] += 1
+        elif payment.status == "stamp_failed":
+            stats["payments_failed"] += 1
+        else:
+            stats["payments_retried"] += 1
+
+    if pending_facturas or pending_payments:
         await db.commit()
     return stats
 
@@ -319,10 +445,10 @@ async def process_pending_facturas_once(db: AsyncSession) -> dict[str, int]:
 async def run_outbox_once() -> dict[str, int]:
     """Session-managed single pass. Safe to call from a loop or manually."""
     if not settings.facturapi_outbox_enabled:
-        return {"picked": 0, "stamped": 0, "retried": 0, "failed": 0, "skipped": 1}
+        return {"skipped": 1}
     if not (settings.facturapi_api_key or "").strip():
         logger.warning("Outbox worker: FACTURAPI_API_KEY not configured, skipping")
-        return {"picked": 0, "stamped": 0, "retried": 0, "failed": 0, "skipped": 1}
+        return {"skipped": 1}
 
     async with async_session() as db:
         try:
@@ -333,7 +459,7 @@ async def run_outbox_once() -> dict[str, int]:
                 await db.rollback()
             except Exception:
                 pass
-            return {"picked": 0, "stamped": 0, "retried": 0, "failed": 0, "error": 1}
+            return {"error": 1}
 
 
 async def facturas_outbox_runner_loop(stop_event: asyncio.Event) -> None:
@@ -346,6 +472,6 @@ async def facturas_outbox_runner_loop(stop_event: asyncio.Event) -> None:
             break  # stop_event was set → shutdown
         except asyncio.TimeoutError:
             stats = await run_outbox_once()
-            if stats.get("picked"):
+            if (stats.get("facturas_picked") or 0) + (stats.get("payments_picked") or 0) > 0:
                 logger.info("Outbox pass: %s", stats)
     logger.info("Outbox worker stopped")

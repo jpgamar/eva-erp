@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -89,3 +89,90 @@ class Factura(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Payment tracking for PPD facturas. Running tally of payments received
+    # (from ``cfdi_payments`` rows). ``payment_status`` is a cached bucket
+    # derived from total_paid / total — kept on the row so list/filter
+    # queries don't need to re-sum every request.
+    total_paid: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=0, server_default="0"
+    )
+    payment_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unpaid", server_default="unpaid"
+    )
+
+
+class CfdiPayment(Base):
+    """A CFDI tipo P (Complemento de Pago) linked to a PPD factura.
+
+    Flow: user registers a payment → row inserted as ``pending_stamp``
+    → outbox worker POSTs /v2/invoices with ``type="P"`` → row
+    transitions to ``valid`` with the SAT UUID. Same retry +
+    idempotency machinery as ``Factura``.
+
+    SAT rule: the complement must be emitted by the 5th calendar day
+    of the month following the payment. The outbox worker orders by
+    ``payment_date`` ascending so oldest (most at-risk) rows stamp first.
+    """
+
+    __tablename__ = "cfdi_payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    factura_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("facturas.id"), nullable=False
+    )
+    facturapi_id: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True
+    )
+    cfdi_uuid: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Payment details
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    payment_form: Mapped[str] = mapped_column(String(5), nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, default="MXN", server_default="MXN"
+    )
+    exchange_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6), nullable=True
+    )
+    payment_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    last_balance: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    installment: Mapped[int] = mapped_column(
+        nullable=False, default=1, server_default="1"
+    )
+
+    # Outbox fields (mirror Factura's)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending_stamp",
+        server_default="pending_stamp",
+    )
+    stamp_retry_count: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default="0"
+    )
+    last_stamp_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stamp_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    facturapi_idempotency_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True
+    )
+
+    pdf_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    xml_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
