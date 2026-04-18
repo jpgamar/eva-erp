@@ -7,10 +7,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db
-from src.declaracion.schemas import DeclaracionResponse
+from src.declaracion.alerts import compute_alerts
+from src.declaracion.schemas import DeclaracionAlertsResponse, DeclaracionResponse
 from src.declaracion.service import compute_monthly_declaration
 
 router = APIRouter(prefix="/declaracion", tags=["declaracion"])
+
+
+@router.get("/alerts", response_model=DeclaracionAlertsResponse)
+async def get_declaracion_alerts(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Dashboard alerts — pending complements, upcoming/overdue declaración,
+    stamp failures. Computed on demand so they're always current.
+    """
+    return await compute_alerts(db)
 
 
 # Today the ERP is single-tenant — the operator's RFC is static.

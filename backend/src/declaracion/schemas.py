@@ -23,6 +23,19 @@ class IsrResicoPf(BaseModel):
     saldo_a_favor: Decimal       # ≥ 0
 
 
+class DeclaracionAlert(BaseModel):
+    """An actionable item surfaced on the dashboard."""
+    severity: str   # 'blocker' | 'warning' | 'info'
+    code: str
+    message: str
+    deep_link: str | None = None  # frontend route to resolve it
+
+
+class DeclaracionAlertsResponse(BaseModel):
+    today: str  # ISO date so clients can detect stale caches
+    alerts: list[DeclaracionAlert]
+
+
 class IvaSimplificado(BaseModel):
     """IVA simplificado de confianza."""
     actividades_gravadas_16: Decimal
