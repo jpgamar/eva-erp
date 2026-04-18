@@ -13,11 +13,36 @@ from src.auth.models import User
 from src.common.config import settings
 from src.common.database import get_db
 from src.customers.models import Customer
+from src.facturas import reconciliation as facturapi_reconciliation
 from src.facturas.models import Factura
 from src.facturas.schemas import FacturaCreate, FacturaLineItem, FacturaResponse
 from src.facturas import service as facturapi
 
 router = APIRouter(prefix="/facturas", tags=["facturas"])
+
+
+@router.post("/reconcile")
+async def trigger_reconciliation(
+    max_invoices: int = 500,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Trigger one reconciliation pass on demand.
+
+    Normally the loop runs hourly (``facturapi_reconciliation_interval_seconds``).
+    This endpoint is useful right after deploy (to adopt historical CFDIs
+    like F-4) or when diagnosing drift.
+
+    Each pass fetches up to ``max_invoices`` from FacturAPI and either
+    ADOPTS them into ``facturas`` (if missing) or HEALS them (if the local
+    row is ``pending_stamp``/``stamp_failed`` but the CFDI is already
+    valid in FacturAPI). Returns a stats dict.
+    """
+    # Note: we deliberately create a fresh session in
+    # run_facturapi_reconciliation_once so the endpoint handler's own
+    # session doesn't hold a transaction open across potentially hundreds
+    # of rows + HTTP calls. The caller gets back the stats synchronously.
+    stats = await facturapi_reconciliation.run_facturapi_reconciliation_once()
+    return {"max_invoices": max_invoices, "stats": stats}
 
 @router.get("/api-status")
 async def facturapi_status(user: User = Depends(get_current_user)):

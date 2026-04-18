@@ -10,6 +10,7 @@ from src.common.config import settings
 from src.common.database import engine, eva_engine
 from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
 from src.facturas.outbox import facturas_outbox_runner_loop
+from src.facturas.reconciliation import facturapi_reconciliation_runner_loop
 from src.finances.stripe_service import stripe_reconciliation_runner_loop
 
 
@@ -31,6 +32,12 @@ async def lifespan(app: FastAPI):
     if settings.facturapi_outbox_enabled:
         stop = asyncio.Event()
         loops.append((stop, asyncio.create_task(facturas_outbox_runner_loop(stop))))
+    # FacturAPI reconciliation: adopts CFDIs emitted outside the ERP
+    # (dashboard, legacy scripts) and heals rows whose outbox retries
+    # exhausted. Runs hourly by default.
+    if settings.facturapi_reconciliation_enabled:
+        stop = asyncio.Event()
+        loops.append((stop, asyncio.create_task(facturapi_reconciliation_runner_loop(stop))))
 
     yield
 
