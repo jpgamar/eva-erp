@@ -4,7 +4,7 @@ import uuid
 import datetime as _dt
 from decimal import Decimal
 from typing import Annotated
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class FacturaLineItem(BaseModel):
@@ -34,7 +34,22 @@ class FacturaCreate(BaseModel):
     payment_method: str = "PUE"  # PUE or PPD
     line_items: list[FacturaLineItem]
     currency: str = "MXN"
+    # Required when ``currency != 'MXN'``. SAT Anexo 20 demands a TipoCambio
+    # on every foreign-currency CFDI; leaving it off stamps at exchange 1.0
+    # and the whole conversion is fiscally wrong. Operators get the rate
+    # from DOF FIX for the invoice date.
+    exchange_rate: Decimal | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _require_exchange_for_non_mxn(self) -> "FacturaCreate":
+        currency = (self.currency or "MXN").upper()
+        if currency != "MXN" and self.exchange_rate is None:
+            raise ValueError(
+                f"exchange_rate is required for {currency} invoices "
+                "(use the DOF FIX rate for the invoice date)"
+            )
+        return self
 
 
 class CfdiPaymentCreate(BaseModel):

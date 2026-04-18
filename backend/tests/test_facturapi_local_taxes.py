@@ -79,10 +79,10 @@ class TestFacturapiLocalTaxes:
         payload = build_facturapi_payload(_factura(item))
         assert "currency" not in payload
 
-    def test_non_mxn_factura_emits_currency(self):
-        """Codex round-5 P2: A USD/EUR factura must serialize its currency
-        onto the FacturAPI payload. Without it SAT stamps as MXN at
-        exchange 1.0 and the whole conversion is wrong.
+    def test_non_mxn_factura_emits_currency_and_exchange(self):
+        """Codex round-5/6 P2: A USD factura must serialize BOTH currency
+        AND exchange — a bare currency field with no rate would stamp at
+        the implicit default of 1.0 and the conversion is fiscally wrong.
         """
         item = _line_item()
         data = FacturaCreate(
@@ -94,10 +94,32 @@ class TestFacturapiLocalTaxes:
             payment_form="04",
             payment_method="PUE",
             currency="USD",
+            exchange_rate=Decimal("19.75"),
             line_items=[item],
         )
         payload = build_facturapi_payload(data)
         assert payload["currency"] == "USD"
+        assert payload["exchange"] == 19.75
+
+    def test_non_mxn_factura_without_exchange_rate_rejected_at_schema(self):
+        """Schema-layer validation: defense-in-depth — a non-MXN invoice
+        without an explicit exchange_rate must fail at FacturaCreate
+        construction, not silently succeed and then stamp wrong.
+        """
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            FacturaCreate(
+                customer_name="US Client Inc",
+                customer_rfc="XEXX010101000",
+                customer_tax_system="616",
+                customer_zip="06600",
+                currency="USD",
+                # exchange_rate deliberately omitted
+                line_items=[_line_item()],
+            )
+        assert "exchange_rate is required" in str(exc_info.value)
 
 
 class TestFacturaStateDerivation:
