@@ -324,14 +324,27 @@ def build_payment_complement_payload(
     if payment.last_balance is not None:
         related_doc["last_balance"] = float(payment.last_balance)
 
+    # SAT Anexo 20 Pago 2.0: if the payment currency differs from the
+    # original invoice's (or from MXN in general), the complement must
+    # carry `currency` + `exchange_rate` on the data block, otherwise
+    # SAT's implicit default of MXN at exchange 1 produces a wrong
+    # conversion on the client's acreditable IVA. Only emit when the
+    # operator explicitly captured a non-MXN currency, so the default
+    # MXN path (today's 100% of invoices) stays unchanged.
+    # (Codex round-4 P2, 2026-04-18.)
+    pago_data: dict = {
+        "payment_form": payment.payment_form,
+        "related_documents": [related_doc],
+    }
+    payment_currency = (payment.currency or "MXN").upper()
+    if payment_currency != "MXN":
+        pago_data["currency"] = payment_currency
+        if payment.exchange_rate is not None:
+            pago_data["exchange"] = float(payment.exchange_rate)
+
     complement: dict = {
         "type": "pago",
-        "data": [
-            {
-                "payment_form": payment.payment_form,
-                "related_documents": [related_doc],
-            }
-        ],
+        "data": [pago_data],
     }
 
     payload: dict = {

@@ -394,6 +394,56 @@ async def test_stamp_pending_payment_success(monkeypatch):
     assert captured["idempotency_key"] == f"pago:{payment.id}"
 
 
+def test_build_payment_complement_payload_mxn_omits_currency_field():
+    """MXN payments must NOT emit `currency` / `exchange` on the pago
+    data block — omitting them is the SAT-default for MXN and adding
+    them unnecessarily would bloat every complement in production.
+    This test locks in the current MXN path."""
+    factura = _make_ppd_factura()
+    payment = CfdiPayment(
+        id=uuid.uuid4(),
+        factura_id=factura.id,
+        payment_date=date(2026, 4, 15),
+        payment_form="28",
+        currency="MXN",
+        payment_amount=Decimal("5800.00"),
+        installment=1,
+        status="pending_stamp",
+    )
+    payload = facturapi_service.build_payment_complement_payload(
+        factura=factura, payment=payment, idempotency_key="pago:mxn",
+    )
+    pago_data = payload["complements"][0]["data"][0]
+    assert "currency" not in pago_data
+    assert "exchange" not in pago_data
+
+
+def test_build_payment_complement_payload_emits_currency_and_exchange_for_usd():
+    """Codex round-4 P2: when the payment is in a non-MXN currency, the
+    pago data block must include `currency` + `exchange` so SAT can
+    convert correctly. Without this, a USD payment would stamp with an
+    implicit MXN interpretation and break the client's IVA acreditable.
+    """
+    factura = _make_ppd_factura()
+    payment = CfdiPayment(
+        id=uuid.uuid4(),
+        factura_id=factura.id,
+        payment_date=date(2026, 4, 15),
+        payment_form="04",
+        currency="USD",
+        exchange_rate=Decimal("19.7500"),
+        payment_amount=Decimal("300.00"),
+        installment=1,
+        status="pending_stamp",
+    )
+    payload = facturapi_service.build_payment_complement_payload(
+        factura=factura, payment=payment, idempotency_key="pago:usd",
+    )
+    pago_data = payload["complements"][0]["data"][0]
+    assert pago_data["currency"] == "USD"
+    assert pago_data["exchange"] == 19.75
+
+
 def test_build_payment_complement_payload_emits_cedular():
     """Codex round-2 P2: PPD invoices with a state cedular retention
     (e.g., GTO 2%) must carry that retention on the tipo-P complement
