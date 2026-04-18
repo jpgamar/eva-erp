@@ -253,60 +253,25 @@ def test_create_factura_draft_false_does_not_call_facturapi(monkeypatch):
     assert db.added.status == "draft"
 
 
-def test_stamp_factura_with_facturapi_id_calls_stamp_draft(monkeypatch):
-    stamp_calls: list[str] = []
+def test_stamp_factura_enqueues_and_does_not_call_facturapi(monkeypatch):
+    """Post-outbox refactor: the stamp endpoint MUST NOT call FacturAPI.
 
-    async def _fake_stamp_draft(facturapi_id):
-        stamp_calls.append(facturapi_id)
-        return {
-            "id": facturapi_id,
-            "uuid": "uuid-new-123",
-            "status": "valid",
-            "total": 116.0,
-            "series": "A",
-            "folio_number": 7,
-            "xml": "https://example.com/x.xml",
-        }
+    The whole point of the outbox is that the request handler's only job
+    is to durably transition draft → pending_stamp and commit. Any HTTP
+    call here would reintroduce the F-4 atomicity bug.
+    """
 
     async def _fake_create_invoice(*_a, **_kw):
-        raise AssertionError("create_invoice must not be called when facturapi_id exists")
+        raise AssertionError(
+            "create_invoice must not be called from the stamp endpoint — "
+            "FacturAPI stamping is the outbox worker's responsibility."
+        )
 
-    monkeypatch.setattr(facturapi, "stamp_draft_invoice", _fake_stamp_draft)
-    monkeypatch.setattr(facturapi, "create_invoice", _fake_create_invoice)
-
-    factura = _build_factura(status="draft")
-    factura.facturapi_id = "fac_draft_xyz"
-    factura.cfdi_uuid = None
-    fake_db = _FakeDB(factura)
-    client = _build_test_client(fake_db)
-
-    response = client.post(f"/facturas/{factura.id}/stamp")
-
-    assert response.status_code == 200, response.text
-    assert stamp_calls == ["fac_draft_xyz"]
-    body = response.json()
-    assert body["cfdi_uuid"] == "uuid-new-123"
-    assert body["status"] == "valid"
-
-
-def test_stamp_factura_without_facturapi_id_calls_create_invoice(monkeypatch):
-    create_calls: list[dict] = []
-    stamp_calls: list[str] = []
-
-    async def _fake_create_invoice(payload):
-        create_calls.append(payload)
-        return {
-            "id": "fac_from_scratch",
-            "uuid": "uuid-scratch-123",
-            "status": "valid",
-            "total": 116.0,
-            "series": "A",
-            "folio_number": 8,
-        }
-
-    async def _fake_stamp_draft(facturapi_id):
-        stamp_calls.append(facturapi_id)
-        raise AssertionError("stamp_draft_invoice must not be called without facturapi_id")
+    async def _fake_stamp_draft(*_a, **_kw):
+        raise AssertionError(
+            "stamp_draft_invoice must not be called from the stamp endpoint — "
+            "the outbox worker re-POSTs with idempotency_key instead."
+        )
 
     monkeypatch.setattr(facturapi, "create_invoice", _fake_create_invoice)
     monkeypatch.setattr(facturapi, "stamp_draft_invoice", _fake_stamp_draft)
@@ -319,9 +284,52 @@ def test_stamp_factura_without_facturapi_id_calls_create_invoice(monkeypatch):
 
     response = client.post(f"/facturas/{factura.id}/stamp")
 
-    assert response.status_code == 200, response.text
-    assert len(create_calls) == 1
-    assert stamp_calls == []
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "pending_stamp"
+    assert body["cfdi_uuid"] is None
+
+
+def test_stamp_factura_sets_idempotency_key_to_row_id():
+    """The idempotency key is the durable bridge between pending_stamp and
+    a successful FacturAPI response — it must be a stable function of the
+    factura row (its UUID) so retries send the same key."""
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = None
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.post(f"/facturas/{factura.id}/stamp")
+
+    assert response.status_code == 202
+    # The factura was mutated in place before returning.
+    assert factura.status == "pending_stamp"
+    assert factura.facturapi_idempotency_key == str(factura.id)
+    assert factura.stamp_retry_count == 0
+    assert factura.last_stamp_error is None
+    assert factura.next_retry_at is None
+
+
+def test_stamp_factura_clears_existing_facturapi_id():
+    """If a draft was previously pushed to Facturapi as a preview draft
+    (has facturapi_id but no cfdi_uuid), the outbox must start clean so
+    the worker POSTs a fresh invoice with the idempotency key — not try
+    to stamp an abandoned FacturAPI draft that our retry logic doesn't
+    know about."""
+
+    factura = _build_factura(status="draft")
+    factura.facturapi_id = "fac_abandoned_preview_draft"
+    factura.cfdi_uuid = None
+    fake_db = _FakeDB(factura)
+    client = _build_test_client(fake_db)
+
+    response = client.post(f"/facturas/{factura.id}/stamp")
+
+    assert response.status_code == 202
+    assert factura.facturapi_id is None
+    assert factura.cfdi_uuid is None
+    assert factura.status == "pending_stamp"
 
 
 def test_download_pdf_draft_with_facturapi_id_succeeds(monkeypatch):

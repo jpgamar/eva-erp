@@ -115,11 +115,25 @@ async def stripe_webhook(request: Request):
             ))
             raise HTTPException(status_code=500, detail="Webhook processing failed")
 
-    # Session 2: Background CFDI stamping for invoice.paid (separate DB session)
+    # Session 2: Enqueue CFDI stamp for invoice.paid.
+    #
+    # This used to be a fire-and-forget ``asyncio.create_task`` that called
+    # FacturAPI synchronously and committed its own session. That path was
+    # responsible for the 2026-04-18 F-4 data loss (stamp succeeded, commit
+    # failed, CFDI orphaned in SAT). The refactor splits the work:
+    #
+    #   * This function now enqueues a ``pending_stamp`` factura row and
+    #     commits it BEFORE returning 200 to Stripe. No HTTP call to
+    #     FacturAPI happens here.
+    #   * The outbox worker (``facturas.outbox``) picks up the pending row
+    #     on its next tick and calls FacturAPI with the idempotency key.
+    #   * Any HTTP/commit failure in the worker triggers retry, not loss.
+    #
+    # We still call it in a separate session so that a CFDI enqueue error
+    # (e.g., empresa not found, fiscal data incomplete) cannot roll back
+    # the subscription status update that already committed above.
     if event_type == "invoice.paid":
-        asyncio.create_task(
-            _stamp_cfdi_background(empresa_id, data_object, subscription_metadata)
-        )
+        await _enqueue_cfdi_stamp(empresa_id, data_object, subscription_metadata)
 
     return {"received": True, "handled": True}
 
@@ -194,10 +208,18 @@ async def _handle_invoice_paid_status(db, empresa_id: str, invoice: dict):
             logger.exception("Failed to update subscription period for empresa %s", empresa_id)
 
 
-async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_metadata: dict):
-    """Stamp CFDI in a separate DB session (fire-and-forget from webhook).
+async def _enqueue_cfdi_stamp(empresa_id: str, invoice: dict, subscription_metadata: dict):
+    """Create a ``pending_stamp`` factura + eva_billing_record in a separate
+    DB session and commit. The outbox worker (``facturas.outbox``) will do
+    the actual FacturAPI call asynchronously.
 
-    If stamping fails, logs the error. Admin can re-stamp from /facturas.
+    Keeps its own session so that enqueue failures (empresa missing,
+    fiscal data incomplete, retention undetermined) don't poison the
+    subscription-status commit in the caller's session.
+
+    On failure: logs + billing_monitor alert. Admin can retry by calling
+    ``POST /api/v1/facturas/reconcile`` or by editing the empresa fiscal
+    data (which fixes the root cause for future events).
     """
     from src.empresas.models import Empresa
     from src.eva_billing.models import EvaBillingRecord
@@ -347,11 +369,14 @@ async def _stamp_cfdi_background(empresa_id: str, invoice: dict, subscription_me
 
             svc = EvaBillingService()
             result = await svc.stamp(db, stamp_request)
+            # Commit the pending_stamp factura + eva_billing_record. The outbox
+            # worker will take over from here to call FacturAPI + send the email.
             await db.commit()
 
             logger.info(
-                "CFDI stamped for empresa %s: uuid=%s, email=%s",
-                empresa.name, result.cfdi_uuid, result.email_status,
+                "CFDI enqueued for empresa %s: factura_id=%s status=%s "
+                "(outbox worker will stamp with FacturAPI)",
+                empresa.name, result.factura_id, result.status,
             )
 
         except Exception as exc:

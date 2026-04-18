@@ -14,12 +14,21 @@ def _headers() -> dict[str, str]:
     }
 
 
-def build_facturapi_payload(data: FacturaCreate) -> dict:
+def build_facturapi_payload(
+    data: FacturaCreate,
+    *,
+    idempotency_key: str | None = None,
+) -> dict:
     """Transform our schema into Facturapi's expected payload.
 
     Federal retentions (ISR/IVA) ride on ``product.taxes``; state-level
     cedular (e.g., Guanajuato Art. 37-D LHEG 2%) rides on
     ``product.local_taxes`` — the SAT "Impuestos Locales 1.0" complement.
+
+    ``idempotency_key`` (if provided) is sent as a top-level body field
+    per Facturapi's async-safe retry protocol. Required by the outbox
+    worker so a retry after a "stamped but not committed" crash returns
+    the same CFDI instead of creating a duplicate.
     """
     items = []
     for li in data.line_items:
@@ -64,6 +73,8 @@ def build_facturapi_payload(data: FacturaCreate) -> dict:
         "payment_form": data.payment_form,
         "payment_method": data.payment_method,
     }
+    if idempotency_key:
+        payload["idempotency_key"] = idempotency_key
     # Note: Facturapi no longer accepts the "comments" field.
     # data.notes is internal metadata (e.g. "Eva billing source=subscription_invoice")
     # and is not needed on the CFDI itself.

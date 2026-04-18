@@ -9,35 +9,37 @@ from sqlalchemy import text
 from src.common.config import settings
 from src.common.database import engine, eva_engine
 from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
+from src.facturas.outbox import facturas_outbox_runner_loop
 from src.finances.stripe_service import stripe_reconciliation_runner_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    monitor_stop = asyncio.Event()
-    monitor_task: asyncio.Task | None = None
-    stripe_stop = asyncio.Event()
-    stripe_task: asyncio.Task | None = None
+    # Background loops. Each owns a stop_event + task. On shutdown we set
+    # the events, then cancel to unblock any in-flight awaits.
+    loops: list[tuple[asyncio.Event, asyncio.Task]] = []
 
     if settings.monitoring_enabled:
-        monitor_task = asyncio.create_task(monitoring_runner_loop(monitor_stop))
+        stop = asyncio.Event()
+        loops.append((stop, asyncio.create_task(monitoring_runner_loop(stop))))
     if settings.stripe_reconciliation_enabled:
-        stripe_task = asyncio.create_task(stripe_reconciliation_runner_loop(stripe_stop))
+        stop = asyncio.Event()
+        loops.append((stop, asyncio.create_task(stripe_reconciliation_runner_loop(stop))))
+    # Outbox worker: timbres pending facturas with FacturAPI. Required for
+    # CFDI data integrity — see src/facturas/outbox.py and the 2026-04-18
+    # F-4 incident report.
+    if settings.facturapi_outbox_enabled:
+        stop = asyncio.Event()
+        loops.append((stop, asyncio.create_task(facturas_outbox_runner_loop(stop))))
 
     yield
 
-    monitor_stop.set()
-    stripe_stop.set()
-    if monitor_task is not None:
-        monitor_task.cancel()
+    for stop, _ in loops:
+        stop.set()
+    for _, task in loops:
+        task.cancel()
         try:
-            await monitor_task
-        except asyncio.CancelledError:
-            pass
-    if stripe_task is not None:
-        stripe_task.cancel()
-        try:
-            await stripe_task
+            await task
         except asyncio.CancelledError:
             pass
 

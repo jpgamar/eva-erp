@@ -47,9 +47,32 @@ class Factura(Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MXN")
 
-    # Status
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft / valid / cancelled
+    # Status — outbox lifecycle:
+    #   draft          → not yet submitted for stamping (user is still editing)
+    #   pending_stamp  → row committed, waiting for worker to call FacturAPI
+    #   valid          → FacturAPI returned 200, CFDI signed by SAT
+    #   stamp_failed   → exceeded max retries, needs human intervention
+    #   cancelled      → SAT cancellation accepted
+    status: Mapped[str] = mapped_column(String(20), default="draft")
     cancellation_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Outbox pattern fields (see migration w2x3y4z5a6b7 for context).
+    # The idempotency key is what lets us safely retry: FacturAPI returns the
+    # same CFDI if we repeat the POST with the same key, so a worker crash
+    # between "FacturAPI stamped" and "DB committed" cannot cause duplicates.
+    facturapi_idempotency_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True
+    )
+    stamp_retry_count: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default="0"
+    )
+    last_stamp_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stamp_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # File URLs (from Facturapi)
     pdf_url: Mapped[str | None] = mapped_column(String(512), nullable=True)

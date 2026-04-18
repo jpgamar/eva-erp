@@ -137,15 +137,29 @@ async def create_factura(
     return factura
 
 
-@router.post("/{factura_id}/stamp", response_model=FacturaResponse)
+@router.post("/{factura_id}/stamp", response_model=FacturaResponse, status_code=202)
 async def stamp_factura(
     factura_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Stamp a draft factura with the SAT via Facturapi.
-    If the draft was already pushed to Facturapi (has facturapi_id), stamp the existing draft.
-    Otherwise create-and-stamp in one shot."""
+    """Enqueue a draft factura for async stamping via the outbox worker.
+
+    The factura transitions ``draft → pending_stamp`` with a durable
+    ``facturapi_idempotency_key``. The outbox worker (poll interval ~30s)
+    picks it up and calls FacturAPI with the key, so a crash between
+    "FacturAPI stamped" and "DB commit" cannot lose the CFDI — retry
+    returns the same invoice.
+
+    Returns 202 Accepted. Clients should poll ``GET /facturas/{id}`` until
+    ``status='valid'`` (or ``stamp_failed`` after max retries).
+
+    Historical note: this endpoint previously did a synchronous FacturAPI
+    POST during the request handler, which exposed us to the F-4 data-loss
+    bug (2026-04-18 incident) — a successful stamp followed by a DB commit
+    failure silently lost the row. The outbox refactor eliminates that
+    class of failure.
+    """
     result = await db.execute(select(Factura).where(Factura.id == factura_id))
     factura = result.scalar_one_or_none()
     if not factura:
@@ -153,52 +167,21 @@ async def stamp_factura(
     if factura.status != "draft":
         raise HTTPException(status_code=400, detail="Only draft facturas can be stamped")
 
-    if factura.facturapi_id:
-        api_result = await facturapi.stamp_draft_invoice(factura.facturapi_id)
-    else:
-        # Rebuild FacturaCreate from stored data to build Facturapi payload
-        line_items = []
-        for li in (factura.line_items_json or []):
-            line_items.append(FacturaLineItem(
-                product_key=li["product_key"],
-                description=li["description"],
-                quantity=li.get("quantity", 1),
-                unit_price=Decimal(str(li["unit_price"])),
-                tax_rate=Decimal(str(li.get("tax_rate", "0.16"))),
-                isr_retention=Decimal(str(li["isr_retention"])) if li.get("isr_retention") else None,
-                iva_retention=Decimal(str(li["iva_retention"])) if li.get("iva_retention") else None,
-            ))
+    # If a draft was already pushed to FacturAPI (has facturapi_id), clear it —
+    # the outbox worker will re-POST with a clean idempotency_key so we get a
+    # fresh CFDI. The abandoned draft in FacturAPI is harmless (unstamped,
+    # auto-expired). We intentionally do not delete it because doing so would
+    # require an extra HTTP call inside this handler, reopening the atomicity
+    # hole we're closing.
+    factura.facturapi_id = None
+    factura.cfdi_uuid = None
 
-        data = FacturaCreate(
-            customer_name=factura.customer_name,
-            customer_rfc=factura.customer_rfc,
-            customer_id=factura.customer_id,
-            account_id=factura.account_id,
-            customer_tax_system=factura.customer_tax_system,
-            customer_zip=factura.customer_zip,
-            use=factura.use,
-            payment_form=factura.payment_form,
-            payment_method=factura.payment_method,
-            line_items=line_items,
-            currency=factura.currency,
-            notes=factura.notes,
-        )
-
-        payload = facturapi.build_facturapi_payload(data)
-        api_result = await facturapi.create_invoice(payload)
-
-    # Update factura with Facturapi response
-    api_total = Decimal(str(api_result.get("total", 0)))
-    factura.facturapi_id = api_result["id"]
-    factura.cfdi_uuid = api_result.get("uuid")
-    factura.status = api_result.get("status", "valid")
-    factura.pdf_url = api_result.get("pdf_custom_section")
-    factura.xml_url = api_result.get("xml")
-    factura.series = api_result.get("series")
-    factura.folio_number = api_result.get("folio_number")
-    factura.issued_at = datetime.now(timezone.utc)
-    if api_total:
-        factura.total = api_total
+    factura.status = "pending_stamp"
+    factura.facturapi_idempotency_key = str(factura.id)
+    factura.stamp_retry_count = 0
+    factura.last_stamp_error = None
+    factura.next_retry_at = None
+    factura.stamp_attempted_at = None
 
     db.add(factura)
     await db.flush()

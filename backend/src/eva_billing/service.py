@@ -209,6 +209,23 @@ class EvaBillingService:
         )
 
     async def stamp(self, db: AsyncSession, payload: EvaBillingStampRequest) -> EvaBillingStampResponse:
+        """Enqueue a CFDI stamp.
+
+        Creates a factura row in ``status='pending_stamp'`` with the
+        idempotency key and commits (via the caller's session). The
+        FacturAPI HTTP call happens asynchronously in the outbox worker
+        (see ``src/facturas/outbox.py``). This eliminates the F-4 class
+        of bug where FacturAPI success + DB commit failure lost the row.
+
+        The response status will be ``'pending_stamp'`` on first call.
+        Clients (Eva platform bridge, webhook) should treat the request
+        as accepted and either poll ``/internal/eva-billing/status/{account_id}``
+        or wait for the invoice email to arrive.
+
+        Idempotent replays (same ``idempotency_key``) return the existing
+        record — if the outbox already stamped it, the response includes
+        the ``cfdi_uuid`` and ``pdf_url`` as before.
+        """
         existing = await self._find_existing_record(db, payload)
         if existing and existing.factura_id:
             factura = await db.get(Factura, existing.factura_id)
@@ -263,7 +280,7 @@ class EvaBillingService:
             currency=payload.charge.currency,
             notes=f"Eva billing source={payload.source.type}",
         )
-        factura = await self._create_and_stamp_factura(db, factura_data)
+        factura = await self._create_pending_factura(db, factura_data)
         record = existing or EvaBillingRecord(
             account_id=payload.account_id,
             source_type=payload.source.type,
@@ -275,7 +292,9 @@ class EvaBillingService:
         record.stripe_customer_id = payload.source.stripe_customer_id
         record.stripe_charge_id = payload.source.stripe_charge_id
         record.factura_id = factura.id
-        record.status = "issued"
+        # The outbox worker will transition this to 'issued' (and then
+        # 'email_sent' after successfully emailing the CFDI).
+        record.status = "pending_stamp"
         record.recipient_email = recipient_emails[0] if recipient_emails else None
         record.currency = payload.charge.currency.upper()
         record.subtotal = _minor_to_major(quote.base_subtotal_minor)
@@ -291,38 +310,26 @@ class EvaBillingService:
             "cedular_retention_minor": quote.cedular_retention_minor,
             "cedular_state_code": quote.cedular_state_code,
             "cedular_rate": str(quote.cedular_rate) if quote.cedular_rate is not None else None,
+            # Snapshot the customer block so the outbox worker can send
+            # the invoice email after stamping without needing to re-fetch
+            # the empresa (which could have been edited by then).
+            "customer_legal_name": payload.customer.legal_name,
+            "customer_tax_id": payload.customer.tax_id,
+            "customer_tax_regime": payload.customer.tax_regime,
+            "customer_postal_code": payload.customer.postal_code,
+            "customer_cfdi_use": payload.customer.cfdi_use,
+            "customer_person_type": payload.customer.person_type,
         }
         db.add(record)
         await db.flush()
-        record.email_status, record.email_error = await self._send_invoice_email(
-            recipient_emails=recipient_emails,
-            customer=payload.customer,
-            factura=factura,
-            total=_minor_to_major(quote.payable_total_minor),
-        )
-        if record.email_status == "sent":
-            record.email_sent_at = datetime.now(timezone.utc)
-            record.status = "email_sent"
-        elif record.email_status == "failed":
-            try:
-                from src.eva_platform.billing_monitor import report_billing_issue
-                await report_billing_issue(
-                    category="billing_email_failure",
-                    severity="high",
-                    title=f"Factura email failed: {payload.customer.legal_name}",
-                    summary=f"Error: {record.email_error}",
-                    empresa_id=str(payload.account_id),
-                    empresa_name=payload.customer.legal_name,
-                    stripe_invoice_id=payload.source.stripe_invoice_id,
-                )
-            except Exception:
-                logger.warning("Failed to report email failure to monitoring", exc_info=True)
-        db.add(record)
-        await db.flush()
+        # Email is sent by the outbox worker AFTER stamping succeeds. Keeping
+        # email out of this critical path is what lets us keep the webhook
+        # response fast + ensures we never email a recipient about a CFDI
+        # that ended up not being stamped.
         return EvaBillingStampResponse(
             status=record.status,
             factura_id=factura.id,
-            cfdi_uuid=factura.cfdi_uuid,
+            cfdi_uuid=factura.cfdi_uuid,  # None until worker stamps
             pdf_url=factura.pdf_url,
             xml_url=factura.xml_url,
             email_status=record.email_status,
@@ -509,7 +516,14 @@ class EvaBillingService:
             .limit(1)
         )
 
-    async def _create_and_stamp_factura(self, db: AsyncSession, data: FacturaCreate) -> Factura:
+    async def _create_pending_factura(self, db: AsyncSession, data: FacturaCreate) -> Factura:
+        """Insert a factura row in ``status='pending_stamp'`` with a stable
+        ``facturapi_idempotency_key``. The outbox worker (see
+        ``src/facturas/outbox.py``) picks it up on the next cycle and calls
+        FacturAPI. This replaces the old ``_create_and_stamp_factura`` which
+        called FacturAPI synchronously and was vulnerable to the F-4
+        data-loss pattern (stamp succeeds, commit fails, CFDI orphaned).
+        """
         subtotal = Decimal("0.00")
         tax_total = Decimal("0.00")
         isr_ret_total = Decimal("0.00")
@@ -569,27 +583,15 @@ class EvaBillingService:
             local_retention_rate=cedular_rate_seen,
             total=round(subtotal + tax_total - isr_ret_total - iva_ret_total - cedular_total, 2),
             currency=data.currency,
-            status="draft",
+            status="pending_stamp",
             notes=data.notes,
             issued_at=None,
             created_by=None,
+            stamp_retry_count=0,
         )
         db.add(factura)
-        await db.flush()
-        payload = facturapi.build_facturapi_payload(data)
-        api_result = await facturapi.create_invoice(payload)
-        api_total = Decimal(str(api_result.get("total", 0)))
-        factura.facturapi_id = api_result["id"]
-        factura.cfdi_uuid = api_result.get("uuid")
-        factura.status = api_result.get("status", "valid")
-        factura.pdf_url = api_result.get("pdf_custom_section")
-        factura.xml_url = api_result.get("xml")
-        factura.series = api_result.get("series")
-        factura.folio_number = api_result.get("folio_number")
-        factura.issued_at = datetime.now(timezone.utc)
-        if api_total:
-            factura.total = api_total
-        db.add(factura)
+        await db.flush()  # populates factura.id via uuid4 default
+        factura.facturapi_idempotency_key = str(factura.id)
         await db.flush()
         return factura
 

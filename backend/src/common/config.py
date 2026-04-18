@@ -73,6 +73,19 @@ class Settings(BaseSettings):
     # Facturapi (CFDI electronic invoicing)
     facturapi_api_key: str = ""
 
+    # Outbox pattern: async worker that timbres pending facturas with retries.
+    # Fixes the F-4-class bug where a FacturAPI stamp success followed by a
+    # DB commit failure left a valid CFDI in SAT with no ERP row.
+    facturapi_outbox_enabled: bool = True
+    facturapi_outbox_interval_seconds: int = 30
+    facturapi_outbox_max_retries: int = 5
+
+    # Reconciliation: periodic FacturAPI → ERP sync that adopts any CFDI
+    # emitted outside the ERP (manual dashboard stamps, legacy records)
+    # and recovers from outbox retries that exhausted their attempts.
+    facturapi_reconciliation_enabled: bool = True
+    facturapi_reconciliation_interval_seconds: int = 3600
+
     # SSO handoff from EvaAI (shared secret with EvaAI backend)
     erp_sso_secret: str = ""
 
