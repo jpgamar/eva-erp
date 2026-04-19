@@ -7,11 +7,15 @@ import pytest
 
 from src.eva_billing.models import EvaBillingRecord
 from src.eva_billing.schemas import (
+    EvaBillingStampCharge,
+    EvaBillingCustomer,
     EvaBillingRefundRequest,
+    EvaBillingStampRequest,
+    EvaBillingStampSource,
     EvaBillingStampResponse,
 )
 from src.eva_billing.service import EvaBillingService, compute_hmac_signature
-from src.eva_billing.schemas import EvaBillingChargeQuote, EvaBillingCustomer, EvaBillingQuoteRequest
+from src.eva_billing.schemas import EvaBillingChargeQuote, EvaBillingQuoteRequest
 from src.facturas.models import Factura
 
 
@@ -35,6 +39,9 @@ class _FakeDB:
         self.added.append(obj)
 
     async def flush(self):
+        for obj in self.added:
+            if isinstance(obj, Factura) and getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
         return None
 
 
@@ -67,6 +74,53 @@ def test_quote_applies_persona_moral_retentions() -> None:
     assert response.isr_retention_minor == 4_999
     assert response.iva_retention_minor == 42_656
     assert response.payable_total_minor == 416_229
+
+
+@pytest.mark.asyncio
+async def test_stamp_can_preserve_legacy_federal_only_quote_for_gto_customer() -> None:
+    service = EvaBillingService()
+    fake_db = _FakeDB(record=None, factura=None)  # type: ignore[arg-type]
+
+    response = await service.stamp(
+        fake_db,  # type: ignore[arg-type]
+        EvaBillingStampRequest(
+            account_id=uuid.uuid4(),
+            owner_email="owner@example.com",
+            recipient_emails=["finance@example.com"],
+            idempotency_key="billing-document:test",
+            source=EvaBillingStampSource(
+                type="subscription_invoice",
+                stripe_invoice_id="in_test",
+                stripe_payment_intent_id="pi_test",
+            ),
+            customer=EvaBillingCustomer(
+                legal_name="SERVIACERO COMERCIAL",
+                tax_id="SCO8007138GA",
+                tax_regime="601",
+                postal_code="37490",
+                cfdi_use="G03",
+                person_type="persona_moral",
+            ),
+            charge=EvaBillingStampCharge(
+                description="Suscripcion EvaAI Standard Mensual",
+                payable_total_minor=416_229,
+                base_subtotal_minor=399_900,
+                payment_form="04",
+                payment_method="PUE",
+                retention_applicable=True,
+                cedular_retention_applicable=False,
+            ),
+        ),
+    )
+
+    factura = next(obj for obj in fake_db.added if isinstance(obj, Factura))
+    record = next(obj for obj in fake_db.added if isinstance(obj, EvaBillingRecord))
+    assert response.status == "pending_stamp"
+    assert factura.customer_zip == "37490"
+    assert factura.total == Decimal("4162.29")
+    assert factura.local_retention == Decimal("0.00")
+    assert record.total == Decimal("4162.29")
+    assert record.cedular_retention is None
 
 
 def test_compute_hmac_signature_is_stable() -> None:

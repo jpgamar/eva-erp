@@ -78,6 +78,10 @@ class EvaBillingStampCharge(BaseModel):
     payment_form: str
     payment_method: str
     retention_applicable: bool
+    # None preserves the current ZIP-derived behavior for legacy callers.
+    # False is an explicit quote snapshot saying this paid charge did not
+    # include state-level cedular withholding even if the fiscal ZIP is in GTO.
+    cedular_retention_applicable: bool | None = None
 
 
 class EvaBillingStampRequest(BaseModel):

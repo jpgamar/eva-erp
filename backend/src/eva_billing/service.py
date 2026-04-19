@@ -239,10 +239,15 @@ class EvaBillingService:
                     email_status=existing.email_status,
                 )
 
+        quote_customer_zip = (
+            payload.customer.postal_code
+            if payload.charge.cedular_retention_applicable is not False
+            else None
+        )
         quote = _compute_quote(
             payload.charge.base_subtotal_minor,
             retention_applicable=payload.charge.retention_applicable,
-            customer_zip=payload.customer.postal_code,
+            customer_zip=quote_customer_zip,
         )
         if abs(quote.payable_total_minor - payload.charge.payable_total_minor) > 100:
             raise ValueError(
@@ -253,7 +258,7 @@ class EvaBillingService:
 
         # Resolve the cedular rule (if any) so we can label the local_taxes
         # line cleanly on the CFDI (e.g., "Cedular GTO" instead of "ISR").
-        cedular_rule = resolve_cedular(payload.customer.postal_code, PROVIDER_REGIME)
+        cedular_rule = resolve_cedular(quote_customer_zip, PROVIDER_REGIME)
         line_items = [
             FacturaLineItem(
                 product_key=SERVICE_PRODUCT_KEY,
