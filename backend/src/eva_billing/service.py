@@ -233,6 +233,7 @@ class EvaBillingService:
                 return EvaBillingStampResponse(
                     status=existing.status,
                     factura_id=factura.id,
+                    facturapi_invoice_id=factura.facturapi_id,
                     cfdi_uuid=factura.cfdi_uuid,
                     pdf_url=factura.pdf_url,
                     xml_url=factura.xml_url,
@@ -334,6 +335,7 @@ class EvaBillingService:
         return EvaBillingStampResponse(
             status=record.status,
             factura_id=factura.id,
+            facturapi_invoice_id=factura.facturapi_id,
             cfdi_uuid=factura.cfdi_uuid,  # None until worker stamps
             pdf_url=factura.pdf_url,
             xml_url=factura.xml_url,
@@ -428,6 +430,7 @@ class EvaBillingService:
         return EvaBillingStampResponse(
             status=record.status,
             factura_id=response_factura.id,
+            facturapi_invoice_id=response_factura.facturapi_id,
             cfdi_uuid=response_factura.cfdi_uuid,
             pdf_url=response_factura.pdf_url,
             xml_url=response_factura.xml_url,
@@ -501,6 +504,7 @@ class EvaBillingService:
         return EvaBillingStampResponse(
             status=record.status,
             factura_id=factura.id,
+            facturapi_invoice_id=factura.facturapi_id,
             cfdi_uuid=factura.cfdi_uuid,
             pdf_url=factura.pdf_url,
             xml_url=factura.xml_url,

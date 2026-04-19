@@ -97,6 +97,7 @@ class EvaBillingStampRequest(BaseModel):
 class EvaBillingStampResponse(BaseModel):
     status: str
     factura_id: uuid.UUID
+    facturapi_invoice_id: str | None = None
     cfdi_uuid: str | None
     pdf_url: str | None
     xml_url: str | None
