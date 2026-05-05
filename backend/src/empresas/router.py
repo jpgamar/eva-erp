@@ -606,6 +606,7 @@ async def list_empresas(
     needs_auto_match = [
         row for row in rows if not row.auto_match_attempted
     ]
+    refreshed_rows: dict[uuid.UUID, Empresa] = {}
     if needs_auto_match and eva_db is not None:
         # We need to load the actual ORM objects to mutate them. Cheap
         # because the count is small (only un-attempted empresas).
@@ -617,19 +618,31 @@ async def list_empresas(
         for emp in empresas_to_match.values():
             await _attempt_auto_match(db, eva_db, emp)
         await db.flush()
-        # Refresh the row data we'll return so eva_account_id reflects
-        # any new links.
-        refreshed_account_ids = {emp.id: emp.eva_account_id for emp in empresas_to_match.values()}
-    else:
-        refreshed_account_ids = {}
+        # `_record_eva_account_link` bumps version + billing cache on
+        # the ORM row. Capture the post-match state so the response
+        # serializer below uses fresh fields, not the pre-match
+        # snapshot in `rows`.
+        refreshed_rows = empresas_to_match
 
     # Build the empresa→eva_account_id map for the health computation
-    # (using refreshed values where applicable).
+    # using post-match values where applicable.
     empresa_account_ids: dict[uuid.UUID, uuid.UUID | None] = {}
     for r in rows:
-        empresa_account_ids[r.id] = refreshed_account_ids.get(r.id, r.eva_account_id)
+        refreshed = refreshed_rows.get(r.id)
+        empresa_account_ids[r.id] = (
+            refreshed.eva_account_id if refreshed is not None else r.eva_account_id
+        )
 
     health_map = await _compute_health_for_empresas(eva_db, empresa_account_ids)
+
+    def _field(r_row: object, name: str) -> object:
+        """Prefer the post-match ORM value when auto-match ran, else the
+        pre-selected row snapshot. Keeps version/billing cache fresh on
+        the same request that performed the auto-match."""
+        refreshed = refreshed_rows.get(r_row.id)
+        if refreshed is not None:
+            return getattr(refreshed, name)
+        return getattr(r_row, name)
 
     return [
         {
@@ -641,17 +654,21 @@ async def list_empresas(
             "ball_on": r.ball_on,
             "summary_note": r.summary_note,
             "monthly_amount": float(r.monthly_amount) if r.monthly_amount is not None else None,
-            "billing_interval": r.billing_interval,
+            "billing_interval": _field(r, "billing_interval"),
             "payment_day": r.payment_day,
             "last_paid_date": r.last_paid_date.isoformat() if r.last_paid_date else None,
             "expected_close_date": r.expected_close_date.isoformat() if r.expected_close_date else None,
             "cancellation_scheduled_at": r.cancellation_scheduled_at.isoformat() if r.cancellation_scheduled_at else None,
             "eva_account_id": str(empresa_account_ids[r.id]) if empresa_account_ids[r.id] else None,
-            "auto_match_attempted": r.auto_match_attempted or (r.id in refreshed_account_ids),
+            "auto_match_attempted": _field(r, "auto_match_attempted"),
             "grandfathered": r.grandfathered,
-            "version": r.version,
-            "subscription_status": r.subscription_status,
-            "current_period_end": r.current_period_end.isoformat() if r.current_period_end else None,
+            "version": _field(r, "version"),
+            "subscription_status": _field(r, "subscription_status"),
+            "current_period_end": (
+                _field(r, "current_period_end").isoformat()
+                if _field(r, "current_period_end") is not None
+                else None
+            ),
             "person_type": r.person_type,
             "rfc": r.rfc,
             "item_count": r.item_count,

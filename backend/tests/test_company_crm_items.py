@@ -150,6 +150,152 @@ def test_pending_item_includes_kind_and_dates() -> None:
     assert payload["start_at"] is not None
 
 
+def test_list_empresas_returns_post_auto_match_cache_and_version() -> None:
+    """Round-7 finding: after lazy auto-match runs inside list_empresas,
+    the response payload must reflect the bumped version and synced
+    billing cache from the freshly-mutated ORM row, not the pre-match
+    snapshot. Otherwise the next save 409s on optimistic-lock and the
+    card renders linked-but-stale.
+    """
+    import asyncio
+    import datetime as _dt
+    import uuid as _uuid
+    from types import SimpleNamespace
+    from src.empresas import router as empresas_router
+
+    empresa_id = _uuid.uuid4()
+
+    class _Row:
+        def __init__(self) -> None:
+            self.id = empresa_id
+            self.name = "Acme"
+            self.logo_url = None
+            self.status = "prospecto"
+            self.lifecycle_stage = "demo"
+            self.ball_on = None
+            self.summary_note = None
+            self.monthly_amount = None
+            self.billing_interval = "monthly"
+            self.payment_day = None
+            self.last_paid_date = None
+            self.expected_close_date = None
+            self.cancellation_scheduled_at = None
+            self.eva_account_id = None
+            self.auto_match_attempted = False
+            self.grandfathered = False
+            self.version = 0
+            self.subscription_status = None
+            self.current_period_end = None
+            self.person_type = None
+            self.rfc = None
+            self.item_count = 0
+            self.pending_count = 0
+
+    refreshed = empresas_router.Empresa(
+        id=empresa_id,
+        name="Acme",
+        version=7,
+        eva_account_id=_uuid.uuid4(),
+        auto_match_attempted=True,
+        billing_interval="annual",
+        subscription_status="active",
+        current_period_end=_dt.datetime(2026, 12, 1, tzinfo=_dt.timezone.utc),
+    )
+
+    # Patch the helpers list_empresas calls so we can drive only the
+    # serialization path without standing up a real DB.
+    async def _fake_compute_health(eva_db, _id_map):
+        return {empresa_id: {
+            "status": "healthy",
+            "unhealthy_count": 0,
+            "linked_account_name": "Linked",
+            "messenger": {"present": False, "healthy": False, "count": 0},
+            "instagram": {"present": False, "healthy": False, "count": 0},
+            "whatsapp": {"present": False, "healthy": False, "count": 0},
+        }}
+
+    async def _fake_attempt_auto_match(_db, _eva_db, emp):
+        # Mimic the production helper: stamp attempted + sync from the
+        # refreshed snapshot we built above.
+        emp.eva_account_id = refreshed.eva_account_id
+        emp.auto_match_attempted = True
+        emp.version = refreshed.version
+        emp.billing_interval = refreshed.billing_interval
+        emp.subscription_status = refreshed.subscription_status
+        emp.current_period_end = refreshed.current_period_end
+
+    rows = [_Row()]
+
+    class _ScalarsAll:
+        def __init__(self, items):
+            self._items = items
+
+        def all(self):
+            return self._items
+
+    class _Result:
+        def __init__(self, kind: str):
+            self.kind = kind
+
+        def all(self):
+            if self.kind == "rows":
+                return rows
+            if self.kind == "items":
+                return []
+            return []
+
+        def scalars(self):
+            if self.kind == "load":
+                return _ScalarsAll([refreshed])
+            return _ScalarsAll([])
+
+    sequence = ["rows", "items", "load"]
+
+    class _FakeDb:
+        def __init__(self):
+            self._idx = 0
+
+        async def execute(self, _q):
+            kind = sequence[self._idx]
+            self._idx += 1
+            return _Result(kind)
+
+        async def flush(self):
+            return None
+
+    fake_db = _FakeDb()
+    monkeypatch_targets = {
+        "_compute_health_for_empresas": _fake_compute_health,
+        "_attempt_auto_match": _fake_attempt_auto_match,
+    }
+    originals: dict[str, Any] = {}
+    for name, replacement in monkeypatch_targets.items():
+        originals[name] = getattr(empresas_router, name)
+        setattr(empresas_router, name, replacement)
+
+    try:
+        result = asyncio.run(
+            empresas_router.list_empresas(
+                search=None,
+                db=fake_db,  # type: ignore[arg-type]
+                user=SimpleNamespace(id=_uuid.uuid4()),  # type: ignore[arg-type]
+                eva_db=fake_db,  # type: ignore[arg-type]
+            )
+        )
+    finally:
+        for name, original in originals.items():
+            setattr(empresas_router, name, original)
+
+    assert len(result) == 1
+    payload = result[0]
+    assert payload["version"] == 7, "version must reflect post-match bump"
+    assert payload["billing_interval"] == "annual"
+    assert payload["subscription_status"] == "active"
+    assert payload["current_period_end"] == "2026-12-01T00:00:00+00:00"
+    assert payload["eva_account_id"] is not None
+    assert payload["auto_match_attempted"] is True
+
+
 def test_list_empresas_response_includes_all_card_contract_fields() -> None:
     """Lock the GET /empresas payload shape so future changes can't
     silently drop fields the frontend card / kanban depend on. The
