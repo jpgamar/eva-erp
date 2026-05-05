@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/DateTimePicker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -1154,16 +1155,19 @@ export default function EmpresasPage() {
                         <option value="note">Nota</option>
                       </select>
                       {newItemKind !== "note" ? (
-                        <input
-                          type="datetime-local"
-                          value={newItemDate}
-                          onChange={(e) => setNewItemDate(e.target.value)}
-                          className="h-6 rounded border border-border bg-background px-1 text-[11px]"
-                          aria-label={
-                            newItemKind === "event"
-                              ? "Fecha del evento"
-                              : "Fecha límite"
+                        <DateTimePicker
+                          // newItemDate is "YYYY-MM-DDTHH:mm" (datetime-local
+                          // string). DateTimePicker expects a full ISO; convert.
+                          value={
+                            newItemDate
+                              ? new Date(newItemDate).toISOString()
+                              : null
                           }
+                          onChange={(iso) => setNewItemDate(iso ? iso.slice(0, 16) : "")}
+                          placeholder={
+                            newItemKind === "event" ? "Fecha del evento" : "Fecha límite"
+                          }
+                          className="h-7 text-[11px]"
                         />
                       ) : null}
                       {(newItemKind === "outreach" || newItemKind === "event") ? (

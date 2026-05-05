@@ -190,7 +190,9 @@ async def dashboard_summary(
             EmpresaItem.done == False,  # noqa: E712
             EmpresaItem.kind != "note",
             EmpresaItem.due_at.isnot(None),
-            EmpresaItem.due_at <= datetime.combine(period_end, datetime.min.time(), tzinfo=timezone.utc),
+            # Compare against NOW(), not the period end, so a task due
+            # later in the current month isn't pre-counted as overdue.
+            EmpresaItem.due_at < datetime.now(timezone.utc),
             func.date(EmpresaItem.created_at) < next_month_start,
         ),
         "all_income": select(IncomeEntry).where(IncomeEntry.date < next_month_start),
