@@ -790,8 +790,11 @@ async def empresa_calendar(
         raise HTTPException(status_code=400, detail="`to` must be >= `from`.")
 
     item_q = (
+        # LEFT OUTER JOIN: internal items have empresa_id=NULL after the
+        # empresas-ux-pass migration. INNER JOIN would silently drop them
+        # from the calendar even though the operator just created one.
         select(EmpresaItem, Empresa.name.label("empresa_name"))
-        .join(Empresa, Empresa.id == EmpresaItem.empresa_id)
+        .outerjoin(Empresa, Empresa.id == EmpresaItem.empresa_id)
         .where(EmpresaItem.kind.in_(["event", "todo", "outreach"]))
         .order_by(
             func.coalesce(EmpresaItem.start_at, EmpresaItem.due_at, EmpresaItem.reminder_at).asc().nulls_last(),
@@ -1154,9 +1157,23 @@ async def bulk_stage_empresas(
             conflicts.append(BulkStageConflict(empresa_id=empresa_id, reason=reason or "BusinessRuleViolation"))
 
     if conflicts:
-        # Atomic: if ANY empresa fails, NO empresa moves. Operator
-        # resolves the conflicts and retries.
-        return BulkStageResponse(moved=[], conflicts=conflicts)
+        # Atomic: if ANY empresa fails, NO empresa moves. Map the
+        # conflict mix to a single HTTP status so callers can branch:
+        #  - 409 for optimistic / subscription / linked-state conflicts
+        #  - 400 for validation rule conflicts (close-date, etc.)
+        # The detail body still carries the full conflict list so the
+        # UI can highlight every offending empresa.
+        validation_only = all(
+            c.reason in ("ExpectedCloseDateRequired",) for c in conflicts
+        )
+        status_code = 400 if validation_only else 409
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "reason": "BulkStageConflict",
+                "conflicts": [c.model_dump(mode="json") for c in conflicts],
+            },
+        )
 
     # All clear — apply the move and bump versions.
     moved: list[uuid.UUID] = []

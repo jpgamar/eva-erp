@@ -23,7 +23,9 @@ function formatMxn(amount: number | null): string | null {
 
 interface Props {
   empresa: EmpresaListItem;
-  onClick?: (empresa: EmpresaListItem) => void;
+  /** Click handler — receives the click event so callers can check
+   *  meta/ctrl for multi-select. */
+  onClick?: (empresa: EmpresaListItem, event: React.MouseEvent) => void;
   /** Quick-add follow-up button. When set, a "+" appears on the card. */
   onQuickAdd?: (empresa: EmpresaListItem) => void;
   /** Channel-shortcut click. When set, the card shows the icon row. */
@@ -60,7 +62,7 @@ export function EmpresaCard({ empresa, onClick, onQuickAdd, onLogChannel }: Prop
   return (
     <div
       className="flex flex-col gap-1.5"
-      onClick={() => onClick?.(empresa)}
+      onClick={(e) => onClick?.(empresa, e)}
       data-testid={`empresa-card-${empresa.id}`}
     >
       <div className="flex items-start gap-2.5">

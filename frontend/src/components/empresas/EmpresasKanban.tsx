@@ -1,14 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { X } from "lucide-react";
 
 import { KanbanBoardWithGuard, type ColumnDef } from "@/components/kanban/kanban-board-with-guard";
 import { EmpresaCard } from "@/components/empresas/EmpresaCard";
 import { CancelSubscriptionDialog } from "@/components/empresas/CancelSubscriptionDialog";
 import { ItemEditorPanel, type ItemEditorMode } from "@/components/empresas/ItemEditorPanel";
+import { Button } from "@/components/ui/button";
 import api from "@/lib/api/client";
-import type { EmpresaContactMethod, EmpresaListItem } from "@/lib/api/empresas";
+import { empresasApi } from "@/lib/api/empresas";
+import type { EmpresaContactMethod, EmpresaListItem, LifecycleStage } from "@/lib/api/empresas";
 
 const COLUMNS: ColumnDef[] = [
   { id: "prospecto", label: "Prospecto", color: "bg-slate-400" },
@@ -40,6 +43,65 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
   // channel-shortcut row. The same panel is used for create + edit.
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<ItemEditorMode>({ type: "create" });
+
+  // Cmd/Ctrl-click multi-select on cards. When ≥1 selected, a
+  // floating bar lets the operator move all selected empresas to a
+  // target stage in one atomic batch via /empresas/bulk-stage.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedIds.size > 0) {
+        setSelectedIds(new Set());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedIds]);
+
+  function toggleSelect(empresa: EmpresaListItem) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(empresa.id)) next.delete(empresa.id);
+      else next.add(empresa.id);
+      return next;
+    });
+  }
+
+  async function bulkMoveTo(stage: LifecycleStage) {
+    if (selectedIds.size === 0) return;
+    const moves = empresas
+      .filter((e) => selectedIds.has(e.id))
+      .map((e) => ({ empresa_id: e.id, version: e.version ?? 0 }));
+    setBulkSubmitting(true);
+    try {
+      const result = await empresasApi.bulkStage({ moves, lifecycle_stage_to: stage });
+      toast.success(`Movidas ${result.moved.length} empresas a ${stage}`);
+      setSelectedIds(new Set());
+      await onChanged();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      const conflicts = detail?.conflicts ?? [];
+      const reasons = new Set(conflicts.map((c: { reason: string }) => c.reason));
+      if (reasons.has("BulkInactivoNeedsCancel")) {
+        toast.error(
+          "Una o más empresas tienen suscripción activa. Arrástralas individualmente para cancelar primero.",
+        );
+      } else if (reasons.has("OperativoRequiresActiveSubscription")) {
+        toast.error("Algunas empresas no tienen cuenta de Eva con suscripción activa.");
+      } else if (reasons.has("ExpectedCloseDateRequired")) {
+        toast.error("Algunas empresas requieren fecha de cierre esperada para esta etapa.");
+      } else if (reasons.has("OptimisticLockMismatch")) {
+        toast.error("Otra persona cambió alguna empresa. Recarga e inténtalo de nuevo.");
+        await onChanged();
+      } else {
+        toast.error("No se pudo mover el lote.");
+      }
+    } finally {
+      setBulkSubmitting(false);
+    }
+  }
 
   const empresaPickerOptions = useMemo(
     () => empresas.map((e) => ({ id: e.id, name: e.name })),
@@ -127,18 +189,86 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
     });
   }
 
+  const stageOptions: { id: LifecycleStage; label: string }[] = [
+    { id: "prospecto", label: "Prospecto" },
+    { id: "interesado", label: "Interesado" },
+    { id: "demo", label: "Demo" },
+    { id: "negociacion", label: "Negociación" },
+    { id: "implementacion", label: "Implementación" },
+    { id: "operativo", label: "Operativo" },
+    { id: "churn_risk", label: "Churn Risk" },
+    { id: "inactivo", label: "Inactivo" },
+  ];
+
   return (
     <div>
+      {selectedIds.size > 0 ? (
+        <div
+          className="sticky top-0 z-30 mb-3 flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 backdrop-blur"
+          data-testid="empresas-kanban-bulk-bar"
+        >
+          <span className="text-xs font-semibold text-foreground">
+            {selectedIds.size} seleccionadas
+          </span>
+          <span className="text-xs text-muted-foreground">Mover a:</span>
+          <select
+            disabled={bulkSubmitting}
+            onChange={(e) => {
+              if (e.target.value) {
+                void bulkMoveTo(e.target.value as LifecycleStage);
+                e.currentTarget.value = "";
+              }
+            }}
+            className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+            data-testid="empresas-kanban-bulk-target"
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Selecciona etapa…
+            </option>
+            {stageOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={bulkSubmitting}
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto"
+          >
+            <X className="mr-1 h-3.5 w-3.5" /> Limpiar
+          </Button>
+        </div>
+      ) : null}
       <KanbanBoardWithGuard<KanbanItem>
         columns={filteredColumns}
         items={items}
         renderCard={(item) => (
-          <EmpresaCard
-            empresa={item}
-            onClick={onCardClick}
-            onQuickAdd={openQuickAdd}
-            onLogChannel={openLogChannel}
-          />
+          <div
+            className={
+              selectedIds.has(item.id)
+                ? "ring-2 ring-accent ring-offset-2 rounded-xl"
+                : undefined
+            }
+          >
+            <EmpresaCard
+              empresa={item}
+              onClick={(emp, event) => {
+                // Cmd/Ctrl-click toggles bulk selection. A regular click
+                // opens the empresa edit modal as before.
+                if (event && (event.metaKey || event.ctrlKey)) {
+                  toggleSelect(emp);
+                  return;
+                }
+                onCardClick?.(emp);
+              }}
+              onQuickAdd={openQuickAdd}
+              onLogChannel={openLogChannel}
+            />
+          </div>
         )}
         onStatusChange={persistStageChange}
         onBeforeStageChange={handleBeforeStageChange}

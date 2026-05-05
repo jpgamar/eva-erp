@@ -140,6 +140,197 @@ def test_bulk_stage_route_registered() -> None:
     assert _index_of(paths, "/api/v1/empresas/bulk-stage", "POST") >= 0
 
 
+def test_bulk_stage_409_on_version_mismatch() -> None:
+    """Atomic: if even one empresa has a stale `version`, the whole
+    batch rejects with 409 BulkStageConflict and NO empresa moves."""
+    import asyncio
+    import uuid as _uuid
+    from types import SimpleNamespace
+
+    import pytest as _pytest
+    from fastapi import HTTPException
+    from src.empresas.router import bulk_stage_empresas
+    from src.empresas.schemas import BulkStageMove, BulkStageRequest
+
+    e1_id = _uuid.uuid4()
+    e2_id = _uuid.uuid4()
+
+    class _StubEmpresa:
+        def __init__(self, id_, version, lifecycle="prospecto", subscription_status=None):
+            self.id = id_
+            self.version = version
+            self.lifecycle_stage = lifecycle
+            self.subscription_status = subscription_status
+            self.eva_account_id = None
+            self.expected_close_date = None
+            self.grandfathered = False
+
+    e1 = _StubEmpresa(e1_id, version=2, lifecycle="prospecto")
+    e2 = _StubEmpresa(e2_id, version=5, lifecycle="prospecto")
+
+    class _ScalarsAll:
+        def __init__(self, items):
+            self._items = items
+
+        def all(self):
+            return self._items
+
+    class _Result:
+        def __init__(self, items):
+            self._items = items
+
+        def scalars(self):
+            return _ScalarsAll(self._items)
+
+    class _Db:
+        async def execute(self, _q):
+            return _Result([e1, e2])
+
+        def add(self, _obj):
+            pass
+
+        async def flush(self):
+            pass
+
+    payload = BulkStageRequest(
+        moves=[
+            BulkStageMove(empresa_id=e1_id, version=2),
+            # Stale version for e2 → whole batch must reject.
+            BulkStageMove(empresa_id=e2_id, version=99),
+        ],
+        lifecycle_stage_to="interesado",  # type: ignore[arg-type]
+    )
+
+    with _pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            bulk_stage_empresas(
+                payload,
+                db=_Db(),  # type: ignore[arg-type]
+                eva_db=None,
+                user=SimpleNamespace(id=_uuid.uuid4()),  # type: ignore[arg-type]
+            )
+        )
+    assert exc.value.status_code == 409
+    detail = exc.value.detail
+    assert detail["reason"] == "BulkStageConflict"
+    conflict_reasons = {c["reason"] for c in detail["conflicts"]}
+    assert "OptimisticLockMismatch" in conflict_reasons
+    # Atomic — neither empresa was mutated.
+    assert e1.lifecycle_stage == "prospecto"
+    assert e2.lifecycle_stage == "prospecto"
+
+
+def test_bulk_stage_409_on_inactivo_with_active_subscription() -> None:
+    """Bulk move to `inactivo` rejects empresas with active/trialing
+    subscriptions — operator must drag those individually so the
+    cancel-subscription dialog runs."""
+    import asyncio
+    import uuid as _uuid
+    from types import SimpleNamespace
+
+    import pytest as _pytest
+    from fastapi import HTTPException
+    from src.empresas.router import bulk_stage_empresas
+    from src.empresas.schemas import BulkStageMove, BulkStageRequest
+
+    e_id = _uuid.uuid4()
+
+    class _StubEmpresa:
+        def __init__(self):
+            self.id = e_id
+            self.version = 1
+            self.lifecycle_stage = "operativo"
+            self.subscription_status = "active"
+            self.eva_account_id = _uuid.uuid4()
+            self.expected_close_date = None
+            self.grandfathered = False
+
+    e = _StubEmpresa()
+
+    class _ScalarsAll:
+        def __init__(self, items):
+            self._items = items
+
+        def all(self):
+            return self._items
+
+    class _Result:
+        def __init__(self, items):
+            self._items = items
+
+        def scalars(self):
+            return _ScalarsAll(self._items)
+
+    class _Db:
+        async def execute(self, _q):
+            return _Result([e])
+
+        def add(self, _obj):
+            pass
+
+        async def flush(self):
+            pass
+
+    payload = BulkStageRequest(
+        moves=[BulkStageMove(empresa_id=e_id, version=1)],
+        lifecycle_stage_to="inactivo",  # type: ignore[arg-type]
+    )
+
+    with _pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            bulk_stage_empresas(
+                payload,
+                db=_Db(),  # type: ignore[arg-type]
+                eva_db=None,
+                user=SimpleNamespace(id=_uuid.uuid4()),  # type: ignore[arg-type]
+            )
+        )
+    assert exc.value.status_code == 409
+    reasons = {c["reason"] for c in exc.value.detail["conflicts"]}
+    assert "BulkInactivoNeedsCancel" in reasons
+    assert e.lifecycle_stage == "operativo"  # untouched
+
+
+def test_list_items_kind_filter_parses_csv() -> None:
+    """`?kind=todo,event` should produce an IN-list filter."""
+    import asyncio
+    import uuid as _uuid
+    from types import SimpleNamespace
+
+    from src.empresas.router import list_items_across_empresas
+
+    captured: list[Any] = []
+
+    class _Result:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self):
+            return self.rows
+
+    class _Db:
+        async def execute(self, q):
+            captured.append(str(q))
+            return _Result([])
+
+    asyncio.run(
+        list_items_across_empresas(
+            assigned_to=None,
+            done=False,
+            overdue=False,
+            kind="todo,event",
+            empresa_id=None,
+            limit=50,
+            db=_Db(),  # type: ignore[arg-type]
+            user=SimpleNamespace(id=_uuid.uuid4()),  # type: ignore[arg-type]
+        )
+    )
+    assert captured, "execute() must have been called"
+    rendered = captured[0]
+    # SQLAlchemy renders the IN clause with the filter values.
+    assert "kind IN" in rendered or "kind in" in rendered.lower()
+
+
 def test_calendar_route_registered_before_dynamic_empresa_route() -> None:
     paths = _all_paths_in_order()
     calendar_idx = _index_of(paths, "/api/v1/empresas/calendar", "GET")
