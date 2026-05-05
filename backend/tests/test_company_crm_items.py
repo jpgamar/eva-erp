@@ -150,6 +150,47 @@ def test_pending_item_includes_kind_and_dates() -> None:
     assert payload["start_at"] is not None
 
 
+def test_list_empresas_response_includes_all_card_contract_fields() -> None:
+    """Lock the GET /empresas payload shape so future changes can't
+    silently drop fields the frontend card / kanban depend on. The
+    review-round-5 finding caught a missing `lifecycle_stage` /
+    `version` etc that would have left badges blank and broken the
+    optimistic-lock header on stage moves.
+    """
+    import inspect
+    from src.empresas import router as empresas_router
+
+    src = inspect.getsource(empresas_router.list_empresas)
+    REQUIRED_KEYS = (
+        '"id"',
+        '"name"',
+        '"status"',
+        '"lifecycle_stage"',
+        '"ball_on"',
+        '"summary_note"',
+        '"monthly_amount"',
+        '"billing_interval"',
+        '"payment_day"',
+        '"last_paid_date"',
+        '"expected_close_date"',
+        '"cancellation_scheduled_at"',
+        '"eva_account_id"',
+        '"auto_match_attempted"',
+        '"grandfathered"',
+        '"version"',
+        '"subscription_status"',
+        '"current_period_end"',
+        '"item_count"',
+        '"pending_count"',
+        '"pending_items"',
+        '"next_action"',
+        '"overdue_count"',
+        '"health"',
+    )
+    for key in REQUIRED_KEYS:
+        assert key in src, f"GET /empresas payload missing key: {key}"
+
+
 def test_calendar_item_response_supports_all_sources() -> None:
     fields = set(EmpresaCalendarItemResponse.model_fields)
     assert "source" in fields
