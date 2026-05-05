@@ -47,6 +47,7 @@ import {
   type EmpresaCreate,
   type EmpresaHealthStatus,
   type EmpresaHistory,
+  type EmpresaInteraction,
   type EmpresaListItem,
   type EvaAccountForLink,
 } from "@/lib/api/empresas";
@@ -340,6 +341,7 @@ export default function EmpresasPage() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyEmpresaName, setHistoryEmpresaName] = useState("");
   const [historyEntries, setHistoryEntries] = useState<EmpresaHistory[]>([]);
+  const [historyInteractions, setHistoryInteractions] = useState<EmpresaInteraction[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Checkout modal
@@ -485,7 +487,38 @@ export default function EmpresasPage() {
     };
     try {
       if (editingEmpresaId) {
-        await empresasApi.update(editingEmpresaId, payload, editingEmpresaVersion);
+        // The empresa<->Eva account link must go through the dedicated
+        // /link-eva-account / unlink endpoints so the backend can sync
+        // billing cache, write a history row, and reject inactive or
+        // already-linked accounts. Strip eva_account_id from the
+        // generic PATCH and route it separately, then refresh the
+        // optimistic-lock version for the rest of the update.
+        const original = empresas.find((e) => e.id === editingEmpresaId);
+        const previousAccountId = original?.eva_account_id ?? null;
+        const proposedAccountId = payload.eva_account_id ?? null;
+        const linkChanged = previousAccountId !== proposedAccountId;
+        let workingVersion = editingEmpresaVersion;
+
+        if (linkChanged) {
+          if (proposedAccountId === null) {
+            const updated = await empresasApi.unlinkEvaAccount(editingEmpresaId, workingVersion);
+            workingVersion = updated.version ?? workingVersion + 1;
+          } else {
+            const updated = await empresasApi.linkEvaAccount(
+              editingEmpresaId,
+              proposedAccountId,
+              workingVersion
+            );
+            workingVersion = updated.version ?? workingVersion + 1;
+          }
+        }
+
+        const { eva_account_id: _ignoredEvaAccountId, ...rest } = payload;
+        const remainingPayload = rest as EmpresaCreate;
+        const hasOtherChanges = Object.keys(remainingPayload).length > 0;
+        if (hasOtherChanges) {
+          await empresasApi.update(editingEmpresaId, remainingPayload, workingVersion);
+        }
         toast.success("Empresa actualizada");
       } else {
         await empresasApi.create(payload);
@@ -513,6 +546,15 @@ export default function EmpresasPage() {
         );
       } else if (reason === "already_linked") {
         toast.error(message ?? "Esa cuenta de Eva ya está vinculada a otra empresa.");
+      } else if (reason === "empresa_already_linked") {
+        toast.error(message ?? "Esta empresa ya está vinculada a otra cuenta de Eva.");
+      } else if (reason === "account_inactive") {
+        toast.error(message ?? "No se puede vincular una cuenta de Eva inactiva.");
+      } else if (reason === "OperativoCannotUnlink") {
+        toast.error(
+          message ??
+            "Mueve la empresa fuera de 'Operativo' antes de desvincular la cuenta de Eva."
+        );
       } else if (reason === "MissingIfMatchHeader") {
         toast.error("Error interno: falta el encabezado de versión. Recarga la página.");
       } else if (typeof detail === "string") {
@@ -591,11 +633,20 @@ export default function EmpresasPage() {
   const openHistory = async (empresaId: string, empresaName: string) => {
     setHistoryEmpresaName(empresaName);
     setHistoryEntries([]);
+    setHistoryInteractions([]);
     setHistoryLoading(true);
     setHistoryModalOpen(true);
     try {
-      const data = await empresasApi.getHistory(empresaId);
-      setHistoryEntries(data);
+      // Pull both the audit log AND the legacy outreach interactions so
+      // historical SMS/WhatsApp/visit notes recorded against this
+      // empresa stay visible after the standalone Eva Customers /
+      // Meetings pages were retired.
+      const [history, interactions] = await Promise.all([
+        empresasApi.getHistory(empresaId),
+        empresasApi.listInteractions(empresaId).catch(() => [] as EmpresaInteraction[]),
+      ]);
+      setHistoryEntries(history);
+      setHistoryInteractions(interactions);
     } catch {
       toast.error("Error al cargar historial");
     } finally {
@@ -1409,28 +1460,61 @@ export default function EmpresasPage() {
           </DialogHeader>
           {historyLoading ? (
             <p className="text-sm text-muted-foreground py-4 text-center">Cargando...</p>
-          ) : historyEntries.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">Sin cambios registrados</p>
+          ) : historyEntries.length === 0 && historyInteractions.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Sin actividad registrada</p>
           ) : (
-            <div className="space-y-3">
-              {historyEntries.map((entry) => (
-                <div key={entry.id} className="border-l-2 border-muted pl-3 py-1">
-                  <p className="text-sm">
-                    <span className="font-medium">{FIELD_LABELS[entry.field_changed] || entry.field_changed}</span>
-                    {" cambiado de "}
-                    <span className="text-muted-foreground">
-                      {entry.old_value ? (VALUE_LABELS[entry.old_value] || entry.old_value) : "vacío"}
-                    </span>
-                    {" a "}
-                    <span className="font-medium">
-                      {entry.new_value ? (VALUE_LABELS[entry.new_value] || entry.new_value) : "vacío"}
-                    </span>
+            <div className="space-y-5">
+              {historyInteractions.length > 0 ? (
+                <section data-testid="empresa-interactions-list">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Outreach previo
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {entry.changed_by_name || "Sistema"} · {formatRelativeTime(entry.changed_at)}
+                  <div className="space-y-3">
+                    {historyInteractions.map((interaction) => (
+                      <div
+                        key={interaction.id}
+                        className="border-l-2 border-sky-300 pl-3 py-1"
+                      >
+                        <p className="text-sm">
+                          <span className="font-medium capitalize">{interaction.type}</span>
+                          {" — "}
+                          <span className="text-muted-foreground">{interaction.summary}</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {interaction.date}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              {historyEntries.length > 0 ? (
+                <section>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Cambios al registro
                   </p>
-                </div>
-              ))}
+                  <div className="space-y-3">
+                    {historyEntries.map((entry) => (
+                      <div key={entry.id} className="border-l-2 border-muted pl-3 py-1">
+                        <p className="text-sm">
+                          <span className="font-medium">{FIELD_LABELS[entry.field_changed] || entry.field_changed}</span>
+                          {" cambiado de "}
+                          <span className="text-muted-foreground">
+                            {entry.old_value ? (VALUE_LABELS[entry.old_value] || entry.old_value) : "vacío"}
+                          </span>
+                          {" a "}
+                          <span className="font-medium">
+                            {entry.new_value ? (VALUE_LABELS[entry.new_value] || entry.new_value) : "vacío"}
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {entry.changed_by_name || "Sistema"} · {formatRelativeTime(entry.changed_at)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </div>
           )}
         </DialogContent>

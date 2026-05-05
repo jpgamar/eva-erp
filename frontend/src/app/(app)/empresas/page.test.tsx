@@ -31,8 +31,14 @@ const apiMock = vi.hoisted(() => ({
   toggleItem: vi.fn(),
   deleteItem: vi.fn(),
   getHistory: vi.fn(),
+  listInteractions: vi.fn(),
+  createInteraction: vi.fn(),
   getAccountChannelHealth: vi.fn(),
   listEvaAccountsForLink: vi.fn(),
+  linkEvaAccount: vi.fn(),
+  unlinkEvaAccount: vi.fn(),
+  createEvaAccount: vi.fn(),
+  calendar: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -65,6 +71,10 @@ function buildEmpresa(overrides: Record<string, unknown> = {}) {
     item_count: 0,
     pending_count: 0,
     pending_items: [],
+    next_action: null,
+    overdue_count: 0,
+    lifecycle_stage: "operativo",
+    billing_interval: "monthly",
     health: {
       status: "healthy",
       unhealthy_count: 0,
@@ -426,6 +436,23 @@ describe("EmpresasPage — channel health UI", () => {
       "empresa-msg-badge-12121212-1212-1212-1212-121212121212"
     );
     expect(msg.textContent).not.toMatch(/·\s*1/);
+  });
+
+  it("renders prospect-safe badge when status doesn't match a known config", async () => {
+    apiMock.list.mockResolvedValue([
+      buildEmpresa({
+        id: "21212121-2121-2121-2121-212121212121",
+        status: "prospecto",
+        lifecycle_stage: "prospecto",
+        eva_account_id: null,
+        health: { status: "not_linked", unhealthy_count: 0 },
+      }),
+    ]);
+    render(<EmpresasPage />);
+    expect(await screen.findByText("Fase: Prospecto")).toBeInTheDocument();
+    // Bad fallback (the previous "render Operativo for unknown status" bug)
+    // must not appear for an unlinked outbound prospect.
+    expect(screen.queryByText("Fase: Operativo")).toBeNull();
   });
 
   it("renames the phase banner labels with 'Fase:' prefix", async () => {

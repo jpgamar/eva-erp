@@ -19,8 +19,8 @@
 - 🟩 Backend tests
 - 🟩 Frontend tests
 - 🟩 `npm run check` + `npm test` + `pytest` (325 backend + 35 frontend, all passing; build succeeds)
-- 🟨 Cross-model code review until clean
-- 🟥 Production migration + browser verification
+- 🟨 Cross-model code review until clean (round 1: P1/P2 findings folded; round 2 in flight)
+- 🟥 Production migration + browser verification (gated on user push approval — branch ready, not deployed)
 
 ---
 
