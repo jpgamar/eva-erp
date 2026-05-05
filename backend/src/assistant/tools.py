@@ -270,16 +270,40 @@ async def execute_tool(name: str, args: dict, db: AsyncSession) -> str:
         ])
 
     elif name == "query_tasks":
-        from datetime import date
-        q = select(Task).order_by(Task.created_at.desc()).limit(30)
+        # Tasks were consolidated into empresa_items in the
+        # empresas-ux-pass; the legacy fields (due_date, priority,
+        # status) no longer exist. The map below derives compatible
+        # values so any internal caller that still hits this path
+        # gets a non-crashing answer.
+        from datetime import datetime, timezone
+
+        q = select(EmpresaItem).where(EmpresaItem.kind != "note").order_by(EmpresaItem.created_at.desc()).limit(30)
         if args.get("overdue_only"):
-            q = q.where(Task.due_date < date.today()).where(Task.due_date.isnot(None))
+            q = q.where(EmpresaItem.due_at.is_not(None)).where(
+                EmpresaItem.due_at < datetime.now(timezone.utc)
+            ).where(EmpresaItem.done == False)  # noqa: E712
         result = await db.execute(q)
         items = result.scalars().all()
-        return json.dumps([
-            {"title": t.title, "priority": t.priority, "due_date": str(t.due_date) if t.due_date else None, "status": t.status}
-            for t in items
-        ])
+        now_utc = datetime.now(timezone.utc)
+        return json.dumps(
+            [
+                {
+                    "title": t.title,
+                    "priority": None,  # legacy field; not migrated
+                    "due_date": t.due_at.date().isoformat() if t.due_at else None,
+                    "status": (
+                        "done"
+                        if t.done
+                        else (
+                            "overdue"
+                            if t.due_at is not None and t.due_at < now_utc
+                            else "todo"
+                        )
+                    ),
+                }
+                for t in items
+            ]
+        )
 
     elif name == "query_meetings":
         q = select(Meeting).order_by(Meeting.date.desc()).limit(args.get("limit", 10))

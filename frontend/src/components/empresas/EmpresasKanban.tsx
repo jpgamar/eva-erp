@@ -140,6 +140,14 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
   const filteredColumns = stageFilter ? COLUMNS.filter((c) => c.id === stageFilter) : COLUMNS;
 
   async function persistStageChange(empresaId: string, toStage: string) {
+    // If the dragged card is part of an active multi-select, move the
+    // whole batch atomically via /empresas/bulk-stage. The UX matches
+    // "select 2 cards, drag one, both move".
+    if (selectedIds.has(empresaId) && selectedIds.size > 1) {
+      await bulkMoveTo(toStage as LifecycleStage);
+      return;
+    }
+
     const empresa = empresas.find((e) => e.id === empresaId);
     if (!empresa) return;
     try {

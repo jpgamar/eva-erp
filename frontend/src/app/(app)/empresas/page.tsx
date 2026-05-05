@@ -57,6 +57,11 @@ import { EmpresasKanban } from "@/components/empresas/EmpresasKanban";
 import { EmpresasCalendarView } from "@/components/empresas/EmpresasCalendarView";
 import { EmpresasAccountsView } from "@/components/empresas/EmpresasAccountsView";
 import { EmpresasTareasView } from "@/components/empresas/EmpresasTareasView";
+import {
+  CHANNEL_SHORTCUTS,
+  ItemEditorPanel,
+  type ItemEditorMode,
+} from "@/components/empresas/ItemEditorPanel";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -356,6 +361,11 @@ export default function EmpresasPage() {
   const [checkoutEmpresa, setCheckoutEmpresa] = useState<EmpresaListItem | null>(null);
 
   // Inline add item
+  // Grid-view ItemEditorPanel state. The kanban view manages its own
+  // panel internally; the grid + Tareas + calendar views render
+  // through the page or their own component.
+  const [gridEditorOpen, setGridEditorOpen] = useState(false);
+  const [gridEditorMode, setGridEditorMode] = useState<ItemEditorMode>({ type: "create" });
   const [addingItemFor, setAddingItemFor] = useState<string | null>(null);
   const [newItemTitle, setNewItemTitle] = useState("");
   const [newItemKind, setNewItemKind] = useState<"todo" | "event" | "note" | "outreach">("todo");
@@ -717,12 +727,24 @@ export default function EmpresasPage() {
   };
 
   const startAddingItem = (empresaId: string) => {
-    setAddingItemFor(empresaId);
-    setNewItemTitle("");
-    setNewItemKind("todo");
-    setNewItemContactMethod("");
-    setNewItemDate("");
-    setTimeout(() => addItemInputRef.current?.focus(), 50);
+    // Route grid "Agregar" through the slide-over panel to match the
+    // kanban + calendar + Tareas flows. The legacy inline form stays
+    // around for the moment but is no longer reachable via the UI.
+    setGridEditorMode({ type: "create", defaults: { empresa_id: empresaId, kind: "todo" } });
+    setGridEditorOpen(true);
+  };
+
+  const startLogChannel = (empresaId: string, method: string) => {
+    setGridEditorMode({
+      type: "create",
+      defaults: {
+        empresa_id: empresaId,
+        kind: "outreach",
+        contact_method: method as never,
+        due_at: new Date().toISOString(),
+      },
+    });
+    setGridEditorOpen(true);
   };
 
   // ── History ─────────────────────────────────────────────────────
@@ -1793,6 +1815,18 @@ export default function EmpresasPage() {
           onClose={() => setCheckoutEmpresa(null)}
         />
       )}
+
+      {/* Item editor slide-over (grid + tareas + calendar share the
+          panel; the kanban view manages its own panel internally). */}
+      <ItemEditorPanel
+        open={gridEditorOpen}
+        onOpenChange={setGridEditorOpen}
+        mode={gridEditorMode}
+        empresas={empresas.map((e) => ({ id: e.id, name: e.name }))}
+        onChanged={() => {
+          void loadEmpresas();
+        }}
+      />
     </div>
   );
 }
