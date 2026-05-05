@@ -48,6 +48,12 @@ class EvaAccountCreateRequest(BaseModel):
     facturapi_org_api_key: str | None = None
     temporary_password: str | None = None
     send_setup_email: bool = True
+    # When set, the new Eva account will be linked to this ERP empresa
+    # *before* Supabase user creation succeeds. Lets the operator create
+    # an account directly from a company card without a follow-up link
+    # request and prevents stranded auth users when the empresa is
+    # already operativo/linked (the link check fails first).
+    empresa_id: uuid.UUID | None = None
 
 
 class AccountOnboardingResponse(BaseModel):

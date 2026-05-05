@@ -10,8 +10,13 @@ from src.eva_platform.router.infrastructure import router as infrastructure_rout
 
 router = APIRouter(prefix="/eva-platform", tags=["eva-platform"])
 
-router.include_router(accounts_router)
+# `channel_health_router` defines the static `/accounts/list-for-link`
+# path and MUST be included before `accounts_router` (which mounts
+# `/accounts/{account_id}`). FastAPI matches in registration order, so
+# reversing this would let the dynamic UUID route swallow the static
+# one and the empresa link picker would 422 on every load.
 router.include_router(channel_health_router)
+router.include_router(accounts_router)
 router.include_router(monitoring_router)
 router.include_router(partners_router)
 router.include_router(impersonation_router)

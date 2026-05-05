@@ -1,7 +1,7 @@
 "use client";
 
-import { CalendarClock, Link2, Building2 } from "lucide-react";
-import type { EmpresaListItem } from "@/lib/api/empresas";
+import { CalendarClock, Link2, Building2, AlertCircle } from "lucide-react";
+import type { EmpresaListItem, PendingItem } from "@/lib/api/empresas";
 
 const STAGE_LABELS: Record<string, string> = {
   prospecto: "Prospecto",
@@ -33,6 +33,12 @@ function formatMxn(amount: number | null): string {
 interface Props {
   empresa: EmpresaListItem;
   onClick?: (empresa: EmpresaListItem) => void;
+}
+
+function nextActionLabel(item: PendingItem): string {
+  const when = item.start_at ?? item.due_at ?? null;
+  const dateLabel = when ? formatShortDate(when) : null;
+  return dateLabel ? `${dateLabel} · ${item.title}` : item.title;
 }
 
 /**
@@ -115,6 +121,27 @@ export function EmpresaCard({ empresa, onClick }: Props) {
             : empresa.current_period_end
               ? `Próxima factura: ${nextDate}`
               : `Cierre esperado: ${nextDate}`}
+        </div>
+      ) : null}
+
+      {empresa.next_action ? (
+        <div className="flex items-center gap-1 text-xs text-foreground">
+          <CalendarClock className="h-3.5 w-3.5 text-sky-600" />
+          <span className="truncate">{nextActionLabel(empresa.next_action)}</span>
+        </div>
+      ) : null}
+
+      {empresa.overdue_count > 0 ? (
+        <div className="flex items-center gap-1 text-xs font-semibold text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" />
+          {empresa.overdue_count} vencido{empresa.overdue_count === 1 ? "" : "s"}
+        </div>
+      ) : null}
+
+      {!empresa.eva_account_id && empresa.lifecycle_stage === "operativo" ? (
+        <div className="flex items-center gap-1 text-[11px] text-amber-700">
+          <AlertCircle className="h-3 w-3" />
+          Sin cuenta de Eva — vincula o cambia la fase
         </div>
       ) : null}
     </div>

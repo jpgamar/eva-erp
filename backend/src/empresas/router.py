@@ -1,28 +1,35 @@
 import logging
 import uuid
+from datetime import date, datetime, time, timezone
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
-from sqlalchemy import Boolean, func, select, case, literal
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
+from sqlalchemy import Boolean, func, or_, select, case, literal
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.common.database import get_db, get_optional_eva_db
+from src.common.database import get_db, get_eva_db, get_optional_eva_db
 from src.common.config import settings
-from src.empresas.models import Empresa, EmpresaHistory, EmpresaItem, PaymentLink
+from src.empresas.models import Empresa, EmpresaHistory, EmpresaInteraction, EmpresaItem, PaymentLink
 from src.empresas.schemas import (
     CheckoutLinkRequest,
     CheckoutLinkResponse,
     ConstanciaExtractResponse,
+    CreateEvaAccountForEmpresaRequest,
+    EmpresaCalendarItemResponse,
     EmpresaCreate,
     EmpresaHistoryResponse,
+    EmpresaInteractionCreate,
+    EmpresaInteractionResponse,
     EmpresaItemCreate,
     EmpresaItemResponse,
     EmpresaItemUpdate,
+    EmpresaListPendingItem,
     EmpresaResponse,
     EmpresaUpdate,
+    LinkEvaAccountRequest,
     PortalLinkResponse,
     PreviewCheckoutRequest,
     PreviewCheckoutResponse,
@@ -39,6 +46,7 @@ from src.eva_platform.models import (
     EvaMessengerChannel,
     EvaWhatsAppChannel,
 )
+from src.eva_platform.schemas import EvaAccountCreateRequest, EvaAccountProvisionResponse
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
 logger = logging.getLogger(__name__)
@@ -343,6 +351,153 @@ async def _compute_health_for_empresas(
     return out
 
 
+def _sync_empresa_from_eva_account(empresa: Empresa, account: EvaAccount) -> None:
+    """Copy safe account/billing cache fields onto the ERP empresa row."""
+    empresa.eva_account_id = account.id
+    empresa.auto_match_attempted = True
+    empresa.stripe_customer_id = getattr(account, "stripe_customer_id", None)
+    empresa.stripe_subscription_id = getattr(account, "stripe_subscription_id", None)
+    subscription_status = getattr(account, "subscription_status", None)
+    empresa.subscription_status = str(subscription_status).lower() if subscription_status else None
+    empresa.current_period_end = getattr(account, "current_period_end", None)
+    billing_interval = getattr(account, "billing_interval", None)
+    empresa.billing_interval = str(billing_interval).lower() if billing_interval else "monthly"
+
+
+def _record_eva_account_link(
+    db: AsyncSession,
+    empresa: Empresa,
+    account: EvaAccount,
+    changed_by: uuid.UUID | None,
+) -> None:
+    """Mutate the empresa to point at ``account`` and append history."""
+    old_account_id = empresa.eva_account_id
+    _sync_empresa_from_eva_account(empresa, account)
+    if old_account_id != account.id:
+        empresa.version = (empresa.version or 0) + 1
+        db.add(
+            EmpresaHistory(
+                empresa_id=empresa.id,
+                field_changed="eva_account_id",
+                old_value=str(old_account_id) if old_account_id else None,
+                new_value=str(account.id),
+                changed_by=changed_by,
+            )
+        )
+
+
+async def _ensure_account_not_already_linked(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    excluding_empresa_id: uuid.UUID | None,
+) -> None:
+    """Raise 409 if another empresa already points at ``account_id``."""
+    q = select(Empresa.id).where(Empresa.eva_account_id == account_id)
+    if excluding_empresa_id is not None:
+        q = q.where(Empresa.id != excluding_empresa_id)
+    duplicate = await db.execute(q.limit(1))
+    if duplicate.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "already_linked",
+                "message": "Esta cuenta de Eva ya esta vinculada a otra empresa.",
+            },
+        )
+
+
+async def _load_empresa_for_link(
+    db: AsyncSession,
+    empresa_id: uuid.UUID,
+    expected_version: int | None,
+) -> Empresa:
+    """Load empresa with row lock + optimistic-version check for link/create flows."""
+    result = await db.execute(
+        select(Empresa)
+        .where(Empresa.id == empresa_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    empresa = result.scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if expected_version is not None and expected_version != empresa.version:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "OptimisticLockMismatch",
+                "message": "Another user changed this empresa — reload.",
+                "server_version": empresa.version,
+            },
+        )
+    return empresa
+
+
+async def _validate_link_preconditions(
+    db: AsyncSession,
+    empresa: Empresa,
+    new_account_id: uuid.UUID | None,
+) -> None:
+    """Reject link attempts that would violate uniqueness or business rules.
+
+    Runs BEFORE any external side effects (Supabase user create, Stripe
+    setup, etc) so callers like create-account-for-empresa can fail
+    fast on already-linked or already-operativo empresas without
+    creating orphaned auth users.
+    """
+    if empresa.eva_account_id and (new_account_id is None or empresa.eva_account_id != new_account_id):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "empresa_already_linked",
+                "message": "Esta empresa ya esta vinculada a otra cuenta de Eva.",
+            },
+        )
+    if new_account_id is not None:
+        await _ensure_account_not_already_linked(db, new_account_id, excluding_empresa_id=empresa.id)
+
+
+async def link_empresa_to_eva_account(
+    db: AsyncSession,
+    eva_db: AsyncSession,
+    empresa_id: uuid.UUID,
+    account_id: uuid.UUID,
+    changed_by: uuid.UUID | None = None,
+    expected_version: int | None = None,
+) -> Empresa:
+    """Link an ERP empresa to an Eva account; refresh local billing cache."""
+    empresa = await _load_empresa_for_link(db, empresa_id, expected_version)
+    await _validate_link_preconditions(db, empresa, account_id)
+
+    account_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = account_result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Eva account not found")
+    if not getattr(account, "is_active", True):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "account_inactive",
+                "message": "No se puede vincular una cuenta de Eva inactiva.",
+            },
+        )
+
+    _record_eva_account_link(db, empresa, account, changed_by)
+    _enforce_business_rules(
+        lifecycle_stage=empresa.lifecycle_stage,
+        eva_account_id=empresa.eva_account_id,
+        subscription_status=empresa.subscription_status,
+        expected_close_date=empresa.expected_close_date,
+        grandfathered=empresa.grandfathered,
+        check_operativo=True,
+        check_close_date=False,
+    )
+    db.add(empresa)
+    await db.flush()
+    await db.refresh(empresa, attribute_names=["items"])
+    return empresa
+
+
 @router.get("")
 async def list_empresas(
     search: str | None = None,
@@ -382,16 +537,54 @@ async def list_empresas(
     # Fetch pending items for all empresas in one query
     empresa_ids = [r.id for r in rows]
     pending_items_map: dict[uuid.UUID, list[dict]] = {eid: [] for eid in empresa_ids}
+    next_action_map: dict[uuid.UUID, dict | None] = {eid: None for eid in empresa_ids}
+    overdue_count_map: dict[uuid.UUID, int] = {eid: 0 for eid in empresa_ids}
 
     if empresa_ids:
+        # Schedulable date for ordering: earliest of (start_at, due_at,
+        # reminder_at). Items without any date sink to the bottom.
+        schedule_at = func.coalesce(EmpresaItem.start_at, EmpresaItem.due_at, EmpresaItem.reminder_at)
         items_q = (
-            select(EmpresaItem.id, EmpresaItem.empresa_id, EmpresaItem.title)
-            .where(EmpresaItem.empresa_id.in_(empresa_ids), EmpresaItem.done == False)
-            .order_by(EmpresaItem.created_at.asc())
+            select(
+                EmpresaItem.id,
+                EmpresaItem.empresa_id,
+                EmpresaItem.title,
+                EmpresaItem.kind,
+                EmpresaItem.due_at,
+                EmpresaItem.start_at,
+                EmpresaItem.completed_at,
+                schedule_at.label("schedule_at"),
+            )
+            .where(
+                EmpresaItem.empresa_id.in_(empresa_ids),
+                EmpresaItem.done == False,
+                EmpresaItem.kind != "note",
+            )
+            .order_by(schedule_at.asc().nulls_last(), EmpresaItem.created_at.asc())
         )
         items_result = await db.execute(items_q)
+        now = datetime.now(timezone.utc)
         for item in items_result.all():
-            pending_items_map[item.empresa_id].append({"id": str(item.id), "title": item.title})
+            payload = {
+                "id": str(item.id),
+                "title": item.title,
+                "kind": item.kind or "todo",
+                "due_at": item.due_at.isoformat() if item.due_at else None,
+                "start_at": item.start_at.isoformat() if item.start_at else None,
+                "completed_at": item.completed_at.isoformat() if item.completed_at else None,
+            }
+            pending_items_map[item.empresa_id].append(payload)
+            # First (earliest scheduled) item is the next action.
+            if next_action_map[item.empresa_id] is None and item.schedule_at is not None:
+                next_action_map[item.empresa_id] = payload
+            if item.due_at is not None and item.due_at < now:
+                overdue_count_map[item.empresa_id] += 1
+        # Fallback: if no item had a schedule_at, the first undated item
+        # becomes the next action so the card can still hint at "do this
+        # next" instead of going blank.
+        for emp_id, items in pending_items_map.items():
+            if next_action_map[emp_id] is None and items:
+                next_action_map[emp_id] = items[0]
 
     # Lazy auto-match: for any empresa whose ``auto_match_attempted``
     # flag is False, try to link it to an Eva account by name. Only
@@ -446,6 +639,8 @@ async def list_empresas(
             "item_count": r.item_count,
             "pending_count": r.pending_count,
             "pending_items": pending_items_map.get(r.id, []),
+            "next_action": next_action_map.get(r.id),
+            "overdue_count": overdue_count_map.get(r.id, 0),
             "health": health_map.get(
                 r.id,
                 {
@@ -500,6 +695,201 @@ def _enforce_business_rules(
                 "message": "Stages interesado/demo/negociacion require expected_close_date.",
             },
         )
+
+
+# ── Calendar (must be registered BEFORE /{empresa_id}) ──────────────
+
+
+def _coerce_range_end(end: date | datetime) -> datetime:
+    """Return an inclusive upper bound covering the entire ``end`` day."""
+    if isinstance(end, datetime):
+        return end if end.tzinfo else end.replace(tzinfo=timezone.utc)
+    return datetime.combine(end, time.max, tzinfo=timezone.utc)
+
+
+def _coerce_range_start(start: date | datetime) -> datetime:
+    if isinstance(start, datetime):
+        return start if start.tzinfo else start.replace(tzinfo=timezone.utc)
+    return datetime.combine(start, time.min, tzinfo=timezone.utc)
+
+
+@router.get("/calendar", response_model=list[EmpresaCalendarItemResponse])
+async def empresa_calendar(
+    range_from: datetime | None = Query(default=None, alias="from"),
+    range_to: datetime | None = Query(default=None, alias="to"),
+    empresa_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Calendar events for follow-ups across all empresas.
+
+    Sources:
+    - ``empresa_items`` rows whose ``kind`` is ``event`` or ``todo``
+      (todos with a due date show as deadlines on the calendar).
+    - Existing ``meetings`` rows linked via ``empresa_id`` (so historical
+      visits/calls are preserved when the Meetings page goes away).
+    - Recent ``empresa_interactions`` so prior outreach surfaces in the
+      timeline view.
+    """
+    start_at = _coerce_range_start(range_from) if range_from else None
+    end_at = _coerce_range_end(range_to) if range_to else None
+    if start_at and end_at and end_at < start_at:
+        raise HTTPException(status_code=400, detail="`to` must be >= `from`.")
+
+    item_q = (
+        select(EmpresaItem, Empresa.name.label("empresa_name"))
+        .join(Empresa, Empresa.id == EmpresaItem.empresa_id)
+        .where(EmpresaItem.kind.in_(["event", "todo", "outreach"]))
+        .order_by(
+            func.coalesce(EmpresaItem.start_at, EmpresaItem.due_at, EmpresaItem.reminder_at).asc().nulls_last(),
+            EmpresaItem.created_at.asc(),
+        )
+    )
+    if empresa_id is not None:
+        item_q = item_q.where(EmpresaItem.empresa_id == empresa_id)
+    if start_at is not None:
+        item_q = item_q.where(
+            or_(
+                EmpresaItem.start_at >= start_at,
+                EmpresaItem.due_at >= start_at,
+                EmpresaItem.reminder_at >= start_at,
+                EmpresaItem.end_at >= start_at,
+            )
+        )
+    if end_at is not None:
+        item_q = item_q.where(
+            or_(
+                EmpresaItem.start_at <= end_at,
+                EmpresaItem.due_at <= end_at,
+                EmpresaItem.reminder_at <= end_at,
+            )
+        )
+    item_rows = await db.execute(item_q)
+
+    out: list[EmpresaCalendarItemResponse] = []
+    for item, empresa_name in item_rows.all():
+        out.append(
+            EmpresaCalendarItemResponse(
+                id=item.id,
+                empresa_id=item.empresa_id,
+                empresa_name=empresa_name,
+                source="item",
+                kind=item.kind or "todo",
+                title=item.title,
+                description=item.description,
+                start_at=item.start_at,
+                end_at=item.end_at,
+                due_at=item.due_at,
+                reminder_at=item.reminder_at,
+                contact_method=item.contact_method,
+                completed_at=item.completed_at,
+                assigned_to=item.assigned_to,
+            )
+        )
+
+    # Existing meetings linked to empresas — surface them so historical
+    # visits/calls keep showing up after we retire the Meetings page.
+    # We use a raw text query here to avoid pulling in the whole
+    # meetings ORM module (which is being unmounted from /api).
+    from sqlalchemy import text as _text
+
+    meeting_sql = """
+        SELECT m.id, m.title, m.date, m.duration_minutes, m.notes_markdown,
+               m.empresa_id, e.name AS empresa_name
+        FROM meetings m
+        JOIN empresas e ON e.id = m.empresa_id
+        WHERE m.empresa_id IS NOT NULL
+        {empresa_filter}
+        {start_filter}
+        {end_filter}
+        ORDER BY m.date ASC
+    """
+    params: dict[str, object] = {}
+    empresa_filter = ""
+    start_filter = ""
+    end_filter = ""
+    if empresa_id is not None:
+        empresa_filter = "AND m.empresa_id = :empresa_id"
+        params["empresa_id"] = empresa_id
+    if start_at is not None:
+        start_filter = "AND m.date >= :start_at"
+        params["start_at"] = start_at
+    if end_at is not None:
+        end_filter = "AND m.date <= :end_at"
+        params["end_at"] = end_at
+    try:
+        meeting_rows = await db.execute(
+            _text(meeting_sql.format(empresa_filter=empresa_filter, start_filter=start_filter, end_filter=end_filter)),
+            params,
+        )
+        for row in meeting_rows.all():
+            duration = row.duration_minutes or 0
+            from datetime import timedelta
+
+            end_at_meeting = row.date + timedelta(minutes=duration) if row.date and duration else None
+            out.append(
+                EmpresaCalendarItemResponse(
+                    id=row.id,
+                    empresa_id=row.empresa_id,
+                    empresa_name=row.empresa_name,
+                    source="meeting",
+                    kind="event",
+                    title=row.title,
+                    description=row.notes_markdown,
+                    start_at=row.date,
+                    end_at=end_at_meeting,
+                    due_at=None,
+                    reminder_at=None,
+                    contact_method="meeting",
+                    completed_at=None,
+                    assigned_to=None,
+                )
+            )
+    except Exception as exc:
+        # If the meetings table is gone or read fails, log and continue:
+        # the items query is the source of truth for new behavior, and
+        # we don't want a meetings outage to break the calendar.
+        logger.warning("empresa_calendar.meetings_query_failed: %s", exc, exc_info=True)
+
+    interaction_q = (
+        select(EmpresaInteraction, Empresa.name.label("empresa_name"))
+        .join(Empresa, Empresa.id == EmpresaInteraction.empresa_id)
+    )
+    if empresa_id is not None:
+        interaction_q = interaction_q.where(EmpresaInteraction.empresa_id == empresa_id)
+    if start_at is not None:
+        interaction_q = interaction_q.where(EmpresaInteraction.date >= start_at.date())
+    if end_at is not None:
+        interaction_q = interaction_q.where(EmpresaInteraction.date <= end_at.date())
+    interaction_rows = await db.execute(interaction_q.order_by(EmpresaInteraction.date.desc()).limit(500))
+    for interaction, empresa_name in interaction_rows.all():
+        ts = datetime.combine(interaction.date, time.min, tzinfo=timezone.utc)
+        out.append(
+            EmpresaCalendarItemResponse(
+                id=interaction.id,
+                empresa_id=interaction.empresa_id,
+                empresa_name=empresa_name,
+                source="interaction",
+                kind="outreach",
+                title=interaction.summary[:120] if interaction.summary else "(sin resumen)",
+                description=interaction.summary,
+                start_at=ts,
+                end_at=None,
+                due_at=None,
+                reminder_at=None,
+                contact_method=interaction.type,
+                completed_at=ts,
+                assigned_to=None,
+            )
+        )
+
+    out.sort(
+        key=lambda r: (
+            r.start_at or r.due_at or r.reminder_at or datetime(1970, 1, 1, tzinfo=timezone.utc),
+            r.title,
+        )
+    )
+    return out
 
 
 @router.post("", response_model=EmpresaResponse, status_code=201)
@@ -753,6 +1143,33 @@ async def get_empresa_history(
 # ── Items ──────────────────────────────────────────────────────────
 
 
+_EVENT_KINDS_REQUIRING_DATE = {"event"}
+
+
+def _validate_item_window(payload: dict) -> None:
+    """Reject events without a start window and end-before-start ranges."""
+    kind = payload.get("kind")
+    if kind in _EVENT_KINDS_REQUIRING_DATE:
+        if payload.get("start_at") is None and payload.get("due_at") is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "reason": "EventDateRequired",
+                    "message": "Eventos requieren start_at o due_at.",
+                },
+            )
+    start_at = payload.get("start_at")
+    end_at = payload.get("end_at")
+    if start_at and end_at and end_at < start_at:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "InvalidDateWindow",
+                "message": "end_at debe ser >= start_at.",
+            },
+        )
+
+
 @router.post("/{empresa_id}/items", response_model=EmpresaItemResponse, status_code=201)
 async def create_item(
     empresa_id: uuid.UUID,
@@ -764,10 +1181,13 @@ async def create_item(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Empresa not found")
 
+    payload = data.model_dump()
+    _validate_item_window(payload)
+
     item = EmpresaItem(
         empresa_id=empresa_id,
-        title=data.title,
         created_by=user.id,
+        **payload,
     )
     db.add(item)
     await db.flush()
@@ -787,7 +1207,25 @@ async def update_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    # Re-validate the merged window so partial PATCHes don't sneak past
+    # the create-time guard.
+    merged = {
+        "kind": update_data.get("kind", item.kind),
+        "start_at": update_data.get("start_at", item.start_at),
+        "due_at": update_data.get("due_at", item.due_at),
+        "end_at": update_data.get("end_at", item.end_at),
+    }
+    _validate_item_window(merged)
+
+    if "done" in update_data:
+        new_done = bool(update_data["done"])
+        if new_done and not item.done:
+            item.completed_at = datetime.now(timezone.utc)
+        elif not new_done:
+            item.completed_at = None
+
+    for field, value in update_data.items():
         setattr(item, field, value)
 
     db.add(item)
@@ -808,6 +1246,7 @@ async def toggle_item(
         raise HTTPException(status_code=404, detail="Item not found")
 
     item.done = not item.done
+    item.completed_at = datetime.now(timezone.utc) if item.done else None
     db.add(item)
     await db.flush()
     await db.refresh(item)
@@ -825,6 +1264,176 @@ async def delete_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     await db.delete(item)
+
+
+# ── Interactions (legacy + new outreach surface) ────────────────────
+
+
+@router.get("/{empresa_id}/interactions", response_model=list[EmpresaInteractionResponse])
+async def list_empresa_interactions(
+    empresa_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    exists = await db.execute(select(Empresa.id).where(Empresa.id == empresa_id))
+    if not exists.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    rows = await db.execute(
+        select(EmpresaInteraction)
+        .where(EmpresaInteraction.empresa_id == empresa_id)
+        .order_by(EmpresaInteraction.date.desc(), EmpresaInteraction.created_at.desc())
+    )
+    return list(rows.scalars().all())
+
+
+@router.post("/{empresa_id}/interactions", response_model=EmpresaInteractionResponse, status_code=201)
+async def create_empresa_interaction(
+    empresa_id: uuid.UUID,
+    data: EmpresaInteractionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    exists = await db.execute(select(Empresa.id).where(Empresa.id == empresa_id))
+    if not exists.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    interaction = EmpresaInteraction(
+        empresa_id=empresa_id,
+        type=data.type,
+        summary=data.summary,
+        date=data.date,
+        created_by=user.id,
+    )
+    db.add(interaction)
+    await db.flush()
+    await db.refresh(interaction)
+    return interaction
+
+
+# ── Eva account link / create from empresa ──────────────────────────
+
+
+@router.post("/{empresa_id}/link-eva-account", response_model=EmpresaResponse)
+async def link_eva_account_endpoint(
+    empresa_id: uuid.UUID,
+    payload: LinkEvaAccountRequest,
+    db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+):
+    expected_version: int | None = None
+    if if_match is not None:
+        try:
+            expected_version = int(if_match.strip().strip('"'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="If-Match header must be an integer version.")
+    return await link_empresa_to_eva_account(
+        db=db,
+        eva_db=eva_db,
+        empresa_id=empresa_id,
+        account_id=payload.eva_account_id,
+        changed_by=user.id,
+        expected_version=expected_version,
+    )
+
+
+@router.delete("/{empresa_id}/link-eva-account", response_model=EmpresaResponse)
+async def unlink_eva_account_endpoint(
+    empresa_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+):
+    expected_version: int | None = None
+    if if_match is not None:
+        try:
+            expected_version = int(if_match.strip().strip('"'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="If-Match header must be an integer version.")
+    empresa = await _load_empresa_for_link(db, empresa_id, expected_version)
+    if empresa.eva_account_id is None:
+        return empresa
+    if empresa.lifecycle_stage == "operativo" and not empresa.grandfathered:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "OperativoCannotUnlink",
+                "message": "Mueve la empresa fuera de 'operativo' antes de desvincular la cuenta de Eva.",
+            },
+        )
+    old_account_id = empresa.eva_account_id
+    empresa.eva_account_id = None
+    empresa.subscription_status = None
+    empresa.current_period_end = None
+    empresa.stripe_customer_id = None
+    empresa.stripe_subscription_id = None
+    empresa.version = (empresa.version or 0) + 1
+    db.add(
+        EmpresaHistory(
+            empresa_id=empresa.id,
+            field_changed="eva_account_id",
+            old_value=str(old_account_id),
+            new_value=None,
+            changed_by=user.id,
+        )
+    )
+    db.add(empresa)
+    await db.flush()
+    await db.refresh(empresa, attribute_names=["items"])
+    return empresa
+
+
+@router.post("/{empresa_id}/eva-account", response_model=EvaAccountProvisionResponse, status_code=201)
+async def create_eva_account_for_empresa(
+    empresa_id: uuid.UUID,
+    payload: CreateEvaAccountForEmpresaRequest,
+    db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession = Depends(get_eva_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a fresh Eva account from a company card.
+
+    Pre-validates the empresa link state BEFORE invoking Supabase. If the
+    empresa is already linked or already 'operativo' (and would fail
+    business rules), we 409 immediately and never create an orphaned
+    Supabase user.
+    """
+    empresa = await _load_empresa_for_link(db, empresa_id, expected_version=None)
+    await _validate_link_preconditions(db, empresa, new_account_id=None)
+    # If the empresa is already operativo with no linked account, the
+    # business-rule validator will refuse the link with 409. We surface
+    # it BEFORE Supabase to avoid stranded auth users.
+    _enforce_business_rules(
+        lifecycle_stage=empresa.lifecycle_stage,
+        eva_account_id=uuid.uuid4(),  # simulate "soon-linked"
+        subscription_status="active",
+        expected_close_date=empresa.expected_close_date,
+        grandfathered=empresa.grandfathered,
+        check_operativo=False,  # only check structural rules
+        check_close_date=False,
+    )
+
+    create_request = EvaAccountCreateRequest(
+        name=payload.name or empresa.name,
+        owner_email=payload.owner_email,
+        owner_name=payload.owner_name or empresa.contact_name or "",
+        account_type=payload.account_type,
+        partner_id=payload.partner_id,
+        plan_tier=payload.plan_tier,
+        billing_cycle=payload.billing_cycle,
+        facturapi_org_api_key=payload.facturapi_org_api_key,
+        temporary_password=payload.temporary_password,
+        send_setup_email=payload.send_setup_email,
+        empresa_id=empresa_id,
+    )
+
+    # Defer to the existing accounts router so all provisioning logic
+    # (Supabase user, EvaAccount + AccountUser rows, onboarding email)
+    # stays single-source. The accounts route handles linking when
+    # ``empresa_id`` is set.
+    from src.eva_platform.router.accounts import create_account as create_account_handler
+
+    return await create_account_handler(create_request, eva_db=eva_db, user=user, db=db)
 
 
 # ── Billing endpoints ───────────────────────────────────────────────

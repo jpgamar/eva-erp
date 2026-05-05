@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db, get_eva_db
+from src.empresas.models import Empresa, EmpresaHistory
 from src.eva_platform.onboarding import build_account_onboarding
 from src.eva_platform.eva_billing_client import EvaBillingClient, EvaBillingClientError
 from src.eva_platform.models import EvaAccount, EvaAccountUser
@@ -437,17 +438,82 @@ async def resend_account_onboarding(
     return onboarding
 
 
+async def _preflight_empresa_link(
+    db: AsyncSession,
+    empresa_id: uuid.UUID,
+) -> Empresa:
+    """Validate the empresa exists and has no conflicting link BEFORE Supabase.
+
+    Returns the loaded empresa. Raises 404/409 if the link cannot succeed
+    so the caller never creates a Supabase user / EvaAccount that we'd
+    later have to roll back.
+    """
+    result = await db.execute(
+        select(Empresa)
+        .where(Empresa.id == empresa_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    empresa = result.scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if empresa.eva_account_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "empresa_already_linked",
+                "message": "Esta empresa ya esta vinculada a otra cuenta de Eva.",
+            },
+        )
+    return empresa
+
+
+def _record_empresa_link_in_erp(
+    db: AsyncSession,
+    empresa: Empresa,
+    account: "EvaAccount",
+    changed_by: uuid.UUID | None,
+) -> None:
+    """Mutate empresa to point at the freshly created account + history."""
+    old_account_id = empresa.eva_account_id
+    empresa.eva_account_id = account.id
+    empresa.auto_match_attempted = True
+    empresa.subscription_status = None  # fresh account has no sub yet
+    empresa.current_period_end = None
+    empresa.stripe_customer_id = None
+    empresa.stripe_subscription_id = None
+    empresa.version = (empresa.version or 0) + 1
+    db.add(empresa)
+    db.add(
+        EmpresaHistory(
+            empresa_id=empresa.id,
+            field_changed="eva_account_id",
+            old_value=str(old_account_id) if old_account_id else None,
+            new_value=str(account.id),
+            changed_by=changed_by,
+        )
+    )
+
+
 @router.post("/accounts", response_model=EvaAccountProvisionResponse, status_code=201)
 async def create_account(
     data: EvaAccountCreateRequest,
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     normalized_owner_email = data.owner_email.strip().lower()
     normalized_account_type = normalize_account_type(data.account_type)
     normalized_plan_tier = normalize_plan_tier(data.plan_tier)
     normalized_billing_interval = normalize_billing_cycle(data.billing_cycle)
     password = data.temporary_password or secrets.token_urlsafe(16)
+
+    # Preflight the empresa link BEFORE we create anything in Supabase.
+    # If the empresa is already linked we 409 here, never creating an
+    # auth user we'd have to clean up.
+    empresa: Empresa | None = None
+    if data.empresa_id is not None:
+        empresa = await _preflight_empresa_link(db, data.empresa_id)
 
     # Create Supabase user
     try:
@@ -500,6 +566,12 @@ async def create_account(
             updated_at=now,
         )
         eva_db.add(account_user)
+
+        # Persist the empresa link BEFORE returning success. The empresa
+        # row was already locked + verified during preflight, so the
+        # uniqueness check is safe under concurrent creates.
+        if empresa is not None:
+            _record_empresa_link_in_erp(db, empresa, account, changed_by=user.id)
     except Exception as exc:
         logger.exception(
             "Provisioning failed after Supabase auth user creation for email=%s sb_user_id=%s",
@@ -614,6 +686,11 @@ async def approve_draft(
     normalized_billing_interval = normalize_billing_cycle(draft.billing_cycle)
     password = secrets.token_urlsafe(16)
 
+    # Preflight empresa link before Supabase if the draft references one.
+    empresa: Empresa | None = None
+    if draft.empresa_id is not None:
+        empresa = await _preflight_empresa_link(db, draft.empresa_id)
+
     # 1. Create Supabase user
     try:
         sb_user = await SupabaseAdminClient.admin_create_user(
@@ -686,6 +763,13 @@ async def approve_draft(
         draft.approved_by = user.id
         draft.approved_at = now
         db.add(draft)
+
+        # 5. Persist empresa link if the draft references one. The
+        # empresa was locked during preflight; this is the source of
+        # truth in the ERP DB so the operator's company card reflects
+        # the new account immediately.
+        if empresa is not None:
+            _record_empresa_link_in_erp(db, empresa, account, changed_by=user.id)
     except Exception as exc:
         draft.status = "failed"
         db.add(draft)
@@ -726,14 +810,35 @@ async def deactivate_account(
     account_id: uuid.UUID,
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Soft-delete: set is_active = False."""
+    """Soft-delete: set is_active = False.
+
+    Blocks deactivation when an ERP empresa points at this account so
+    we don't strand the empresa with a tombstoned link. The operator
+    must unlink (`DELETE /empresas/{id}/link-eva-account`) first.
+    """
     result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     if not account.is_active:
         raise HTTPException(status_code=400, detail="Account is already inactive")
+
+    linked_empresa = await db.execute(
+        select(Empresa.id, Empresa.name).where(Empresa.eva_account_id == account_id).limit(1)
+    )
+    linked_row = linked_empresa.first()
+    if linked_row is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "empresa_link_exists",
+                "message": f"Empresa '{linked_row.name}' aun esta vinculada. Desvincula antes de desactivar.",
+                "empresa_id": str(linked_row.id),
+                "empresa_name": linked_row.name,
+            },
+        )
     account.is_active = False
     account.updated_at = datetime.now(timezone.utc)
     eva_db.add(account)

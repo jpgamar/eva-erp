@@ -47,6 +47,9 @@ LifecycleStage = Literal[
     "implementacion", "operativo", "churn_risk", "inactivo",
 ]
 BillingIntervalLiteral = Literal["monthly", "annual"]
+EmpresaItemKind = Literal["todo", "event", "note", "outreach"]
+EmpresaContactMethod = Literal["sms", "whatsapp", "call", "email", "visit", "demo", "meeting", "other"]
+EmpresaCalendarSource = Literal["item", "meeting", "interaction"]
 
 
 class EmpresaCreate(BaseModel):
@@ -173,7 +176,16 @@ class EmpresaItemResponse(BaseModel):
     id: uuid.UUID
     empresa_id: uuid.UUID
     title: str
+    kind: str = "todo"
+    description: str | None = None
+    contact_method: str | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
     done: bool
+    completed_at: _dt.datetime | None = None
     created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
@@ -304,6 +316,15 @@ class EvaAccountForLink(BaseModel):
     name: str
 
 
+class EmpresaListPendingItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    kind: str = "todo"
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    completed_at: _dt.datetime | None = None
+
+
 class EmpresaListResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -324,6 +345,10 @@ class EmpresaListResponse(BaseModel):
     grandfathered: bool = False
     version: int = 0
     item_count: int = 0
+    pending_count: int = 0
+    pending_items: list[EmpresaListPendingItem] = []
+    next_action: EmpresaListPendingItem | None = None
+    overdue_count: int = 0
     model_config = {"from_attributes": True}
 
 
@@ -348,11 +373,85 @@ class EmpresaInteractionCreate(BaseModel):
 
 class EmpresaItemCreate(BaseModel):
     title: str
+    kind: EmpresaItemKind = "todo"
+    description: str | None = None
+    contact_method: EmpresaContactMethod | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_required(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("title cannot be blank")
+        return cleaned
 
 
 class EmpresaItemUpdate(BaseModel):
     title: str | None = None
+    kind: EmpresaItemKind | None = None
+    description: str | None = None
+    contact_method: EmpresaContactMethod | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
     done: bool | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("title cannot be blank")
+        return cleaned
+
+
+# ── Calendar (mixed sources: items, meetings, interactions) ─────────
+
+
+class EmpresaCalendarItemResponse(BaseModel):
+    id: uuid.UUID
+    empresa_id: uuid.UUID
+    empresa_name: str
+    source: EmpresaCalendarSource
+    kind: str
+    title: str
+    description: str | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    due_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    contact_method: str | None = None
+    completed_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
+
+
+# ── Eva account link / create from empresa ───────────────────────────
+
+
+class LinkEvaAccountRequest(BaseModel):
+    eva_account_id: uuid.UUID
+
+
+class CreateEvaAccountForEmpresaRequest(BaseModel):
+    name: str | None = None
+    owner_email: EmailStr
+    owner_name: str = ""
+    account_type: str = "COMMERCE"
+    partner_id: uuid.UUID | None = None
+    plan_tier: str = "STANDARD"
+    billing_cycle: str = "MONTHLY"
+    facturapi_org_api_key: str | None = None
+    temporary_password: str | None = None
+    send_setup_email: bool = True
 
 
 # ── History ──────────────────────────────────────────────────────────

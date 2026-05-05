@@ -76,7 +76,6 @@ api_router = APIRouter(prefix="/api/v1")
 from src.auth.router import router as auth_router
 from src.users.router import router as users_router
 from src.notifications.router import router as notifications_router
-from src.vault.router import router as vault_router
 from src.tasks.router import router as task_router
 from src.tasks.router import board_router
 from src.finances.router import router as finances_router
@@ -85,10 +84,10 @@ from src.kpis.router import router as kpis_router
 # is kept for 1 release so rollback by reverting main.py only is safe; a
 # follow-up PR drops the module entirely.
 from src.prospects.router import router as prospects_router  # noqa: F401  # TODO: drop in follow-up PR
-from src.meetings.router import router as meetings_router
-from src.documents.router import router as documents_router
-from src.okrs.router import router as okrs_router
-from src.assistant.router import router as assistant_router
+# vault/meetings/documents/okrs/assistant routers unmounted in the company
+# CRM consolidation (Empresas is the single CRM/account hub). Tables remain
+# until a separate data-drop plan is approved; historical meetings/interactions
+# are surfaced through `/empresas/calendar` instead.
 from src.facturas.router import router as facturas_router
 from src.dashboard.router import router as dashboard_router
 from src.eva_platform.router import router as eva_platform_router
@@ -102,7 +101,6 @@ from src.facturas_recibidas.router import router as gastos_router
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(notifications_router)
-api_router.include_router(vault_router)
 api_router.include_router(task_router)
 api_router.include_router(board_router)
 api_router.include_router(finances_router)
@@ -110,13 +108,15 @@ api_router.include_router(kpis_router)
 # Prospects router unmounted — /prospects/* now returns 404. Clients should
 # call /empresas with lifecycle_stage filter instead.
 # api_router.include_router(prospects_router)
-api_router.include_router(meetings_router)
-api_router.include_router(documents_router)
-api_router.include_router(okrs_router)
-api_router.include_router(assistant_router)
+# Removed product surfaces (vault/meetings/documents/okrs/assistant) — see
+# the company CRM consolidation plan; routes return 404 by design and are
+# verified by `tests/test_removed_modules.py`.
 api_router.include_router(facturas_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(eva_platform_router)
+# `customers_router` is preserved for the Facturas-side helpers
+# (`frontend/src/lib/api/customers.ts` still calls it). The standalone
+# Eva Customers page is gone — the workflows live under /empresas now.
 api_router.include_router(customers_router)
 api_router.include_router(agent_router)
 api_router.include_router(eva_billing_router)

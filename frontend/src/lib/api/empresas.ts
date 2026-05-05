@@ -2,9 +2,25 @@ import api from "./client";
 
 // ── Types ──────────────────────────────────────────────────────────
 
+export type EmpresaItemKind = "todo" | "event" | "note" | "outreach";
+export type EmpresaContactMethod =
+  | "sms"
+  | "whatsapp"
+  | "call"
+  | "email"
+  | "visit"
+  | "demo"
+  | "meeting"
+  | "other";
+export type EmpresaCalendarSource = "item" | "meeting" | "interaction";
+
 export interface PendingItem {
   id: string;
   title: string;
+  kind?: EmpresaItemKind;
+  due_at?: string | null;
+  start_at?: string | null;
+  completed_at?: string | null;
 }
 
 export type EmpresaHealthStatus = "healthy" | "unhealthy" | "unknown" | "not_linked";
@@ -61,6 +77,8 @@ export interface EmpresaListItem {
   item_count: number;
   pending_count: number;
   pending_items: PendingItem[];
+  next_action: PendingItem | null;
+  overdue_count: number;
   health: EmpresaHealth;
 }
 
@@ -94,8 +112,50 @@ export interface EmpresaItem {
   id: string;
   empresa_id: string;
   title: string;
+  kind: EmpresaItemKind;
+  description: string | null;
+  contact_method: EmpresaContactMethod | null;
+  due_at: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  reminder_at: string | null;
+  assigned_to: string | null;
   done: boolean;
+  completed_at: string | null;
   created_at: string;
+}
+
+export interface EmpresaCalendarItem {
+  id: string;
+  empresa_id: string;
+  empresa_name: string;
+  source: EmpresaCalendarSource;
+  kind: string;
+  title: string;
+  description: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  due_at: string | null;
+  reminder_at: string | null;
+  contact_method: string | null;
+  completed_at: string | null;
+  assigned_to: string | null;
+}
+
+export interface EmpresaInteraction {
+  id: string;
+  empresa_id: string;
+  type: string;
+  summary: string;
+  date: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface EmpresaInteractionCreate {
+  type: string;
+  summary: string;
+  date: string;
 }
 
 export interface Empresa {
@@ -238,6 +298,52 @@ export interface EvaAccountForLink {
 
 export interface EmpresaItemCreate {
   title: string;
+  kind?: EmpresaItemKind;
+  description?: string | null;
+  contact_method?: EmpresaContactMethod | null;
+  due_at?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  reminder_at?: string | null;
+  assigned_to?: string | null;
+}
+
+export interface EmpresaItemUpdate {
+  title?: string;
+  kind?: EmpresaItemKind;
+  description?: string | null;
+  contact_method?: EmpresaContactMethod | null;
+  due_at?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  reminder_at?: string | null;
+  assigned_to?: string | null;
+  done?: boolean;
+}
+
+export interface CreateEvaAccountForEmpresaRequest {
+  name?: string;
+  owner_email: string;
+  owner_name?: string;
+  account_type?: string;
+  partner_id?: string | null;
+  plan_tier?: string;
+  billing_cycle?: string;
+  facturapi_org_api_key?: string | null;
+  temporary_password?: string | null;
+  send_setup_email?: boolean;
+}
+
+export interface AccountOnboardingResponse {
+  owner_email: string;
+  onboarding_link: string;
+  email_status: string;
+  email_message: string | null;
+}
+
+export interface EvaAccountProvisionResponse {
+  account: { id: string; name: string };
+  onboarding: AccountOnboardingResponse;
 }
 
 export interface EmpresaHistory {
@@ -273,13 +379,56 @@ export const empresasApi = {
   createItem: (empresaId: string, data: EmpresaItemCreate) =>
     api.post<EmpresaItem>(`/empresas/${empresaId}/items`, data).then((r) => r.data),
 
-  updateItem: (itemId: string, data: { title?: string; done?: boolean }) =>
+  updateItem: (itemId: string, data: EmpresaItemUpdate) =>
     api.patch<EmpresaItem>(`/empresas/items/${itemId}`, data).then((r) => r.data),
 
   toggleItem: (itemId: string) =>
     api.patch<EmpresaItem>(`/empresas/items/${itemId}/toggle`).then((r) => r.data),
 
   deleteItem: (itemId: string) => api.delete(`/empresas/items/${itemId}`),
+
+  // Calendar — accepts ISO datetimes (start of/end of day inclusive)
+  calendar: (params?: { from?: string; to?: string; empresaId?: string }) =>
+    api
+      .get<EmpresaCalendarItem[]>("/empresas/calendar", {
+        params: {
+          from: params?.from,
+          to: params?.to,
+          empresa_id: params?.empresaId,
+        },
+      })
+      .then((r) => r.data),
+
+  // Interactions (legacy outreach surface preserved + new writes)
+  listInteractions: (empresaId: string) =>
+    api.get<EmpresaInteraction[]>(`/empresas/${empresaId}/interactions`).then((r) => r.data),
+
+  createInteraction: (empresaId: string, data: EmpresaInteractionCreate) =>
+    api
+      .post<EmpresaInteraction>(`/empresas/${empresaId}/interactions`, data)
+      .then((r) => r.data),
+
+  // Eva account link / unlink / create
+  linkEvaAccount: (empresaId: string, accountId: string, version?: number) =>
+    api
+      .post<Empresa>(
+        `/empresas/${empresaId}/link-eva-account`,
+        { eva_account_id: accountId },
+        { headers: version !== undefined ? { "If-Match": String(version) } : undefined },
+      )
+      .then((r) => r.data),
+
+  unlinkEvaAccount: (empresaId: string, version?: number) =>
+    api
+      .delete<Empresa>(`/empresas/${empresaId}/link-eva-account`, {
+        headers: version !== undefined ? { "If-Match": String(version) } : undefined,
+      })
+      .then((r) => r.data),
+
+  createEvaAccount: (empresaId: string, data: CreateEvaAccountForEmpresaRequest) =>
+    api
+      .post<EvaAccountProvisionResponse>(`/empresas/${empresaId}/eva-account`, data)
+      .then((r) => r.data),
 
   // History
   getHistory: (empresaId: string) =>

@@ -44,7 +44,6 @@ import {
 import {
   empresasApi,
   type AccountChannelHealthResponse,
-  type Empresa,
   type EmpresaCreate,
   type EmpresaHealthStatus,
   type EmpresaHistory,
@@ -53,6 +52,8 @@ import {
 } from "@/lib/api/empresas";
 import { CheckoutLinkModal } from "@/components/empresas/CheckoutLinkModal";
 import { EmpresasKanban } from "@/components/empresas/EmpresasKanban";
+import { EmpresasCalendarView } from "@/components/empresas/EmpresasCalendarView";
+import { EmpresasAccountsView } from "@/components/empresas/EmpresasAccountsView";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -291,10 +292,12 @@ export default function EmpresasPage() {
   const [empresas, setEmpresas] = useState<EmpresaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"grid" | "kanban">(() => {
+  const [view, setView] = useState<"grid" | "kanban" | "calendar" | "accounts">(() => {
     if (typeof window === "undefined") return "grid";
     const url = new URL(window.location.href);
-    return url.searchParams.get("view") === "kanban" ? "kanban" : "grid";
+    const v = url.searchParams.get("view");
+    if (v === "kanban" || v === "calendar" || v === "accounts") return v;
+    return "grid";
   });
   const stageFilter = (() => {
     if (typeof window === "undefined") return null;
@@ -593,34 +596,38 @@ export default function EmpresasPage() {
         <h1 className="text-2xl font-bold">Empresas</h1>
         <div className="flex items-center gap-2">
           <div className="flex rounded-md border border-border">
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm ${view === "grid" ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
-              onClick={() => {
-                setView("grid");
-                if (typeof window !== "undefined") {
-                  const url = new URL(window.location.href);
-                  url.searchParams.delete("view");
-                  window.history.replaceState({}, "", url);
-                }
-              }}
-            >
-              Tarjetas
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm ${view === "kanban" ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
-              onClick={() => {
-                setView("kanban");
-                if (typeof window !== "undefined") {
-                  const url = new URL(window.location.href);
-                  url.searchParams.set("view", "kanban");
-                  window.history.replaceState({}, "", url);
-                }
-              }}
-            >
-              Pipeline
-            </button>
+            {(
+              [
+                { key: "grid", label: "Tarjetas" },
+                { key: "kanban", label: "Pipeline" },
+                { key: "calendar", label: "Calendario" },
+                { key: "accounts", label: "Cuentas" },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`px-3 py-1.5 text-sm ${
+                  view === option.key
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => {
+                  setView(option.key);
+                  if (typeof window !== "undefined") {
+                    const url = new URL(window.location.href);
+                    if (option.key === "grid") {
+                      url.searchParams.delete("view");
+                    } else {
+                      url.searchParams.set("view", option.key);
+                    }
+                    window.history.replaceState({}, "", url);
+                  }
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
           <Button onClick={openCreateEmpresa}>
             <Plus className="mr-2 h-4 w-4" />
@@ -629,19 +636,30 @@ export default function EmpresasPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Buscar empresa..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
+      {/* Search (hidden in calendar/accounts views — they own their own filtering) */}
+      {view === "grid" || view === "kanban" ? (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar empresa..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      ) : null}
 
-      {/* Kanban or cards grid */}
-      {loading ? (
+      {/* View body */}
+      {view === "calendar" ? (
+        <EmpresasCalendarView
+          onSelectEmpresa={(empresaId) => {
+            const target = empresas.find((emp) => emp.id === empresaId);
+            if (target) openEditEmpresa(target);
+          }}
+        />
+      ) : view === "accounts" ? (
+        <EmpresasAccountsView empresas={empresas} onJumpToEmpresa={openEditEmpresa} />
+      ) : loading ? (
         <div className="py-12 text-center text-muted-foreground">Cargando...</div>
       ) : empresas.length === 0 ? (
         <div className="py-12 text-center text-muted-foreground">
@@ -1535,11 +1553,12 @@ function ChannelBadge({ icon: Icon, label, healthy, count, testId }: ChannelBadg
 
 function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: string; size?: "lg" | "sm" }) {
   const [failed, setFailed] = useState(false);
-  const prevUrl = useRef(url);
-  if (prevUrl.current !== url) {
-    prevUrl.current = url;
+  // Reset the failed flag whenever the source url changes so a new
+  // upload can attempt to render. Lint forbids mutating a ref during
+  // render, so we use the effect-on-change pattern.
+  useEffect(() => {
     setFailed(false);
-  }
+  }, [url]);
 
   const dim = size === "lg" ? "h-20 w-20" : "h-10 w-10";
   const iconDim = size === "lg" ? "h-9 w-9" : "h-5 w-5";

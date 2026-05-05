@@ -1,8 +1,26 @@
 # Company CRM Consolidation Plan
 
-**Overall Progress:** `0%`
+**Overall Progress:** `5%`
 
-> **Status:** Not implemented. This is a handoff plan for the next agent.
+> **Status:** Plan reviewed (Codex 2026-05-04, FAIL → P1/P2 incorporated). Implementation in progress.
+
+## Progress Checklist
+
+- 🟩 Plan review (1 pass, FAIL → findings folded in: route shadowing, command-palette /customers, meetings/interactions preservation, status default, migration chaining)
+- 🟩 Migration: re-add `empresa_items` CRM columns on top of `a6b7c8d9e0f1`
+- 🟩 Backend models / schemas / router (item CRUD, calendar, link/create eva account, history-aware reads)
+- 🟩 Backend: `eva_platform` router-order fix (channel_health before accounts)
+- 🟩 Backend: Eva account provisioning empresa-link rules
+- 🟩 Backend: unmount vault/okrs/assistant/meetings/documents
+- 🟩 Backend: dashboard contract scrub
+- 🟩 Frontend: sidebar + command palette + dashboard cleanup (incl. legacy `/customers` palette entry)
+- 🟩 Frontend: Empresas calendar + accounts views + linked/unlinked state
+- 🟩 Frontend: delete removed pages (vault, okrs, assistant, meetings, documents) + redirect eva-customers
+- 🟩 Backend tests
+- 🟩 Frontend tests
+- 🟩 `npm run check` + `npm test` + `pytest` (325 backend + 35 frontend, all passing; build succeeds)
+- 🟨 Cross-model code review until clean
+- 🟥 Production migration + browser verification
 
 ---
 
@@ -71,7 +89,7 @@ Each company should support:
 
 ## Backend Plan
 
-1. Extend `empresa_items` for CRM follow-ups:
+1. Extend `empresa_items` for CRM follow-ups (new Alembic revision on top of `a6b7c8d9e0f1`; do not edit the historical `z5a6b7c8d9e0` migration):
    - `kind`: `todo`, `event`, `note`, `outreach`
    - `description`
    - `contact_method`
@@ -88,12 +106,13 @@ Each company should support:
    - Eva account link request
    - create Eva account from company request
    - company outreach/interaction response if needed
+   - default `EmpresaCreate.status` should reflect unlinked-prospect reality: drive the empresa card display from `lifecycle_stage` (or compute a derived status) rather than the legacy `operativo` literal so new outbound prospects do not render as "Operativo".
 
 3. Add Empresa APIs:
    - list companies with linked account summary and next action
    - create/update/delete company follow-up item
    - complete/toggle item
-   - calendar query by date range
+   - calendar query by date range — must blend `empresa_items` (event/todo/reminder) AND existing `meetings` rows joined to `empresas` (and existing `empresa_interactions` for historical context) so the new hub does not hide pre-existing data
    - link existing Eva account
    - create Eva account for company
    - deterministic auto-match or admin backfill for existing accounts
@@ -109,10 +128,14 @@ Each company should support:
    - Vault
    - OKRs
    - Assistant
-   - Meetings
+   - Meetings (data still readable through Empresas calendar — see step 3)
    - Documents
 
 6. Remove deleted-module metrics from dashboard contracts where the UI no longer uses them.
+
+7. Fix `eva_platform` router static-route shadowing: ensure `channel_health_router` (which mounts `/accounts/list-for-link`) is included BEFORE `accounts_router` (which mounts `/accounts/{account_id}`) in `backend/src/eva_platform/router/__init__.py`. Today the dynamic UUID route swallows the static path. Test ordering with a route-registration assertion.
+
+8. Preserve outreach history: `empresa_interactions` rows must remain readable from the new Empresas detail UI (timeline tab or merged into items list) so historical outreach is not orphaned. New writes can use `empresa_items.kind='outreach'`; reads should union both sources.
 
 ---
 
@@ -126,6 +149,7 @@ Each company should support:
 
 2. Command palette:
    - remove all deleted sections and routes.
+   - also remove the legacy `Customers` → `/customers` entry (the page does not exist; only the Facturas-side `lib/api/customers.ts` helper survives — do NOT delete that helper or its backend router).
 
 3. Dashboard:
    - remove dashboard cards/links for deleted sections.
@@ -158,16 +182,19 @@ Backend:
 - dashboard contract no longer exposes removed unused metrics
 - company item schema validates dates and blank titles
 - calendar route is registered before dynamic `/{empresa_id}` route
+- `/eva-platform/accounts/list-for-link` is reachable (channel_health router included before accounts router)
 - account linking syncs Empresa cache/history/version
 - stale account cache is cleared when linking a new account
 - linked account deactivation is blocked
 - new-account provisioning for invalid `operativo` Empresa fails before Supabase side effects
+- empresa calendar query surfaces existing `meetings` rows linked via `empresa_id`
+- empresa detail timeline includes historical `empresa_interactions`
 
 Frontend:
 
 - sidebar no longer renders removed items
-- command palette no longer routes to removed items
-- Empresas card shows next action / unlinked state
+- command palette no longer routes to removed items (including the legacy `/customers` entry)
+- Empresas card shows next action / unlinked state, and unlinked outbound prospects do NOT render as "Operativo"
 - Empresas accounts view includes old Eva customer workflows
 - removed pages are gone or redirect intentionally
 

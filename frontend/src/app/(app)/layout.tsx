@@ -15,16 +15,15 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Dashboard", subtitle: "Overview of EVA operations" },
   "/finances": { title: "Finances", subtitle: "Revenue, expenses, and cash flow" },
   "/facturas": { title: "Facturas", subtitle: "CFDI electronic invoicing" },
-  "/vault": { title: "Vault", subtitle: "Secure document storage" },
+  "/gastos": { title: "Gastos", subtitle: "Facturas recibidas e IVA acreditable" },
+  "/declaracion": { title: "Declaración", subtitle: "Cálculo mensual RESICO" },
+  "/empresas": { title: "Empresas", subtitle: "CRM, follow-ups, and Eva accounts" },
   "/tasks": { title: "Tasks", subtitle: "Track and manage work" },
   // /prospects redirects to /empresas?stage=prospecto; metadata entry kept so
   // the brief moment before redirect shows a sensible heading.
   "/prospects": { title: "Pipeline", subtitle: "Redirigiendo a /empresas…" },
-  "/meetings": { title: "Meetings", subtitle: "Schedule and notes" },
-  "/documents": { title: "Documents", subtitle: "File management" },
-  "/okrs": { title: "OKRs", subtitle: "Objectives and key results" },
-  "/assistant": { title: "Eva AI", subtitle: "Embedded bot workspace" },
-  "/eva-customers": { title: "Eva Customers", subtitle: "Platform accounts and drafts" },
+  // /eva-customers redirects to /empresas?view=accounts; metadata for redirect flash.
+  "/eva-customers": { title: "Empresas", subtitle: "Redirigiendo a /empresas…" },
   "/monitoring": { title: "Monitoring", subtitle: "Platform health and issues" },
   "/infrastructure": { title: "Infrastructure", subtitle: "OpenClaw runtime hosts and employees" },
   "/partners": { title: "Partners", subtitle: "Partner management and deals" },
@@ -123,7 +122,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   const { title, subtitle } = getPageInfo(pathname);
   const isDashboard = pathname.startsWith("/dashboard");
-  const isAssistant = pathname.startsWith("/assistant");
+  const isAssistant = false; // /assistant page removed in CRM consolidation
 
   // Close mobile sidebar on route change
   useEffect(() => {

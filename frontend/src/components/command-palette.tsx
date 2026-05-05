@@ -13,29 +13,26 @@ import {
 import {
   LayoutDashboard,
   DollarSign,
-  Users,
-  Lock,
   CheckSquare,
   Target,
   Calendar,
-  FolderOpen,
-  Trophy,
   Settings,
   UsersRound,
+  Briefcase,
 } from "lucide-react";
-import { OwlIcon } from "@/components/owl-icon";
 
+// Removed entries (kept the audit trail rather than the surface area):
+//   - /customers had no app page; helper survives only for Facturas reads.
+//   - Vault, Meetings, Documents, OKRs, Assistant, Eva Customers
+//     consolidated into /empresas per the company CRM consolidation plan.
 const pages = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", keywords: "home overview kpis metrics" },
   { label: "Finances", icon: DollarSign, href: "/finances", keywords: "income expenses invoices money revenue" },
-  { label: "Customers", icon: Users, href: "/customers", keywords: "clients mrr arr subscriptions" },
-  { label: "Vault", icon: Lock, href: "/vault", keywords: "passwords credentials secrets costs" },
+  { label: "Empresas", icon: Briefcase, href: "/empresas", keywords: "companies crm accounts customers eva linked unlinked" },
   { label: "Tasks", icon: CheckSquare, href: "/tasks", keywords: "kanban boards todo work" },
   { label: "Pipeline de Empresas", icon: Target, href: "/empresas?stage=prospecto", keywords: "sales pipeline leads crm prospects kanban" },
-  { label: "Meetings", icon: Calendar, href: "/meetings", keywords: "calendar schedule calls" },
-  { label: "Documents", icon: FolderOpen, href: "/documents", keywords: "files storage uploads" },
-  { label: "OKRs", icon: Trophy, href: "/okrs", keywords: "objectives key results goals" },
-  { label: "Eva", icon: OwlIcon, href: "/assistant", keywords: "chat ai query ask eva" },
+  { label: "Calendario de Empresas", icon: Calendar, href: "/empresas?view=calendar", keywords: "calendar schedule meetings followups events" },
+  { label: "Cuentas Eva", icon: Briefcase, href: "/empresas?view=accounts", keywords: "eva accounts customers platform" },
   { label: "Team", icon: UsersRound, href: "/team", keywords: "users members invite admin people" },
   { label: "Settings", icon: Settings, href: "/settings", keywords: "profile preferences account" },
 ];

@@ -30,6 +30,8 @@ function makeEmpresa(overrides: Partial<EmpresaListItem> = {}): EmpresaListItem 
     item_count: 0,
     pending_count: 0,
     pending_items: [],
+    next_action: null,
+    overdue_count: 0,
     health: {
       status: "not_linked",
       unhealthy_count: 0,
