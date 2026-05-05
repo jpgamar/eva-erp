@@ -1,6 +1,6 @@
 # Company CRM Consolidation Implementation Plan
 
-**Overall Progress:** `95%`
+**Overall Progress:** `100%`
 
 > **Implementation:** Use the `implement-plan` skill to execute this plan.
 
@@ -162,7 +162,11 @@ The ERP opens with a simpler navigation. There is one company CRM surface at `/e
 - Alembic: `cd backend && PYTHONPATH=. venv/bin/alembic heads` reports single head `z5a6b7c8d9e0`.
 - Code review: final Codex review returned no P0/P1 findings.
 - Cross-model review: final Claude review returned no P0/P1 findings.
-- Production deployment/database verification remains the final 5% and is tracked in the ship step.
+- Production backend: Koyeb deployment `f988d3c3-d934-43f2-ae05-e73943a0eddf` is healthy on commit `08d1cec`.
+- Production migrations: GitHub post-deploy workflow completed successfully; `alembic current -v` reports `z5a6b7c8d9e0 (head)`.
+- Production frontend: Vercel deployment `dpl_FhXKpMBjwawTyJpgrE3xMxszUWeh` is ready and aliased to `https://erp.goeva.ai`.
+- Production database: `empresa_items` has all new CRM fields; duplicate non-null `empresas.eva_account_id` count is `0`; linked Empresas count is `8`; auto-match attempted count is `27`.
+- Production browser verification: `/empresas` authenticated UI loads; sidebar has no Eva Customers, Strategy, OKRs, Eva AI, or Vault links; cards show linked/unlinked Eva states; calendar view loads; accounts view loads; `/eva-customers` redirects into Empresas; `/vault`, `/okrs`, and `/assistant` return `404`; backend `/api/v1/vault`, `/api/v1/okrs`, and `/api/v1/assistant` return `404`.
 
 ---
 
