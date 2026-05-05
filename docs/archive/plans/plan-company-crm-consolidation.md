@@ -1,8 +1,8 @@
 # Company CRM Consolidation Plan
 
-**Overall Progress:** `90%`
+**Overall Progress:** `100%` — shipped to production 2026-05-05.
 
-> **Status:** Implementation complete on `feat/company-crm-consolidation`. 10 codex code-review rounds done (final verdict PASS, no P0/P1). Pending: merge to main + production verification.
+> **Status:** Merged to `main` and live on https://erp.goeva.ai. Alembic head `b8c9d0e1f2g3`. All verification checks green (see below). Plan archived.
 
 ## Progress Checklist
 
@@ -20,7 +20,7 @@
 - 🟩 Frontend tests (41 passing)
 - 🟩 `npx tsc --noEmit` + `npm test` + `npm run lint` + `npm run build` + `pytest` (all green; lint warnings only)
 - 🟩 Cross-model code review iteration (10 rounds, FAIL → ... → PASS)
-- 🟥 Production migration + browser verification (gated on user push approval — branch on origin/feat/company-crm-consolidation, not deployed)
+- 🟩 Production migration + browser verification (Alembic head `b8c9d0e1f2g3`, all 9 new columns present, 0 duplicate `empresas.eva_account_id`, removed routes 404, /eva-customers redirects to /empresas?view=accounts, calendar + cuentas views render)
 
 ---
 
