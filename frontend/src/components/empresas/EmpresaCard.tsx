@@ -115,6 +115,53 @@ export function EmpresaCard({ empresa, onClick, onQuickAdd, onLogChannel }: Prop
         </div>
       ) : null}
 
+      {linked &&
+      (empresa.health.messenger.present ||
+        empresa.health.instagram.present ||
+        empresa.health.whatsapp.present) ? (
+        <div className="flex items-center gap-2 text-[10px]" data-testid={`empresa-channel-health-${empresa.id}`}>
+          {empresa.health.messenger.present ? (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  empresa.health.messenger.healthy ? "bg-emerald-500" : "bg-rose-500"
+                }`}
+              />
+              <span className="text-muted-foreground">Messenger</span>
+              {empresa.health.messenger.count > 1 ? (
+                <span className="text-muted-foreground/60">·{empresa.health.messenger.count}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {empresa.health.instagram.present ? (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  empresa.health.instagram.healthy ? "bg-emerald-500" : "bg-rose-500"
+                }`}
+              />
+              <span className="text-muted-foreground">Instagram</span>
+              {empresa.health.instagram.count > 1 ? (
+                <span className="text-muted-foreground/60">·{empresa.health.instagram.count}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {empresa.health.whatsapp.present ? (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  empresa.health.whatsapp.healthy ? "bg-emerald-500" : "bg-rose-500"
+                }`}
+              />
+              <span className="text-muted-foreground">WhatsApp</span>
+              {empresa.health.whatsapp.count > 1 ? (
+                <span className="text-muted-foreground/60">·{empresa.health.whatsapp.count}</span>
+              ) : null}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       {empresa.summary_note ? (
         <p className="line-clamp-2 text-xs text-muted-foreground">{empresa.summary_note}</p>
       ) : null}

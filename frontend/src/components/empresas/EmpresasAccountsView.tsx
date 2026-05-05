@@ -143,21 +143,34 @@ const formatPricingLabel = (pricing: AccountPricing | undefined): string => {
   return `${pricing.billing_currency} ${amount} / ${interval}`;
 };
 
+interface EmpresasAccountsViewEmpresa {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  eva_account_id?: string | null;
+}
+
 export interface EmpresasAccountsViewProps {
-  // Reserved for future deep-link navigation from empresa cards. Kept on
-  // the public surface so the parent page can pass either the empresa
-  // list or a navigation callback once those flows ship.
-  empresas?: unknown;
+  /** Empresas list (used to surface unlinked empresas with a
+   *  "Crear cuenta" CTA). Optional for backwards compat. */
+  empresas?: EmpresasAccountsViewEmpresa[];
+  /** Click handler — when set, the "Crear cuenta" CTA on an unlinked
+   *  empresa row opens that empresa's edit modal where the operator
+   *  can fill the inline owner-email/plan form. */
   onJumpToEmpresa?: (empresaId: string) => void;
 }
 
 // Eva Customers workflows live here now (moved out of /eva-customers,
 // which is a redirect to /empresas?view=accounts). The component is the
 // full create/approve/pricing/billing/impersonate/deactivate surface;
-// future patches can migrate individual rows back into the empresa
-// detail view, but for the consolidation the destination must be at
-// least as capable as the deleted page.
-export function EmpresasAccountsView(_props: EmpresasAccountsViewProps = {}) {
+// the new "Empresas sin cuenta de Eva" panel below also surfaces
+// unlinked empresas with a per-row "Crear cuenta" CTA so operators
+// don't have to drill in via the kanban modal.
+export function EmpresasAccountsView({
+  empresas: empresasProp = [],
+  onJumpToEmpresa,
+}: EmpresasAccountsViewProps = {}) {
+  const unlinkedEmpresas = empresasProp.filter((e) => !e.eva_account_id);
   const [accounts, setAccounts] = useState<EvaAccount[]>([]);
   const [drafts, setDrafts] = useState<AccountDraft[]>([]);
   const [dashboard, setDashboard] = useState<PlatformDashboard | null>(null);
@@ -557,6 +570,44 @@ export function EmpresasAccountsView(_props: EmpresasAccountsViewProps = {}) {
 
   return (
     <div className="space-y-6 animate-erp-entrance">
+      {/* Empresas sin cuenta de Eva — surface the per-empresa "Crear
+          cuenta" CTA at the top of the Accounts view so operators
+          don't have to drill into the kanban edit modal. */}
+      {unlinkedEmpresas.length > 0 ? (
+        <section
+          className="rounded-xl border border-amber-200 bg-amber-50/50 p-4"
+          data-testid="empresas-accounts-unlinked-empresas"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-semibold text-amber-900">
+              Empresas sin cuenta de Eva ({unlinkedEmpresas.length})
+            </p>
+            <p className="text-[11px] text-amber-700/80">
+              Vincúlalas o crea su cuenta directamente desde la edición de la empresa.
+            </p>
+          </div>
+          <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
+            {unlinkedEmpresas.map((empresa) => (
+              <li
+                key={empresa.id}
+                className="flex items-center justify-between rounded-md bg-white px-3 py-1.5 text-sm shadow-sm"
+              >
+                <span className="truncate text-foreground">{empresa.name}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => onJumpToEmpresa?.(empresa.id)}
+                  data-testid={`empresas-accounts-create-${empresa.id}`}
+                >
+                  + Crear cuenta
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

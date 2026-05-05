@@ -389,6 +389,69 @@ export default function EmpresasPage() {
   const [evaAccounts, setEvaAccounts] = useState<EvaAccountForLink[]>([]);
   const [loadingEvaAccounts, setLoadingEvaAccounts] = useState(false);
 
+  // Inline "Crear nueva cuenta de Eva" form inside the edit modal —
+  // wires to POST /empresas/{id}/eva-account so operators can create
+  // an Eva account for the current empresa without leaving the page.
+  const [evaAccountFormOpen, setEvaAccountFormOpen] = useState(false);
+  const [evaAccountCreating, setEvaAccountCreating] = useState(false);
+  const [evaAccountForm, setEvaAccountForm] = useState({
+    owner_email: "",
+    owner_name: "",
+    plan_tier: "STANDARD",
+    billing_cycle: "MONTHLY",
+  });
+
+  const createEvaAccountForCurrentEmpresa = async () => {
+    if (!editingEmpresaId) return;
+    if (!evaAccountForm.owner_email.trim()) {
+      toast.error("El email del owner es requerido");
+      return;
+    }
+    setEvaAccountCreating(true);
+    try {
+      const result = await empresasApi.createEvaAccount(editingEmpresaId, {
+        owner_email: evaAccountForm.owner_email.trim().toLowerCase(),
+        owner_name: evaAccountForm.owner_name.trim() || undefined,
+        plan_tier: evaAccountForm.plan_tier,
+        billing_cycle: evaAccountForm.billing_cycle,
+      });
+      toast.success("Cuenta de Eva creada y vinculada");
+      setEvaAccountFormOpen(false);
+      setEvaAccountForm({
+        owner_email: "",
+        owner_name: "",
+        plan_tier: "STANDARD",
+        billing_cycle: "MONTHLY",
+      });
+      // The backend already linked the empresa during account creation;
+      // refresh the form's eva_account_id and the picker list so the
+      // operator sees the new selection without reopening the modal.
+      setEmpresaForm((prev) => ({ ...prev, eva_account_id: result.account.id }));
+      try {
+        const accounts = await empresasApi.listEvaAccountsForLink();
+        setEvaAccounts(accounts);
+      } catch {
+        // Non-fatal — the link is already persisted.
+      }
+      void loadEmpresas();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      const reason = detail?.reason;
+      const message = detail?.message;
+      if (reason === "OperativoRequiresExistingSubscription") {
+        toast.error(
+          message ?? "Mueve la empresa fuera de 'Operativo' antes de crear la cuenta nueva.",
+        );
+      } else if (reason === "empresa_already_linked") {
+        toast.error(message ?? "Esta empresa ya está vinculada a otra cuenta de Eva.");
+      } else {
+        toast.error(message ?? "No se pudo crear la cuenta de Eva.");
+      }
+    } finally {
+      setEvaAccountCreating(false);
+    }
+  };
+
   // ── Data loading ────────────────────────────────────────────────
 
   const loadEmpresas = async () => {
@@ -1329,13 +1392,28 @@ export default function EmpresasPage() {
             <div>
               <label className="text-sm font-medium">Cuenta de Eva vinculada</label>
               <Select
-                value={empresaForm.eva_account_id ?? "_none"}
-                onValueChange={(v) =>
+                value={
+                  evaAccountFormOpen
+                    ? "_create"
+                    : empresaForm.eva_account_id ?? "_none"
+                }
+                onValueChange={(v) => {
+                  if (v === "_create") {
+                    if (!editingEmpresaId) {
+                      toast.error(
+                        "Guarda la empresa primero para poder crear su cuenta de Eva.",
+                      );
+                      return;
+                    }
+                    setEvaAccountFormOpen(true);
+                    return;
+                  }
+                  setEvaAccountFormOpen(false);
                   setEmpresaForm({
                     ...empresaForm,
                     eva_account_id: v === "_none" ? null : v,
-                  })
-                }
+                  });
+                }}
               >
                 <SelectTrigger data-testid="empresa-eva-account-select">
                   <SelectValue
@@ -1346,6 +1424,9 @@ export default function EmpresasPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_none">Sin vincular</SelectItem>
+                  <SelectItem value="_create" data-testid="empresa-eva-create-option">
+                    + Crear nueva cuenta de Eva
+                  </SelectItem>
                   {evaAccounts.map((acc) => (
                     <SelectItem key={acc.id} value={acc.id}>
                       {acc.name}
@@ -1353,10 +1434,100 @@ export default function EmpresasPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1">
-                Vincula esta empresa con su cuenta correspondiente en Eva para
-                ver el estado de los canales en tiempo real.
-              </p>
+              {evaAccountFormOpen ? (
+                <div className="mt-2 space-y-2 rounded-lg border border-border bg-muted/20 p-3" data-testid="empresa-eva-create-form">
+                  <p className="text-xs font-medium text-foreground">
+                    Crear nueva cuenta de Eva para esta empresa
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div>
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        Email del owner *
+                      </label>
+                      <Input
+                        type="email"
+                        value={evaAccountForm.owner_email}
+                        onChange={(e) =>
+                          setEvaAccountForm({ ...evaAccountForm, owner_email: e.target.value })
+                        }
+                        placeholder="owner@empresa.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        Nombre del owner
+                      </label>
+                      <Input
+                        value={evaAccountForm.owner_name}
+                        onChange={(e) =>
+                          setEvaAccountForm({ ...evaAccountForm, owner_name: e.target.value })
+                        }
+                        placeholder="Nombre y apellido"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-muted-foreground">Plan</label>
+                      <Select
+                        value={evaAccountForm.plan_tier}
+                        onValueChange={(v) =>
+                          setEvaAccountForm({ ...evaAccountForm, plan_tier: v })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="STANDARD">Standard</SelectItem>
+                          <SelectItem value="PRO">Pro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        Facturación
+                      </label>
+                      <Select
+                        value={evaAccountForm.billing_cycle}
+                        onValueChange={(v) =>
+                          setEvaAccountForm({ ...evaAccountForm, billing_cycle: v })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MONTHLY">Mensual</SelectItem>
+                          <SelectItem value="ANNUAL">Anual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEvaAccountFormOpen(false)}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={evaAccountCreating}
+                      onClick={createEvaAccountForCurrentEmpresa}
+                      data-testid="empresa-eva-create-submit"
+                    >
+                      {evaAccountCreating ? "Creando..." : "Crear y vincular"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Vincula esta empresa con su cuenta correspondiente en Eva para
+                  ver el estado de los canales en tiempo real, o crea una nueva.
+                </p>
+              )}
             </div>
 
             {/* Summary note — taller, resizable, the operator's main
