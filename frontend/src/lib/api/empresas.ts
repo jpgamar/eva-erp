@@ -184,8 +184,10 @@ export interface BulkStageResponse {
 
 export interface EmpresaCalendarItem {
   id: string;
-  empresa_id: string;
-  empresa_name: string;
+  // Nullable: internal items (`empresa_id IS NULL`) appear on the
+  // calendar too. Frontend renders "Tarea interna" when both are null.
+  empresa_id: string | null;
+  empresa_name: string | null;
   source: EmpresaCalendarSource;
   kind: string;
   title: string;

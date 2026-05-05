@@ -84,7 +84,7 @@
 - All five views render under `/empresas` without errors: `?view=grid` (default), `?view=kanban`, `?view=calendar`, `?view=tasks`, `?view=accounts`.
 - Slide-over panel handles create + edit + delete for items via the same component; works from kanban "+", cards "+", calendar day-click, Tareas row-click.
 - `<DateTimePicker>` component is the only date/time control in the empresas surface. No `<input type="datetime-local">` remains in the empresa flows.
-- `/tasks` returns 404; `/api/v1/tasks/...` returns 404; sidebar "Tasks" entry is gone; command palette has no `/tasks` entry.
+- `/tasks` redirects to `/empresas?view=tasks` (kept for bookmark compatibility — operator-friendly); `/api/v1/tasks/...` returns 404; sidebar "Tasks" entry is gone; command palette has no `/tasks` entry.
 - The 10 prod tasks rows are migrated into `empresa_items` with `empresa_id=NULL`. The tasks table is dropped.
 - A scheduled empresa-item event with `start_at = NOW() + 24h` triggers an email to `gus@goeva.ai` within 5 min of the T-24h boundary; same for T-1h.
 - The empresa edit modal "Cuenta de Eva" picker offers "+ Crear nueva cuenta de Eva". Selecting it inline-creates the account and links it to the empresa in one save.

@@ -208,14 +208,24 @@ export function EmpresasCalendarView({ empresaId, empresas = [], onSelectEmpresa
                               {item.contact_method ? ` · ${item.contact_method}` : ""}
                             </p>
                             {!empresaId ? (
-                              <button
-                                type="button"
-                                onClick={() => onSelectEmpresa?.(item.empresa_id)}
-                                className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 hover:underline"
-                              >
-                                <Building2 className="h-3 w-3" />
-                                {item.empresa_name}
-                              </button>
+                              item.empresa_id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectEmpresa?.(item.empresa_id!)}
+                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 hover:underline"
+                                >
+                                  <Building2 className="h-3 w-3" />
+                                  {item.empresa_name}
+                                </button>
+                              ) : (
+                                // Internal items (no empresa) are clearly
+                                // labeled so the calendar doesn't render an
+                                // empty link/blank label.
+                                <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                                  <Building2 className="h-3 w-3" />
+                                  Tarea interna
+                                </p>
+                              )
                             ) : null}
                             {item.description ? (
                               <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">

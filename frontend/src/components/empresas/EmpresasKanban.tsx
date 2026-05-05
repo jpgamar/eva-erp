@@ -258,8 +258,13 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
               empresa={item}
               onClick={(emp, event) => {
                 // Cmd/Ctrl-click toggles bulk selection. A regular click
-                // opens the empresa edit modal as before.
+                // opens the empresa edit modal as before. Without
+                // stopPropagation the click would bubble to the outer
+                // KanbanCard wrapper, which also fires onClick and would
+                // open the modal in addition to toggling selection.
                 if (event && (event.metaKey || event.ctrlKey)) {
+                  event.stopPropagation();
+                  event.preventDefault();
                   toggleSelect(emp);
                   return;
                 }

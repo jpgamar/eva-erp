@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -92,7 +92,7 @@ async def current_kpis(
             EmpresaItem.done == False,  # noqa: E712
             EmpresaItem.kind != "note",
             EmpresaItem.due_at.is_not(None),
-            EmpresaItem.due_at < today,
+            EmpresaItem.due_at < datetime.now(timezone.utc),
         )
     )
     overdue_tasks = overdue_result.scalar() or 0

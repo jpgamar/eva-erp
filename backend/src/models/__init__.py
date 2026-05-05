@@ -1,8 +1,11 @@
-# Import all models here so Alembic can discover them
+# Import all models here so Alembic can discover them.
+#
+# Tasks/Boards models removed in the empresas-ux-pass consolidation —
+# the data lives in `empresa_items` now. Leaving the import here would
+# fail at startup AND would block `alembic upgrade head` on deploy.
 from src.auth.models import User  # noqa: F401
 from src.notifications.models import Notification  # noqa: F401
 from src.vault.models import VaultConfig, Credential, VaultAuditLog  # noqa: F401
-from src.tasks.models import Board, Task, TaskComment  # noqa: F401
 from src.customers.models import Customer  # noqa: F401
 from src.finances.models import (  # noqa: F401
     ExchangeRate,
