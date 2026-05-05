@@ -22,6 +22,7 @@ vi.mock("./client", () => ({ default: apiClientMock }));
 afterEach(() => vi.clearAllMocks());
 
 describe("empresasApi link/unlink contract", () => {
+
   it("linkEvaAccount POSTs to /empresas/:id/link-eva-account with If-Match", async () => {
     const { empresasApi } = await import("./empresas");
     apiClientMock.post.mockResolvedValueOnce({ data: { id: "e1", version: 6 } });

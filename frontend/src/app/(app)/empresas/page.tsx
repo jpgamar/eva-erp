@@ -536,8 +536,33 @@ export default function EmpresasPage() {
         }
         toast.success("Empresa actualizada");
       } else {
-        await empresasApi.create(payload);
-        toast.success("Empresa creada");
+        // Generic POST refuses `eva_account_id` (link must go through
+        // the dedicated endpoint). If the operator picked an Eva
+        // account in the create form, create the empresa first, then
+        // link with the freshly-returned version. This keeps the
+        // single "save" UX without bypassing the link rules.
+        const { eva_account_id: requestedAccountId, ...createPayload } = payload;
+        const created = await empresasApi.create(createPayload);
+        if (requestedAccountId) {
+          try {
+            await empresasApi.linkEvaAccount(
+              created.id,
+              requestedAccountId,
+              created.version ?? 0
+            );
+            toast.success("Empresa creada y vinculada");
+          } catch (linkErr: any) {
+            // Empresa exists — surface the link failure but don't
+            // discard the row. Operator can retry from the edit modal.
+            const linkDetail = linkErr?.response?.data?.detail;
+            toast.error(
+              linkDetail?.message ??
+                "Empresa creada, pero no se pudo vincular la cuenta de Eva. Vincúlala desde la edición."
+            );
+          }
+        } else {
+          toast.success("Empresa creada");
+        }
       }
       setEmpresaModalOpen(false);
       loadEmpresas();
