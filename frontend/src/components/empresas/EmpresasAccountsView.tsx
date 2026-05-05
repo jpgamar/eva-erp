@@ -1,190 +1,1740 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import {
+  Plus, Search, Building2, FileText, Trash2, Check,
+  ExternalLink, CheckCircle2, Handshake, DollarSign, TrendingDown,
+  CalendarDays, CreditCard, Hash, User2, ShieldAlert, RefreshCw, Copy, Mail,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Building2, ExternalLink, Search } from "lucide-react";
-
 import { evaPlatformApi } from "@/lib/api/eva-platform";
-import type { EmpresaListItem } from "@/lib/api/empresas";
-import type { EvaAccount, AccountDraft } from "@/types";
+import { dashboardApi, type DashboardData } from "@/lib/api/dashboard";
+import type {
+  EvaAccount,
+  AccountDraft,
+  PlatformDashboard,
+  AccountPricing,
+  AccountPricingCoverage,
+  AccountOnboarding,
+  EvaBillingAdminStatus,
+  EvaBillingDocument,
+} from "@/types";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
-interface Props {
-  empresas: EmpresaListItem[];
-  onJumpToEmpresa: (empresa: EmpresaListItem) => void;
+const TABS = [
+  { key: "active", label: "Active Accounts" },
+  { key: "inactive", label: "Inactive Accounts" },
+  { key: "drafts", label: "Draft Accounts" },
+];
+
+const DRAFT_STATUS_COLORS: Record<string, string> = {
+  draft: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
+  approved: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+};
+
+const PLAN_COLORS: Record<string, string> = {
+  starter: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  standard: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+  pro: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+  custom: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
+};
+
+const BILLING_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  pending_stamp: "Pendiente de timbrado",
+  issued: "Emitida",
+  email_sent: "Enviada por email",
+  payment_action_required: "Accion requerida",
+  finalization_failed: "Finalizacion fallida",
+  refund_issued: "Egreso emitido",
+  canceled: "Cancelada",
+  not_requested: "Sin factura",
+};
+
+const INITIAL_ACCOUNT_FORM = {
+  name: "",
+  owner_email: "",
+  owner_name: "",
+  account_type: "COMMERCE" as string,
+  plan_tier: "starter",
+  billing_cycle: "monthly",
+  facturapi_org_api_key: "",
+  send_setup_email: true,
+};
+
+const INITIAL_DRAFT_FORM = {
+  name: "",
+  owner_email: "",
+  owner_name: "",
+  account_type: "COMMERCE" as string,
+  plan_tier: "starter",
+  billing_cycle: "monthly",
+  facturapi_org_api_key: "",
+  notes: "",
+};
+
+const INITIAL_PRICING_FORM = {
+  billing_amount: "",
+  billing_currency: "MXN",
+  billing_interval: "MONTHLY",
+  is_billable: true,
+  notes: "",
+};
+
+const getApiErrorMessage = (error: any, fallback: string): string => {
+  const detail = error?.response?.data?.detail;
+  const errorCode = error?.response?.data?.error_code || detail?.code;
+  if (typeof errorCode === "string") {
+    if (errorCode === "owner_duplicate_unresolved") {
+      return "Owner email exists but could not be linked. Please retry in a few seconds.";
+    }
+    if (errorCode === "supabase_upstream_unavailable") {
+      return "Provisioning service is temporarily unavailable. Please try again.";
+    }
+  }
+  if (detail && typeof detail === "object") {
+    const detailMessage = detail.message || detail.msg;
+    if (typeof detailMessage === "string" && detailMessage.trim()) {
+      return detailMessage;
+    }
+  }
+  if (typeof detail === "string" && detail.trim()) {
+    if (detail.includes("already registered but could not be linked")) {
+      return "Owner email exists but could not be linked. Please retry in a few seconds.";
+    }
+    if (detail.includes("temporarily unavailable")) {
+      return "Provisioning service is temporarily unavailable. Please try again.";
+    }
+    return detail;
+  }
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    if (typeof first?.msg === "string" && first.msg.trim()) {
+      return first.msg;
+    }
+  }
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+};
+
+const formatPricingLabel = (pricing: AccountPricing | undefined): string => {
+  if (!pricing) return "Not set";
+  if (!pricing.is_billable) return "Non-billable";
+  if (pricing.billing_amount == null) return "Not set";
+  const amount = Number(pricing.billing_amount).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  const interval = pricing.billing_interval === "ANNUAL" ? "annual" : "monthly";
+  return `${pricing.billing_currency} ${amount} / ${interval}`;
+};
+
+export interface EmpresasAccountsViewProps {
+  // Reserved for future deep-link navigation from empresa cards. Kept on
+  // the public surface so the parent page can pass either the empresa
+  // list or a navigation callback once those flows ship.
+  empresas?: unknown;
+  onJumpToEmpresa?: (empresaId: string) => void;
 }
 
-/**
- * Accounts view inside `/empresas`. Displays:
- *   - Linked empresas (Empresa → Eva account → subscription status)
- *   - Pending drafts (operator must approve them)
- *   - Unlinked active Eva accounts (so the operator can create the
- *     missing empresa or link it to an existing one)
- *
- * Replaces the old standalone `/eva-customers` page; the old page now
- * redirects here.
- */
-export function EmpresasAccountsView({ empresas, onJumpToEmpresa }: Props) {
+// Eva Customers workflows live here now (moved out of /eva-customers,
+// which is a redirect to /empresas?view=accounts). The component is the
+// full create/approve/pricing/billing/impersonate/deactivate surface;
+// future patches can migrate individual rows back into the empresa
+// detail view, but for the consolidation the destination must be at
+// least as capable as the deleted page.
+export function EmpresasAccountsView(_props: EmpresasAccountsViewProps = {}) {
   const [accounts, setAccounts] = useState<EvaAccount[]>([]);
   const [drafts, setDrafts] = useState<AccountDraft[]>([]);
+  const [dashboard, setDashboard] = useState<PlatformDashboard | null>(null);
+  const [metrics, setMetrics] = useState<DashboardData | null>(null);
+  const [pricingCoverage, setPricingCoverage] = useState<AccountPricingCoverage | null>(null);
+  const [pricingByAccount, setPricingByAccount] = useState<Record<string, AccountPricing>>({});
+  const [billingByAccount, setBillingByAccount] = useState<Record<string, EvaBillingAdminStatus>>({});
+  const [checkoutLinkByAccount, setCheckoutLinkByAccount] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState("active");
+
+  // Dialogs
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const [addDraftOpen, setAddDraftOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
+
+  // Detail sheet
+  const [selectedAccount, setSelectedAccount] = useState<EvaAccount | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [pricingAccount, setPricingAccount] = useState<EvaAccount | null>(null);
+
+  // Forms
+  const [accountForm, setAccountForm] = useState({ ...INITIAL_ACCOUNT_FORM });
+  const [draftForm, setDraftForm] = useState({ ...INITIAL_DRAFT_FORM });
+  const [pricingForm, setPricingForm] = useState({ ...INITIAL_PRICING_FORM });
+
+  // Action loading
+  const [approving, setApproving] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [savingPricing, setSavingPricing] = useState(false);
+  const [accountOnboarding, setAccountOnboarding] = useState<AccountOnboarding | null>(null);
+  const [resendingOnboardingFor, setResendingOnboardingFor] = useState<string | null>(null);
+  const [billingLoadingFor, setBillingLoadingFor] = useState<string | null>(null);
+  const [creatingCheckoutFor, setCreatingCheckoutFor] = useState<string | null>(null);
+  const [retryingDocumentFor, setRetryingDocumentFor] = useState<string | null>(null);
+  const [resendingInvoiceFor, setResendingInvoiceFor] = useState<string | null>(null);
+
+  const copyOnboardingLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Setup link copied");
+    } catch {
+      toast.error("Failed to copy setup link");
+    }
+  };
+
+  const copyCheckoutLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Checkout link copied");
+    } catch {
+      toast.error("Failed to copy checkout link");
+    }
+  };
+
+
+  const fetchData = async () => {
+    try {
+      const [accts, drfts, dash, met, accountPricing, coverage] = await Promise.all([
+        evaPlatformApi.listAccounts({ search: search || undefined }),
+        evaPlatformApi.listDrafts(),
+        evaPlatformApi.dashboard(),
+        dashboardApi.summary().catch(() => null),
+        evaPlatformApi.listAccountPricing({ search: search || undefined }),
+        evaPlatformApi.pricingCoverage(),
+      ]);
+      setAccounts(accts);
+      setDrafts(drfts);
+      setDashboard(dash);
+      setMetrics(met);
+      setPricingCoverage(coverage);
+      setPricingByAccount(
+        Object.fromEntries(accountPricing.map((item) => [item.account_id, item])),
+      );
+    } catch {
+      toast.error("Failed to load Eva accounts");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      evaPlatformApi.listAccounts().catch(() => [] as EvaAccount[]),
-      evaPlatformApi.listDrafts().catch(() => [] as AccountDraft[]),
-    ])
-      .then(([a, d]) => {
-        setAccounts(a);
-        setDrafts(d);
-      })
-      .catch(() => toast.error("No se pudo cargar la vista de cuentas"))
-      .finally(() => setLoading(false));
-  }, []);
+    fetchData();
+  }, [search]);
 
-  const empresaByAccountId = useMemo(() => {
-    const map = new Map<string, EmpresaListItem>();
-    for (const emp of empresas) {
-      if (emp.eva_account_id) map.set(emp.eva_account_id, emp);
+  const fetchBillingStatus = async (account: EvaAccount) => {
+    setBillingLoadingFor(account.id);
+    try {
+      const billing = await evaPlatformApi.getAccountBillingStatus(account.id);
+      setBillingByAccount((current) => ({ ...current, [account.id]: billing }));
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to load billing operations"));
+    } finally {
+      setBillingLoadingFor((current) => (current === account.id ? null : current));
     }
-    return map;
-  }, [empresas]);
+  };
 
-  const linkedEmpresas = useMemo(
-    () =>
-      empresas
-        .filter((e) => e.eva_account_id !== null)
-        .filter((e) => e.name.toLowerCase().includes(search.toLowerCase())),
-    [empresas, search]
-  );
+  useEffect(() => {
+    if (!sheetOpen || !selectedAccount) return;
+    void fetchBillingStatus(selectedAccount);
+  }, [sheetOpen, selectedAccount]);
 
-  const unlinkedAccounts = useMemo(
-    () =>
-      accounts.filter((a) => a.is_active && !empresaByAccountId.has(a.id)),
-    [accounts, empresaByAccountId]
-  );
+  const handleCreateAccount = async () => {
+    if (creatingAccount) return;
+    setCreatingAccount(true);
+    try {
+      const result = await evaPlatformApi.createAccount({
+        ...accountForm,
+        name: accountForm.name.trim(),
+        owner_email: accountForm.owner_email.trim().toLowerCase(),
+        owner_name: accountForm.owner_name.trim(),
+        facturapi_org_api_key: accountForm.facturapi_org_api_key || null,
+      });
+      setAccountOnboarding(result.onboarding);
+      setAccountForm({ ...INITIAL_ACCOUNT_FORM, name: accountForm.name.trim() });
+      if (result.onboarding.email_status === "sent") {
+        const providerMessage = result.onboarding.email_message?.trim();
+        toast.success(
+          providerMessage
+            ? `Account created and setup email sent. ${providerMessage}`
+            : "Account created and setup email sent"
+        );
+      } else {
+        const reason = result.onboarding.email_message?.trim();
+        toast.warning(
+          reason
+            ? `Account created. Setup email not delivered: ${reason}`
+            : "Account created. Share setup link manually."
+        );
+      }
+      await fetchData();
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to create account"));
+    } finally {
+      setCreatingAccount(false);
+    }
+  };
 
-  const pendingDrafts = useMemo(
-    () => drafts.filter((d) => d.status === "draft"),
-    [drafts]
-  );
+  const handleCreateDraft = async () => {
+    try {
+      await evaPlatformApi.createDraft({
+        ...draftForm,
+        facturapi_org_api_key: draftForm.facturapi_org_api_key || null,
+        notes: draftForm.notes || null,
+      });
+      toast.success("Draft created successfully");
+      setAddDraftOpen(false);
+      setDraftForm({ ...INITIAL_DRAFT_FORM });
+      await fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to create draft");
+    }
+  };
+
+  const handleApproveDraft = async (id: string) => {
+    setApproving(id);
+    try {
+      await evaPlatformApi.approveDraft(id);
+      toast.success("Draft approved and account provisioned");
+      await fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to approve draft");
+    } finally {
+      setApproving(null);
+    }
+  };
+
+  const handleDeleteDraft = async (id: string) => {
+    setDeleting(id);
+    try {
+      await evaPlatformApi.deleteDraft(id);
+      toast.success("Draft deleted");
+      await fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to delete draft");
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleImpersonate = async (account: EvaAccount) => {
+    try {
+      const result = await evaPlatformApi.impersonateAccount(account.id);
+      toast.success(`Impersonating ${result.account_name}`);
+      window.open(result.magic_link_url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to impersonate account");
+    }
+  };
+
+  const handleResendOnboarding = async (account: EvaAccount) => {
+    if (resendingOnboardingFor === account.id) return;
+    setResendingOnboardingFor(account.id);
+    try {
+      const onboarding = await evaPlatformApi.resendAccountOnboarding(account.id, { send_setup_email: true });
+      if (onboarding.email_status === "sent") {
+        const providerMessage = onboarding.email_message?.trim();
+        toast.success(
+          providerMessage
+            ? `Setup email sent to ${onboarding.owner_email}. ${providerMessage}`
+            : `Setup email sent to ${onboarding.owner_email}`
+        );
+      } else {
+        try {
+          await navigator.clipboard.writeText(onboarding.onboarding_link);
+          toast.warning("Setup email failed. Link copied to clipboard.");
+        } catch {
+          toast.warning("Setup email failed. Copy the setup link manually.");
+        }
+      }
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to resend setup email"));
+    } finally {
+      setResendingOnboardingFor(null);
+    }
+  };
+
+  const handleDeleteAccount = async (account: EvaAccount) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to deactivate "${account.name}"? This will set the account to inactive.`
+    );
+    if (!confirmed) return;
+    setDeletingAccount(true);
+    try {
+      await evaPlatformApi.deleteAccount(account.id);
+      toast.success(`Account "${account.name}" deactivated`);
+      setSheetOpen(false);
+      setSelectedAccount(null);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to deactivate account"));
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const handleReactivateAccount = async (account: EvaAccount) => {
+    const confirmed = window.confirm(
+      `Reactivate "${account.name}"? This will set the account back to active.`
+    );
+    if (!confirmed) return;
+    setDeletingAccount(true);
+    try {
+      await evaPlatformApi.reactivateAccount(account.id);
+      toast.success(`Account "${account.name}" reactivated`);
+      setSheetOpen(false);
+      setSelectedAccount(null);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to reactivate account"));
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const handleOpenPricing = (account: EvaAccount) => {
+    const pricing = pricingByAccount[account.id];
+    setPricingAccount(account);
+    setPricingForm({
+      billing_amount: pricing?.billing_amount != null ? String(pricing.billing_amount) : "",
+      billing_currency: pricing?.billing_currency || "MXN",
+      billing_interval: pricing?.billing_interval || "MONTHLY",
+      is_billable: pricing?.is_billable ?? true,
+      notes: pricing?.notes || "",
+    });
+    setPricingOpen(true);
+  };
+
+  const handleSavePricing = async () => {
+    if (!pricingAccount) return;
+    const amountRaw = pricingForm.billing_amount.trim();
+    if (pricingForm.is_billable && amountRaw.length === 0) {
+      toast.error("Billing amount is required for billable accounts");
+      return;
+    }
+    if (amountRaw.length > 0 && Number.isNaN(Number(amountRaw))) {
+      toast.error("Billing amount must be a valid number");
+      return;
+    }
+
+    setSavingPricing(true);
+    try {
+      await evaPlatformApi.updateAccountPricing(pricingAccount.id, {
+        billing_amount: amountRaw.length > 0 ? Number(amountRaw) : null,
+        billing_currency: pricingForm.billing_currency,
+        billing_interval: pricingForm.billing_interval,
+        is_billable: pricingForm.is_billable,
+        notes: pricingForm.notes.trim() || null,
+      });
+      toast.success("Account pricing updated");
+      setPricingOpen(false);
+      setPricingAccount(null);
+      await fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to update pricing");
+    } finally {
+      setSavingPricing(false);
+    }
+  };
+
+  const openDetail = (account: EvaAccount) => {
+    setSelectedAccount(account);
+    setSheetOpen(true);
+  };
+
+  const handleCreateCheckoutLink = async (account: EvaAccount) => {
+    setCreatingCheckoutFor(account.id);
+    try {
+      const result = await evaPlatformApi.createAccountCheckoutLink(account.id, {
+        plan_tier: account.plan_tier,
+        billing_interval: account.billing_interval,
+      });
+      setCheckoutLinkByAccount((current) => ({ ...current, [account.id]: result.checkout_url }));
+      toast.success("Checkout link created");
+      window.open(result.checkout_url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to create checkout link"));
+    } finally {
+      setCreatingCheckoutFor((current) => (current === account.id ? null : current));
+    }
+  };
+
+  const handleRetryBillingDocument = async (account: EvaAccount, document: EvaBillingDocument) => {
+    setRetryingDocumentFor(document.id);
+    try {
+      await evaPlatformApi.retryAccountBillingDocument(account.id, document.id);
+      toast.success("Billing retry queued");
+      await fetchBillingStatus(account);
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to retry billing document"));
+    } finally {
+      setRetryingDocumentFor((current) => (current === document.id ? null : current));
+    }
+  };
+
+  const handleResendBillingEmail = async (account: EvaAccount, document: EvaBillingDocument) => {
+    if (!document.cfdi_uuid) {
+      toast.error("This invoice does not have a CFDI UUID yet");
+      return;
+    }
+    setResendingInvoiceFor(document.id);
+    try {
+      await evaPlatformApi.resendAccountBillingEmail(account.id, { cfdi_uuid: document.cfdi_uuid });
+      toast.success("Invoice email re-sent");
+      await fetchBillingStatus(account);
+    } catch (e: any) {
+      toast.error(getApiErrorMessage(e, "Failed to resend invoice email"));
+    } finally {
+      setResendingInvoiceFor((current) => (current === document.id ? null : current));
+    }
+  };
+
+  const selectedBilling = selectedAccount ? billingByAccount[selectedAccount.id] : null;
+  const selectedCheckoutLink = selectedAccount ? checkoutLinkByAccount[selectedAccount.id] : null;
+
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-erp-entrance">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div>
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="mt-1 h-3 w-48" />
+            </div>
+          </div>
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+        {/* Skeleton KPI cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-11 w-11 rounded-xl shrink-0" />
+                <div className="space-y-1.5">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-5 w-12" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-10 w-64 rounded-lg" />
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="space-y-3 p-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar empresa vinculada"
-            className="pl-9"
-          />
+    <div className="space-y-6 animate-erp-entrance">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-light">
+            <Building2 className="h-5 w-5 text-accent" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Eva Accounts</p>
+            <p className="text-xs text-muted">Manage platform accounts and drafts</p>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {loading
-            ? "Cargando…"
-            : `${linkedEmpresas.length} vinculadas · ${unlinkedAccounts.length} cuentas sin empresa · ${pendingDrafts.length} borradores`}
-        </p>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-lg"
+            onClick={() => setAddDraftOpen(true)}
+          >
+            <FileText className="h-4 w-4 mr-2" /> New Draft
+          </Button>
+          <Button
+            size="sm"
+            className="rounded-lg bg-accent hover:bg-accent/90 text-white"
+            onClick={() => {
+              setAccountOnboarding(null);
+              setAddAccountOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" /> New Account
+          </Button>
+        </div>
       </div>
 
-      <section data-testid="empresas-accounts-linked">
-        <header className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Empresas vinculadas a Eva</h2>
-        </header>
-        {linkedEmpresas.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-            Ninguna empresa está vinculada todavía. Crea o vincula una cuenta de Eva desde la tarjeta de la empresa.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
-            {linkedEmpresas.map((empresa) => (
-              <li key={empresa.id} className="flex items-center justify-between gap-3 p-3">
-                <button
-                  type="button"
-                  onClick={() => onJumpToEmpresa(empresa)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-sm font-semibold text-accent-foreground">
-                    {empresa.logo_url ? (
-                      <img src={empresa.logo_url} alt={empresa.name} className="h-10 w-10 rounded-lg object-contain" />
-                    ) : (
-                      <Building2 className="h-5 w-5" />
-                    )}
+      {/* KPI Cards */}
+      {dashboard && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="rounded-xl border border-border border-l-[3px] border-l-accent bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-light">
+                <Building2 className="h-5 w-5 text-accent" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Total Accounts</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.total_accounts}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-green-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Active</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.active_accounts}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-amber-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+                <FileText className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Drafts Pending</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.draft_accounts_pending}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-blue-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                <Handshake className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Partners</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {dashboard.active_partners}
+                </p>
+              </div>
+            </div>
+          </div>
+          {pricingCoverage && (
+            <div className="rounded-xl border border-border border-l-[3px] border-l-violet-500 bg-card p-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+                  <DollarSign className="h-5 w-5 text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted">Pricing Coverage</p>
+                  <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                    {pricingCoverage.coverage_pct.toFixed(1)}%
+                  </p>
+                  <p className="text-[10px] text-muted">
+                    {pricingCoverage.configured_accounts}/{pricingCoverage.billable_accounts} billable configured
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SaaS Metrics */}
+      {metrics && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-border border-l-[3px] border-l-emerald-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <DollarSign className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">MRR</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  ${Number(metrics.mrr).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-violet-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+                <DollarSign className="h-5 w-5 text-violet-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">ARPU</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  ${Number(metrics.arpu).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border border-l-[3px] border-l-red-500 bg-card p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50">
+                <TrendingDown className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted">Churn Rate</p>
+                <p className="mt-0.5 font-mono text-xl font-bold text-foreground">
+                  {metrics.total_customers > 0
+                    ? ((metrics.churned_customers / metrics.total_customers) * 100).toFixed(1)
+                    : "0.0"}%
+                </p>
+                <p className="text-[10px] text-muted">{metrics.churned_customers} churned this month</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab bar */}
+      <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-card p-1">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "rounded-md px-4 py-2 text-sm font-medium transition-colors",
+              tab === t.key
+                ? "bg-accent text-white shadow-sm"
+                : "text-muted hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Active Accounts */}
+      {tab === "active" && (
+        <div className="space-y-4">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+            <input
+              placeholder="Search accounts..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-full rounded-lg border-0 bg-gray-100 pl-9 pr-3 text-sm outline-none placeholder:text-muted focus:ring-2 focus:ring-accent/20"
+            />
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50/80">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Type</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Billing</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted w-[240px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accounts.filter((a) => a.is_active).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted py-12">
+                      No active accounts found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  accounts.filter((a) => a.is_active).map((a) => (
+                    <TableRow
+                      key={a.id}
+                      className="cursor-pointer hover:bg-gray-50/80"
+                      onClick={() => openDetail(a)}
+                    >
+                      <TableCell className="font-medium text-foreground">{a.name}</TableCell>
+                      <TableCell className="text-sm capitalize">{a.account_type?.toLowerCase().replace("_", " ") || "\u2014"}</TableCell>
+                      <TableCell>
+                        {a.plan_tier ? (
+                          <Badge className={`rounded-full text-xs ${PLAN_COLORS[a.plan_tier] || ""}`}>
+                            {a.plan_tier}
+                          </Badge>
+                        ) : (
+                          "\u2014"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatPricingLabel(pricingByAccount[a.id])}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-accent/30 text-accent hover:bg-accent/10"
+                            onClick={() => handleImpersonate(a)}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Impersonate
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-violet-300 text-violet-700 hover:bg-violet-50"
+                            onClick={() => handleOpenPricing(a)}
+                          >
+                            <DollarSign className="h-3 w-3 mr-1" />
+                            Set Price
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                            onClick={() => handleDeleteAccount(a)}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Deactivate
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {/* Inactive Accounts */}
+      {tab === "inactive" && (
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50/80">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Type</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Created</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accounts.filter((a) => !a.is_active).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted py-12">
+                      No inactive accounts.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  accounts.filter((a) => !a.is_active).map((a) => (
+                    <TableRow
+                      key={a.id}
+                      className="cursor-pointer hover:bg-gray-50/80 opacity-70"
+                      onClick={() => openDetail(a)}
+                    >
+                      <TableCell className="font-medium text-foreground">{a.name}</TableCell>
+                      <TableCell className="text-sm capitalize">{a.account_type?.toLowerCase().replace("_", " ") || "\u2014"}</TableCell>
+                      <TableCell>
+                        {a.plan_tier ? (
+                          <Badge className={`rounded-full text-xs ${PLAN_COLORS[a.plan_tier] || ""}`}>
+                            {a.plan_tier}
+                          </Badge>
+                        ) : (
+                          "\u2014"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-accent/30 text-accent hover:bg-accent/10"
+                            onClick={() => handleImpersonate(a)}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Impersonate
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-lg text-xs border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800"
+                            onClick={() => handleReactivateAccount(a)}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Reactivate
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {/* Draft Accounts */}
+      {tab === "drafts" && (
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50/80">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Name</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Email</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Plan</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Status</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Prospect</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {drafts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted py-12">
+                      No drafts found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  drafts.map((d) => (
+                    <TableRow key={d.id} className="hover:bg-gray-50/80">
+                      <TableCell className="font-medium text-foreground">{d.name}</TableCell>
+                      <TableCell className="text-sm">{d.owner_email}</TableCell>
+                      <TableCell>
+                        {d.plan_tier ? (
+                          <Badge className={`rounded-full text-xs ${PLAN_COLORS[d.plan_tier] || ""}`}>
+                            {d.plan_tier}
+                          </Badge>
+                        ) : (
+                          "\u2014"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={`rounded-full text-xs ${DRAFT_STATUS_COLORS[d.status] || ""}`}>
+                          {d.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">{d.empresa_id || d.prospect_id || "\u2014"}</TableCell>
+                      <TableCell>
+                        {d.status === "draft" ? (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 rounded-lg border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800"
+                              onClick={() => handleApproveDraft(d.id)}
+                              disabled={approving === d.id}
+                            >
+                              <Check className="h-3.5 w-3.5 mr-1" />
+                              {approving === d.id ? "..." : "Approve"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 rounded-lg border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                              onClick={() => handleDeleteDraft(d.id)}
+                              disabled={deleting === d.id}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                              {deleting === d.id ? "..." : "Delete"}
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted">{"\u2014"}</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Sheet */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent className="w-[480px] sm:w-[560px] overflow-y-auto p-6">
+          {selectedAccount && (
+            <div className="space-y-6 pt-2">
+              {/* Header */}
+              <div>
+                <SheetTitle className="text-left text-lg font-semibold">
+                  {selectedAccount.name}
+                </SheetTitle>
+                <div className="mt-2 flex items-center gap-2">
+                  {selectedAccount.is_active ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                      Inactive
+                    </span>
+                  )}
+                  {selectedAccount.plan_tier && (
+                    <Badge className={`rounded-full text-xs ${PLAN_COLORS[selectedAccount.plan_tier] || ""}`}>
+                      {selectedAccount.plan_tier}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Account Info */}
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account Info</p>
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Type</span>
+                    <span className="text-sm font-medium capitalize">
+                      {selectedAccount.account_type?.toLowerCase().replace("_", " ") || "\u2014"}
+                    </span>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-foreground">{empresa.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {empresa.health.linked_account_name ?? "Cuenta de Eva"}
-                      {empresa.subscription_status ? ` · ${empresa.subscription_status.replace(/_/g, " ")}` : ""}
+                  <div className="flex items-center gap-3">
+                    <CreditCard className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Plan</span>
+                    <span className="text-sm font-medium capitalize">{selectedAccount.plan_tier || "\u2014"}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Billing Cycle</span>
+                    <span className="text-sm font-medium capitalize">{selectedAccount.billing_interval || "\u2014"}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <ShieldAlert className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Subscription</span>
+                    <span className="text-sm font-medium capitalize">{selectedAccount.subscription_status || "\u2014"}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <DollarSign className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Revenue</span>
+                    <span className="text-sm font-medium">
+                      {formatPricingLabel(pricingByAccount[selectedAccount.id])}
+                    </span>
+                  </div>
+                  <div className="pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg text-xs border-violet-300 text-violet-700 hover:bg-violet-50"
+                      onClick={() => handleOpenPricing(selectedAccount)}
+                    >
+                      <DollarSign className="h-3.5 w-3.5 mr-1.5" />
+                      Update Pricing
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Dates */}
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Dates</p>
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Created</span>
+                    <span className="text-sm font-medium">
+                      {new Date(selectedAccount.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                  {selectedAccount.updated_at && (
+                    <div className="flex items-center gap-3">
+                      <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground w-28 shrink-0">Updated</span>
+                      <span className="text-sm font-medium">
+                        {new Date(selectedAccount.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* IDs */}
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Identifiers</p>
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <Hash className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-28 shrink-0">Account ID</span>
+                    <span className="text-sm font-mono text-muted-foreground truncate" title={selectedAccount.id}>
+                      {selectedAccount.id.slice(0, 8)}...{selectedAccount.id.slice(-4)}
+                    </span>
+                  </div>
+                  {selectedAccount.owner_user_id && (
+                    <div className="flex items-center gap-3">
+                      <User2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground w-28 shrink-0">Owner User</span>
+                      <span className="text-sm font-mono text-muted-foreground truncate" title={selectedAccount.owner_user_id}>
+                        {selectedAccount.owner_user_id.slice(0, 8)}...{selectedAccount.owner_user_id.slice(-4)}
+                      </span>
+                    </div>
+                  )}
+                  {selectedAccount.partner_id && (
+                    <div className="flex items-center gap-3">
+                      <Handshake className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground w-28 shrink-0">Partner ID</span>
+                      <span className="text-sm font-mono text-muted-foreground truncate" title={selectedAccount.partner_id}>
+                        {selectedAccount.partner_id.slice(0, 8)}...{selectedAccount.partner_id.slice(-4)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Billing Operations</p>
+                    <p className="text-xs text-muted-foreground">
+                      Create Checkout links, inspect CFDI status, and support invoice delivery.
                     </p>
                   </div>
-                </button>
-                <span className="text-[11px] text-muted-foreground">{empresa.lifecycle_stage}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section data-testid="empresas-accounts-drafts">
-        <header className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Borradores pendientes</h2>
-        </header>
-        {pendingDrafts.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-            No hay borradores pendientes de aprobación.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
-            {pendingDrafts.map((draft) => (
-              <li key={draft.id} className="flex items-center justify-between gap-3 p-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-foreground">{draft.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {draft.owner_email} · {draft.account_type} · {draft.plan_tier}
-                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => fetchBillingStatus(selectedAccount)}
+                    disabled={billingLoadingFor === selectedAccount.id}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    {billingLoadingFor === selectedAccount.id ? "Refreshing..." : "Refresh"}
+                  </Button>
                 </div>
-                <Link
-                  href="/empresas?view=accounts"
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted/40"
+
+                <div className="rounded-xl border border-border bg-card/60 p-4">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="rounded-lg bg-accent hover:bg-accent/90 text-white"
+                      onClick={() => handleCreateCheckoutLink(selectedAccount)}
+                      disabled={creatingCheckoutFor === selectedAccount.id}
+                    >
+                      <CreditCard className="mr-1.5 h-3.5 w-3.5" />
+                      {creatingCheckoutFor === selectedAccount.id ? "Creating..." : "Create Checkout Link"}
+                    </Button>
+                    {selectedCheckoutLink ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                          onClick={() => window.open(selectedCheckoutLink, "_blank", "noopener,noreferrer")}
+                        >
+                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                          Open Link
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                          onClick={() => copyCheckoutLink(selectedCheckoutLink)}
+                        >
+                          <Copy className="mr-1.5 h-3.5 w-3.5" />
+                          Copy Link
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {selectedBilling ? (
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-border/60 bg-background p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Current Status</p>
+                        <p className="mt-1 text-sm font-medium capitalize text-foreground">
+                          {selectedBilling.status.subscription_status || "none"}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Factura: {selectedBilling.status.billing_subscription_cfdi_enabled ? "enabled" : "disabled"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Fiscal profile: {selectedBilling.status.fiscal_profile_complete ? "complete" : "incomplete"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-background p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Usage Snapshot</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Messages: {selectedBilling.status.usage.messages_used} / {selectedBilling.status.usage.messages_limit}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Agents: {selectedBilling.status.usage.agents_used} / {selectedBilling.status.usage.agents_limit}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Seats: {selectedBilling.status.usage.seats_used} / {selectedBilling.status.usage.seats_limit}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      {billingLoadingFor === selectedAccount.id ? "Loading billing operations..." : "No billing data loaded yet."}
+                    </p>
+                  )}
+
+                  <div className="mt-4 space-y-3">
+                    {(selectedBilling?.documents || []).length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-border/70 p-3 text-sm text-muted-foreground">
+                        No billing documents yet.
+                      </div>
+                    ) : (
+                      selectedBilling?.documents.map((document) => (
+                        <div key={document.id} className="rounded-lg border border-border/70 bg-background p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-foreground">
+                                {document.document_type} · {BILLING_STATUS_LABELS[document.status] || document.status}
+                              </p>
+                              {document.cfdi_uuid ? (
+                                <p className="text-xs font-mono text-muted-foreground">{document.cfdi_uuid}</p>
+                              ) : null}
+                              {document.status_detail ? (
+                                <p className="text-xs text-muted-foreground">{document.status_detail}</p>
+                              ) : null}
+                              {document.email_status ? (
+                                <p className="text-xs text-muted-foreground">Email: {document.email_status}</p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {document.pdf_url ? (
+                                <Button asChild size="sm" variant="outline" className="rounded-lg">
+                                  <a href={document.pdf_url} target="_blank" rel="noopener noreferrer">PDF</a>
+                                </Button>
+                              ) : null}
+                              {document.xml_url ? (
+                                <Button asChild size="sm" variant="outline" className="rounded-lg">
+                                  <a href={document.xml_url} target="_blank" rel="noopener noreferrer">XML</a>
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg"
+                                onClick={() => handleRetryBillingDocument(selectedAccount, document)}
+                                disabled={
+                                  retryingDocumentFor === document.id ||
+                                  ["issued", "email_sent", "refund_issued", "canceled", "not_requested", "payment_action_required", "finalization_failed"].includes(document.status)
+                                }
+                              >
+                                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                {retryingDocumentFor === document.id ? "Retrying..." : "Retry"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg"
+                                onClick={() => handleResendBillingEmail(selectedAccount, document)}
+                                disabled={resendingInvoiceFor === document.id || !document.cfdi_uuid}
+                              >
+                                <Mail className="mr-1.5 h-3.5 w-3.5" />
+                                {resendingInvoiceFor === document.id ? "Sending..." : "Resend Email"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Actions */}
+              <div className="space-y-2.5">
+                <Button
+                  className="w-full rounded-lg bg-accent hover:bg-accent/90 text-white"
+                  onClick={() => handleImpersonate(selectedAccount)}
                 >
-                  <ExternalLink className="h-3 w-3" />
-                  Aprobar
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Impersonate Account
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full rounded-lg border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                  onClick={() => handleResendOnboarding(selectedAccount)}
+                  disabled={resendingOnboardingFor === selectedAccount.id}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  {resendingOnboardingFor === selectedAccount.id ? "Sending setup email..." : "Resend Setup Email"}
+                </Button>
+                {selectedAccount.is_active ? (
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-lg border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    onClick={() => handleDeleteAccount(selectedAccount)}
+                    disabled={deletingAccount}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {deletingAccount ? "Deactivating..." : "Deactivate Account"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-lg border-green-300 text-green-700 hover:bg-green-50 hover:text-green-800"
+                    onClick={() => handleReactivateAccount(selectedAccount)}
+                    disabled={deletingAccount}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    {deletingAccount ? "Reactivating..." : "Reactivate Account"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
-      <section data-testid="empresas-accounts-unlinked">
-        <header className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Cuentas Eva sin empresa</h2>
-        </header>
-        {unlinkedAccounts.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-            Todas las cuentas activas tienen una empresa vinculada.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
-            {unlinkedAccounts.map((account) => (
-              <li key={account.id} className="flex items-center justify-between gap-3 p-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-foreground">{account.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {account.account_type} · {account.plan_tier}
-                  </p>
+      {/* Account Pricing Dialog */}
+      <Dialog
+        open={pricingOpen}
+        onOpenChange={(open) => {
+          setPricingOpen(open);
+          if (!open) setPricingAccount(null);
+        }}
+      >
+        <DialogContent className="max-w-md p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-foreground">Account Pricing</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted">
+              {pricingAccount ? pricingAccount.name : "Configure projected revenue data"}
+            </p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSavePricing();
+            }}
+            className="space-y-3 px-6 py-4"
+          >
+            <div className="flex items-center justify-between rounded-lg border border-border bg-gray-50/70 px-3 py-2">
+              <div>
+                <p className="text-xs font-medium text-foreground">Billable account</p>
+                <p className="text-[11px] text-muted">Non-billable accounts are excluded from coverage</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={pricingForm.is_billable ? "default" : "outline"}
+                className={cn("h-7 rounded-md px-3 text-xs", pricingForm.is_billable ? "bg-accent text-white" : "")}
+                onClick={() => setPricingForm((form) => ({ ...form, is_billable: !form.is_billable }))}
+              >
+                {pricingForm.is_billable ? "Yes" : "No"}
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Amount</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  inputMode="decimal"
+                  value={pricingForm.billing_amount}
+                  onChange={(e) => setPricingForm((form) => ({ ...form, billing_amount: e.target.value }))}
+                  placeholder="0.00"
+                  disabled={!pricingForm.is_billable}
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Currency</Label>
+                <Select
+                  value={pricingForm.billing_currency}
+                  onValueChange={(v) => setPricingForm((form) => ({ ...form, billing_currency: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MXN">MXN</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Interval</Label>
+              <Select
+                value={pricingForm.billing_interval}
+                onValueChange={(v) => setPricingForm((form) => ({ ...form, billing_interval: v }))}
+              >
+                <SelectTrigger className="mt-1.5 rounded-lg">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MONTHLY">Monthly</SelectItem>
+                  <SelectItem value="ANNUAL">Annual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label>
+              <Textarea
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={pricingForm.notes}
+                onChange={(e) => setPricingForm((form) => ({ ...form, notes: e.target.value }))}
+                rows={2}
+                placeholder="Optional context for finance reconciliation"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" className="rounded-lg" onClick={() => setPricingOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="rounded-lg bg-accent hover:bg-accent/90 text-white disabled:opacity-70"
+                disabled={savingPricing}
+              >
+                {savingPricing ? "Saving..." : "Save Pricing"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Account Dialog */}
+      <Dialog
+        open={addAccountOpen}
+        onOpenChange={(open) => {
+          setAddAccountOpen(open);
+          if (!open) setAccountOnboarding(null);
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-foreground">New Account</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted">Create a new Eva platform account</p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateAccount();
+            }}
+            className="space-y-3 px-6 py-4"
+          >
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Account Name *</Label>
+              <Input
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={accountForm.name}
+                onChange={(e) => setAccountForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Owner Email *</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  type="email"
+                  value={accountForm.owner_email}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, owner_email: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Owner Name *</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  value={accountForm.owner_name}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, owner_name: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Account Type *</Label>
+                <Select
+                  value={accountForm.account_type}
+                  onValueChange={(v) => setAccountForm((f) => ({ ...f, account_type: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COMMERCE">Commerce</SelectItem>
+                    <SelectItem value="PROPERTY_MANAGEMENT">Property Management</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Plan Tier *</Label>
+                <Select
+                  value={accountForm.plan_tier}
+                  onValueChange={(v) => setAccountForm((f) => ({ ...f, plan_tier: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="starter">Starter</SelectItem>
+                    <SelectItem value="standard">Standard</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Billing Cycle *</Label>
+                <Select
+                  value={accountForm.billing_cycle}
+                  onValueChange={(v) => setAccountForm((f) => ({ ...f, billing_cycle: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="yearly">Yearly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Facturapi Org API Key</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  value={accountForm.facturapi_org_api_key}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, facturapi_org_api_key: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-border bg-gray-50/70 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={accountForm.send_setup_email}
+                onChange={(e) => setAccountForm((f) => ({ ...f, send_setup_email: e.target.checked }))}
+              />
+              Send setup email to owner
+            </label>
+            {accountOnboarding && (
+              <div className="rounded-lg border border-border bg-gray-50/80 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">Owner onboarding</p>
+                  <Badge
+                    className={cn(
+                      "rounded-full text-xs",
+                      accountOnboarding.email_status === "sent"
+                        ? "bg-green-100 text-green-700"
+                        : accountOnboarding.email_status === "failed"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-gray-100 text-gray-700",
+                    )}
+                  >
+                    {accountOnboarding.email_status}
+                  </Badge>
                 </div>
-                <span className="text-[11px] text-amber-700">Sin empresa</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                <p className="mt-1 text-xs text-muted">
+                  {accountOnboarding.email_message || "Share the setup link with the owner."}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 rounded-lg text-xs"
+                    onClick={() => copyOnboardingLink(accountOnboarding.onboarding_link)}
+                  >
+                    <Copy className="h-3.5 w-3.5 mr-1.5" />
+                    Copy setup link
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-lg"
+                onClick={() => setAddAccountOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={creatingAccount}
+                className="rounded-lg bg-accent hover:bg-accent/90 text-white disabled:opacity-70"
+              >
+                {creatingAccount ? "Creating..." : "Create Account"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Draft Dialog */}
+      <Dialog open={addDraftOpen} onOpenChange={setAddDraftOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <div className="border-b border-border bg-gray-50/80 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-foreground">New Draft</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted">Create a draft account for review before provisioning</p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateDraft();
+            }}
+            className="space-y-3 px-6 py-4"
+          >
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Account Name *</Label>
+              <Input
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={draftForm.name}
+                onChange={(e) => setDraftForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Owner Email *</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  type="email"
+                  value={draftForm.owner_email}
+                  onChange={(e) => setDraftForm((f) => ({ ...f, owner_email: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Owner Name *</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  value={draftForm.owner_name}
+                  onChange={(e) => setDraftForm((f) => ({ ...f, owner_name: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Account Type *</Label>
+                <Select
+                  value={draftForm.account_type}
+                  onValueChange={(v) => setDraftForm((f) => ({ ...f, account_type: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COMMERCE">Commerce</SelectItem>
+                    <SelectItem value="PROPERTY_MANAGEMENT">Property Management</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Plan Tier *</Label>
+                <Select
+                  value={draftForm.plan_tier}
+                  onValueChange={(v) => setDraftForm((f) => ({ ...f, plan_tier: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="starter">Starter</SelectItem>
+                    <SelectItem value="standard">Standard</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Billing Cycle *</Label>
+                <Select
+                  value={draftForm.billing_cycle}
+                  onValueChange={(v) => setDraftForm((f) => ({ ...f, billing_cycle: v }))}
+                >
+                  <SelectTrigger className="mt-1.5 rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="yearly">Yearly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Facturapi Org API Key</Label>
+                <Input
+                  className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  value={draftForm.facturapi_org_api_key}
+                  onChange={(e) => setDraftForm((f) => ({ ...f, facturapi_org_api_key: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted">Notes</Label>
+              <Textarea
+                className="mt-1.5 rounded-lg bg-gray-50/80 border-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+                value={draftForm.notes}
+                onChange={(e) => setDraftForm((f) => ({ ...f, notes: e.target.value }))}
+                rows={3}
+                placeholder="Any additional notes about this draft..."
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-lg"
+                onClick={() => setAddDraftOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="rounded-lg bg-accent hover:bg-accent/90 text-white">
+                Create Draft
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

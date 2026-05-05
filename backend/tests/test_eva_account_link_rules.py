@@ -384,3 +384,66 @@ def test_deactivate_succeeds_when_no_empresa_link() -> None:
     )
     assert account.is_active is False
     assert account in eva_db.added
+
+
+# ── Pre-Supabase fail-fast for operativo empresas ───────────────────
+
+
+def test_preflight_409_when_empresa_operativo_and_unlinked() -> None:
+    empresa = _make_empresa(lifecycle_stage="operativo", grandfathered=False)
+
+    class _Db:
+        async def execute(self, _q: Any) -> _ScalarResult:
+            return _ScalarResult(empresa)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(_preflight_empresa_link(_Db(), empresa.id))  # type: ignore[arg-type]
+    assert exc.value.status_code == 409
+    assert exc.value.detail["reason"] == "OperativoRequiresExistingSubscription"
+
+
+def test_preflight_allows_grandfathered_operativo() -> None:
+    empresa = _make_empresa(lifecycle_stage="operativo", grandfathered=True)
+
+    class _Db:
+        async def execute(self, _q: Any) -> _ScalarResult:
+            return _ScalarResult(empresa)
+
+    result = asyncio.run(_preflight_empresa_link(_Db(), empresa.id))  # type: ignore[arg-type]
+    assert result is empresa
+
+
+def test_create_account_for_operativo_empresa_does_not_call_supabase() -> None:
+    """Regression: a fresh-account create from an operativo empresa must
+    fail before any Supabase admin call. We assert by patching the
+    Supabase admin and confirming it was never invoked.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from src.empresas.router import create_eva_account_for_empresa
+    from src.empresas.schemas import CreateEvaAccountForEmpresaRequest
+
+    empresa = _make_empresa(lifecycle_stage="operativo", grandfathered=False)
+
+    class _Db:
+        async def execute(self, _q: Any) -> _ScalarResult:
+            return _ScalarResult(empresa)
+
+    payload = CreateEvaAccountForEmpresaRequest(owner_email="x@example.com")
+    with patch(
+        "src.eva_platform.supabase_client.SupabaseAdminClient.admin_create_user",
+        new_callable=AsyncMock,
+    ) as supabase_mock:
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                create_eva_account_for_empresa(
+                    empresa_id=empresa.id,
+                    payload=payload,
+                    db=_Db(),  # type: ignore[arg-type]
+                    eva_db=_Db(),  # type: ignore[arg-type]
+                    user=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
+                )
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["reason"] == "OperativoRequiresExistingSubscription"
+        supabase_mock.assert_not_called()

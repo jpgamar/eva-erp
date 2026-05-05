@@ -65,7 +65,11 @@ class EmpresaCreate(BaseModel):
     fiscal_postal_code: str | None = None
     cfdi_use: str | None = "G03"
     person_type: str | None = None
-    status: str = "operativo"
+    # Default status follows the lifecycle stage: a fresh prospect should
+    # not be presented as "Operativo" before they sign a contract. The
+    # validator below upgrades it when the operator explicitly sets a
+    # later lifecycle stage.
+    status: str = "prospecto"
     lifecycle_stage: LifecycleStage = "prospecto"
     ball_on: str | None = None
     summary_note: str | None = None

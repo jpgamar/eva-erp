@@ -67,6 +67,31 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   requiere_atencion: { label: "Fase: Atención", className: "bg-red-100 text-red-700" },
 };
 
+// Lifecycle-stage fallback so unlinked outbound prospects don't render
+// as "Operativo" before they've signed anything. Drives the badge when
+// `status` is unknown (e.g., new "prospecto" rows from the create form).
+const LIFECYCLE_BADGE_CONFIG: Record<string, { label: string; className: string }> = {
+  prospecto: { label: "Fase: Prospecto", className: "bg-slate-100 text-slate-700" },
+  interesado: { label: "Fase: Interesado", className: "bg-sky-100 text-sky-700" },
+  demo: { label: "Fase: Demo", className: "bg-indigo-100 text-indigo-700" },
+  negociacion: { label: "Fase: Negociación", className: "bg-violet-100 text-violet-700" },
+  implementacion: { label: "Fase: Implementación", className: "bg-amber-100 text-amber-700" },
+  operativo: { label: "Fase: Operativo", className: "bg-emerald-100 text-emerald-700" },
+  churn_risk: { label: "Fase: Riesgo de churn", className: "bg-rose-100 text-rose-700" },
+  inactivo: { label: "Fase: Inactivo", className: "bg-muted text-muted-foreground" },
+};
+
+function badgeForEmpresa(emp: { status: string; lifecycle_stage: string }) {
+  const fromStatus = STATUS_CONFIG[emp.status];
+  if (fromStatus) return fromStatus;
+  return (
+    LIFECYCLE_BADGE_CONFIG[emp.lifecycle_stage] ?? {
+      label: emp.lifecycle_stage,
+      className: "bg-muted text-muted-foreground",
+    }
+  );
+}
+
 const BALL_ON_CONFIG: Record<string, { label: string; icon: typeof ArrowLeft }> = {
   nosotros: { label: "Nosotros", icon: ArrowLeft },
   cliente: { label: "Cliente", icon: ArrowRight },
@@ -103,7 +128,7 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   fiscal_postal_code: null,
   cfdi_use: "G03",
   person_type: null,
-  status: "operativo",
+  status: "prospecto",
   ball_on: null,
   summary_note: null,
   monthly_amount: null,
@@ -658,7 +683,13 @@ export default function EmpresasPage() {
           }}
         />
       ) : view === "accounts" ? (
-        <EmpresasAccountsView empresas={empresas} onJumpToEmpresa={openEditEmpresa} />
+        <EmpresasAccountsView
+          empresas={empresas}
+          onJumpToEmpresa={(empresaId) => {
+            const target = empresas.find((emp) => emp.id === empresaId);
+            if (target) openEditEmpresa(target);
+          }}
+        />
       ) : loading ? (
         <div className="py-12 text-center text-muted-foreground">Cargando...</div>
       ) : empresas.length === 0 ? (
@@ -675,7 +706,7 @@ export default function EmpresasPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {empresas.map((emp) => {
-            const statusCfg = STATUS_CONFIG[emp.status] || STATUS_CONFIG.operativo;
+            const statusCfg = badgeForEmpresa(emp);
             const ballCfg = emp.ball_on ? BALL_ON_CONFIG[emp.ball_on] : null;
             const paymentStatus = getPaymentStatus(emp.last_paid_date, emp.payment_day);
             const paymentCfg = paymentStatus ? PAYMENT_STATUS_CONFIG[paymentStatus] : null;

@@ -447,6 +447,11 @@ async def _preflight_empresa_link(
     Returns the loaded empresa. Raises 404/409 if the link cannot succeed
     so the caller never creates a Supabase user / EvaAccount that we'd
     later have to roll back.
+
+    Also rejects an `operativo` (non-grandfathered) empresa: the fresh
+    account would have no subscription yet, which would immediately
+    violate the active-subscription invariant the moment we link it.
+    Refusing here keeps the failure side-effect-free.
     """
     result = await db.execute(
         select(Empresa)
@@ -463,6 +468,18 @@ async def _preflight_empresa_link(
             detail={
                 "reason": "empresa_already_linked",
                 "message": "Esta empresa ya esta vinculada a otra cuenta de Eva.",
+            },
+        )
+    if empresa.lifecycle_stage == "operativo" and not empresa.grandfathered:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "OperativoRequiresExistingSubscription",
+                "message": (
+                    "La empresa esta en 'operativo' pero la nueva cuenta de Eva "
+                    "todavia no tiene suscripcion. Vincula una cuenta existente "
+                    "o cambia la fase antes de crear una nueva."
+                ),
             },
         )
     return empresa

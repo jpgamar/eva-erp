@@ -1393,25 +1393,29 @@ async def create_eva_account_for_empresa(
 ):
     """Create a fresh Eva account from a company card.
 
-    Pre-validates the empresa link state BEFORE invoking Supabase. If the
-    empresa is already linked or already 'operativo' (and would fail
-    business rules), we 409 immediately and never create an orphaned
-    Supabase user.
+    Pre-validates the empresa link state BEFORE invoking Supabase. If
+    the empresa is already linked, or if creating a fresh account would
+    violate the operativo invariant (operativo empresas must have an
+    active subscription, which a brand-new account doesn't yet), we
+    409 here so we never create an orphaned auth user.
     """
     empresa = await _load_empresa_for_link(db, empresa_id, expected_version=None)
     await _validate_link_preconditions(db, empresa, new_account_id=None)
-    # If the empresa is already operativo with no linked account, the
-    # business-rule validator will refuse the link with 409. We surface
-    # it BEFORE Supabase to avoid stranded auth users.
-    _enforce_business_rules(
-        lifecycle_stage=empresa.lifecycle_stage,
-        eva_account_id=uuid.uuid4(),  # simulate "soon-linked"
-        subscription_status="active",
-        expected_close_date=empresa.expected_close_date,
-        grandfathered=empresa.grandfathered,
-        check_operativo=False,  # only check structural rules
-        check_close_date=False,
-    )
+    # Fresh account has no subscription yet; if the empresa is already
+    # operativo (and not grandfathered), the link would immediately
+    # violate the active-subscription rule. Refuse before Supabase.
+    if empresa.lifecycle_stage == "operativo" and not empresa.grandfathered:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "OperativoRequiresExistingSubscription",
+                "message": (
+                    "La empresa esta en 'operativo' pero la nueva cuenta de Eva "
+                    "todavia no tiene suscripcion. Vincula una cuenta existente "
+                    "o cambia la fase antes de crear una nueva."
+                ),
+            },
+        )
 
     create_request = EvaAccountCreateRequest(
         name=payload.name or empresa.name,
