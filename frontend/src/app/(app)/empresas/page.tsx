@@ -532,7 +532,8 @@ export default function EmpresasPage() {
         // current_period_end) are absent from the form anyway and
         // never reach this diff.
         const baseline = editingEmpresaInitial ?? ({} as Partial<EmpresaCreate>);
-        const { eva_account_id: _ignoredEvaAccountId, ...rest } = payload;
+        const { eva_account_id: _evaAccountIdHandledByLink, ...rest } = payload;
+        void _evaAccountIdHandledByLink;
         const candidatePatch = rest as Record<string, unknown>;
         const baselineRecord = baseline as unknown as Record<string, unknown>;
         const diffPatch: Record<string, unknown> = {};

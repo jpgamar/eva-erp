@@ -535,7 +535,19 @@ async def list_empresas(
             Empresa.person_type,
             Empresa.rfc,
             func.count(EmpresaItem.id).label("item_count"),
-            func.count(case((EmpresaItem.done == False, EmpresaItem.id))).label("pending_count"),
+            # `pending_count` mirrors what the card actually surfaces:
+            # actionable items (todo / event / outreach), not notes.
+            # Notes are read-only context and aren't returned in
+            # `pending_items` either, so counting them here would put
+            # a non-zero badge above an empty list.
+            func.count(
+                case(
+                    (
+                        (EmpresaItem.done == False) & (EmpresaItem.kind != "note"),
+                        EmpresaItem.id,
+                    )
+                )
+            ).label("pending_count"),
         )
         .outerjoin(EmpresaItem, EmpresaItem.empresa_id == Empresa.id)
         .group_by(Empresa.id)

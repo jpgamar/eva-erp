@@ -23,7 +23,21 @@ function isoDate(d: Date): string {
 }
 
 function dayKey(iso: string): string {
-  return iso.slice(0, 10);
+  // Group by LOCAL calendar day, not UTC. Without this, an event at
+  // 21:00 Mexico time renders under tomorrow's row because the ISO
+  // string carries the UTC date.
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function localDayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -116,7 +130,7 @@ export function EmpresasCalendarView({ empresaId, onSelectEmpresa }: Props) {
         ) : (
           <ul className="divide-y divide-border" data-testid="empresas-calendar-days">
             {days.map((day) => {
-              const key = day.toISOString().slice(0, 10);
+              const key = localDayKey(day);
               const bucket = grouped.get(key) ?? [];
               if (bucket.length === 0) return null;
               const label = day.toLocaleDateString("es-MX", {
