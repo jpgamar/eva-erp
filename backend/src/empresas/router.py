@@ -123,8 +123,12 @@ async def _attempt_auto_match(
         return
 
     try:
+        # Pull the full row, not just the id, so we can route through
+        # `_record_eva_account_link` and copy the billing cache instead
+        # of just stamping `eva_account_id` (which would leave Stripe
+        # IDs / subscription_status / current_period_end stale).
         result = await eva_db.execute(
-            select(EvaAccount.id).where(
+            select(EvaAccount).where(
                 func.lower(func.trim(EvaAccount.name)) == normalized.lower(),
                 EvaAccount.is_active.is_(True),
             )
@@ -142,7 +146,7 @@ async def _attempt_auto_match(
 
     empresa.auto_match_attempted = True
     if len(matches) == 1:
-        candidate_id = matches[0]
+        candidate = matches[0]
         # Guard: the target Eva account may already be linked to a different
         # empresa. The Phase 2 unique partial index enforces this at the DB
         # layer; we mirror the check here so auto-match skips gracefully
@@ -150,22 +154,24 @@ async def _attempt_auto_match(
         # manually.
         existing = await db.execute(
             select(Empresa.id).where(
-                Empresa.eva_account_id == candidate_id,
+                Empresa.eva_account_id == candidate.id,
                 Empresa.id != empresa.id,
             ).limit(1)
         )
         if existing.scalar_one_or_none():
             logger.info(
                 "empresas.auto_match.skip_collision empresa=%s name=%r eva_account_id=%s",
-                empresa.id, normalized, candidate_id,
+                empresa.id, normalized, candidate.id,
             )
             return
-        empresa.eva_account_id = candidate_id
+        # Route through the same sync/history helper the manual link
+        # endpoints use so the card never renders linked-but-stale.
+        _record_eva_account_link(db, empresa, candidate, changed_by=None)
         logger.info(
-            "empresas.auto_match.linked empresa=%s name=%r → eva_account_id=%s",
+            "empresas.auto_match.linked empresa=%s name=%r -> eva_account_id=%s",
             empresa.id,
             normalized,
-            candidate_id,
+            candidate.id,
         )
     elif len(matches) > 1:
         logger.info(

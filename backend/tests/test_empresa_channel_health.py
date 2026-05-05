@@ -39,6 +39,36 @@ _AccountRow = namedtuple("_AccountRow", ["id", "name"])  # for accounts query
 _ChannelRow = namedtuple("_ChannelRow", ["is_healthy", "account_id"])  # for channel rows
 
 
+class _FakeAccount:
+    """Minimal stand-in for an EvaAccount ORM row used by auto-match.
+
+    `_record_eva_account_link` reads `id`, the Stripe billing cache
+    fields, and `is_active` — provide all of them so the helper can
+    sync without tripping `getattr` defaults in tests.
+    """
+
+    def __init__(
+        self,
+        account_id: uuid.UUID,
+        *,
+        name: str = "Eva Account",
+        is_active: bool = True,
+        stripe_customer_id: str | None = None,
+        stripe_subscription_id: str | None = None,
+        subscription_status: str | None = None,
+        billing_interval: str | None = None,
+        current_period_end: Any = None,
+    ) -> None:
+        self.id = account_id
+        self.name = name
+        self.is_active = is_active
+        self.stripe_customer_id = stripe_customer_id
+        self.stripe_subscription_id = stripe_subscription_id
+        self.subscription_status = subscription_status
+        self.billing_interval = billing_interval
+        self.current_period_end = current_period_end
+
+
 def _empty_health(status: str) -> dict:
     """Build the empty-health shape for assertions."""
     return {
@@ -137,6 +167,13 @@ class _FakeLocalDB:
     def __init__(self, existing_linked_id: uuid.UUID | None = None) -> None:
         self.flushed = False
         self._existing = existing_linked_id
+        # Round 6: auto-match now records an EmpresaHistory row through
+        # the same helper the manual link endpoint uses, so the fake
+        # needs to accept `add(...)` calls without exploding.
+        self.added: list[Any] = []
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
 
     async def flush(self) -> None:
         self.flushed = True
@@ -206,16 +243,20 @@ def test_auto_match_skips_blank_name():
 def test_auto_match_links_on_unique_name_match():
     target_id = uuid.uuid4()
     empresa = _make_empresa("Lucky Telecom")
-    eva_db = _FakeEvaDB([[target_id]])  # one matching account
+    eva_db = _FakeEvaDB([[_FakeAccount(target_id, subscription_status="ACTIVE", billing_interval="MONTHLY")]])
     asyncio.run(_attempt_auto_match(_FakeLocalDB(), eva_db, empresa))
     assert empresa.auto_match_attempted is True
     assert empresa.eva_account_id == target_id
+    # Round-6: auto-match must also seed the billing cache, not just
+    # the eva_account_id, so the card doesn't render linked-but-stale.
+    assert empresa.subscription_status == "active"
+    assert empresa.billing_interval == "monthly"
 
 
 def test_auto_match_skips_on_ambiguous_name_match(caplog):
     a, b = uuid.uuid4(), uuid.uuid4()
     empresa = _make_empresa("Lucky Telecom")
-    eva_db = _FakeEvaDB([[a, b]])  # two matching accounts
+    eva_db = _FakeEvaDB([[_FakeAccount(a), _FakeAccount(b)]])
     with caplog.at_level(logging.INFO, logger="src.empresas.router"):
         asyncio.run(_attempt_auto_match(_FakeLocalDB(), eva_db, empresa))
     assert empresa.auto_match_attempted is True
@@ -248,7 +289,7 @@ def test_auto_match_skips_when_candidate_already_linked_to_another_empresa():
     target_id = uuid.uuid4()
     other_empresa_id = uuid.uuid4()
     empresa = _make_empresa("Lucky Telecom")
-    eva_db = _FakeEvaDB([[target_id]])
+    eva_db = _FakeEvaDB([[_FakeAccount(target_id)]])
     local_db = _FakeLocalDB(existing_linked_id=other_empresa_id)
     asyncio.run(_attempt_auto_match(local_db, eva_db, empresa))
     # auto_match_attempted stays True (we set it before the collision check),
