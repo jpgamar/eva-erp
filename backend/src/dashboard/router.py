@@ -33,6 +33,7 @@ from src.finances.recurrence import (
 from src.meetings.models import Meeting
 from src.empresas.models import Empresa
 from src.tasks.models import Task
+from src.vault.models import Credential
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -77,6 +78,10 @@ class DashboardResponse(BaseModel):
     total_meetings: int
     upcoming_meetings: int
     meetings_this_month: int
+    # Vault
+    vault_combined_usd: float
+    vault_service_count: int
+    vault_by_category: dict[str, float]
     # Revenue lifecycle (Phase 3)
     projected_revenue_mxn: Decimal
     invoiced_sat_mxn: Decimal
@@ -211,6 +216,11 @@ async def dashboard_summary(
             Meeting.date >= month_start,
             Meeting.date < next_month_start,
         ),
+        "vault_creds": select(Credential).where(
+            Credential.is_deleted == False,
+            Credential.monthly_cost.isnot(None),
+            func.date(Credential.created_at) < next_month_start,
+        ),
         "usd_to_mxn_rate": select(ExchangeRate.rate)
         .where(ExchangeRate.from_currency == "USD", ExchangeRate.to_currency == "MXN")
         .order_by(ExchangeRate.effective_date.desc())
@@ -338,6 +348,13 @@ async def dashboard_summary(
         }
         for t in tasks
     ]
+
+    # Process vault
+    creds = r["vault_creds"].scalars().all()
+    vault_combined_usd = sum(float(c.monthly_cost_usd or 0) for c in creds)
+    vault_by_category: dict[str, float] = {}
+    for c in creds:
+        vault_by_category[c.category] = vault_by_category.get(c.category, 0) + float(c.monthly_cost_usd or 0)
 
     # Revenue lifecycle metrics (MXN).
     usd_to_mxn_rate = r["usd_to_mxn_rate"].scalar() or Decimal("20")
@@ -477,6 +494,9 @@ async def dashboard_summary(
         total_meetings=total_meetings,
         upcoming_meetings=upcoming_meetings,
         meetings_this_month=meetings_this_month,
+        vault_combined_usd=vault_combined_usd,
+        vault_service_count=len(creds),
+        vault_by_category=vault_by_category,
         projected_revenue_mxn=projected_revenue_mxn,
         invoiced_sat_mxn=invoiced_sat_mxn,
         payments_received_mxn=payments_received_mxn,

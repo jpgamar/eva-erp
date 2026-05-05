@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -107,16 +105,7 @@ class EmpresaItem(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     empresa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
-    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="todo", server_default="todo")
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    contact_method: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reminder_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    assigned_to: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

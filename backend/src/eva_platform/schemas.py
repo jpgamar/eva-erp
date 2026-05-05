@@ -48,7 +48,6 @@ class EvaAccountCreateRequest(BaseModel):
     facturapi_org_api_key: str | None = None
     temporary_password: str | None = None
     send_setup_email: bool = True
-    empresa_id: uuid.UUID | None = None
 
 
 class AccountOnboardingResponse(BaseModel):

@@ -46,7 +46,6 @@ export function EmpresaCard({ empresa, onClick }: Props) {
     formatShortDate(empresa.cancellation_scheduled_at) ||
     formatShortDate(empresa.current_period_end) ||
     formatShortDate(empresa.expected_close_date);
-  const nextActionDate = formatShortDate(empresa.next_action?.due_at ?? empresa.next_action?.start_at ?? null);
   const linkedLabel = empresa.eva_account_id ? "Vinculada" : "Sin vincular";
 
   return (
@@ -116,15 +115,6 @@ export function EmpresaCard({ empresa, onClick }: Props) {
             : empresa.current_period_end
               ? `Próxima factura: ${nextDate}`
               : `Cierre esperado: ${nextDate}`}
-        </div>
-      ) : null}
-
-      {empresa.next_action ? (
-        <div className="mt-auto rounded-lg border border-border bg-muted/30 px-3 py-2">
-          <p className="truncate text-xs font-medium text-foreground">{empresa.next_action.title}</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {nextActionDate ? `Siguiente: ${nextActionDate}` : "Siguiente pendiente"}
-          </p>
         </div>
       ) : null}
     </div>

@@ -110,6 +110,8 @@ export default function DashboardPage() {
   const netProfitByCurrency = sortedCurrencyEntries(data.net_profit_by_currency);
   const hasNegativeNet = netProfitByCurrency.some(([, amount]) => amount < 0);
 
+  const topVaultCats = Object.entries(data.vault_by_category).sort(([, a], [, b]) => b - a).slice(0, 3);
+
   return (
     <div className="flex flex-col gap-4 animate-erp-entrance">
       {/* ── Revenue Lifecycle Row (Phase 3) ───────────── */}
@@ -502,6 +504,71 @@ export default function DashboardPage() {
           </div>
         </Link>
 
+        {/* Vault / Eva Platform */}
+        {(() => {
+          const vaultMax = topVaultCats.length > 0 ? topVaultCats[0][1] : 1;
+          const VAULT_CAT_COLORS: Record<string, string> = {
+            infrastructure: "from-blue-400 to-blue-500",
+            ai: "from-violet-400 to-violet-500",
+            communication: "from-cyan-400 to-cyan-500",
+            marketing: "from-pink-400 to-pink-500",
+            analytics: "from-teal-400 to-teal-500",
+            development: "from-indigo-400 to-indigo-500",
+            design: "from-fuchsia-400 to-fuchsia-500",
+            security: "from-orange-400 to-orange-500",
+          };
+          return (
+            <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
+              <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
+              <div className="p-6">
+                <Link href="/vault" className="group">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
+                        <Wallet className="h-4 w-4 text-amber-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">Vault</p>
+                    </div>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </div>
+                </Link>
+
+                {/* Hero cost + services badge */}
+                <div className="text-center mb-4">
+                  <p className="font-mono text-2xl font-bold text-foreground">{fmt(data.vault_combined_usd)}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">Monthly Cost</p>
+                  <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/60">
+                    <Wallet className="h-2.5 w-2.5 text-amber-500" />
+                    <span className="text-[10px] font-semibold text-amber-700">{data.vault_service_count} services</span>
+                  </div>
+                </div>
+
+                {/* Category horizontal bars */}
+                {topVaultCats.length > 0 && (
+                  <div className="pt-4 mt-4 border-t border-border/50">
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2.5">Cost by Category</p>
+                    <div className="space-y-2.5">
+                      {topVaultCats.map(([cat, amount]) => (
+                        <div key={cat}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-muted capitalize">{cat.replace(/_/g, " ")}</span>
+                            <span className="font-mono text-[10px] font-semibold text-foreground">{fmt(amount)}</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-muted/20 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full bg-gradient-to-r ${VAULT_CAT_COLORS[cat] || "from-amber-400 to-amber-500"} transition-all duration-700`}
+                              style={{ width: `${(amount / vaultMax) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Reconciliation Panel ───────────────────── */}
@@ -553,7 +620,7 @@ export default function DashboardPage() {
       {/* ── Eva Platform ─────────────────────────────── */}
       {platform && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link href="/empresas" className="group">
+          <Link href="/eva-customers" className="group">
             <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-violet-400 to-violet-500" />
               <div className="p-5">
@@ -650,7 +717,7 @@ export default function DashboardPage() {
             </div>
           </Link>
 
-          <Link href="/empresas?view=accounts" className="group">
+          <Link href="/eva-customers" className="group">
             <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500" />
               <div className="p-5">

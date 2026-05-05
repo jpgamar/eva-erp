@@ -6,22 +6,15 @@ import {
   ArrowLeft,
   ArrowRight,
   Building2,
-  CalendarDays,
   Check,
   ChevronDown,
-  Copy,
-  CreditCard,
-  ExternalLink,
   ImagePlus,
   Instagram,
-  Mail,
   MessageCircle,
   MoreHorizontal,
   Phone,
   Plus,
-  RefreshCw,
   Search,
-  Trash2,
   X,
 } from "lucide-react";
 
@@ -51,25 +44,15 @@ import {
 import {
   empresasApi,
   type AccountChannelHealthResponse,
+  type Empresa,
   type EmpresaCreate,
   type EmpresaHealthStatus,
   type EmpresaHistory,
-  type EmpresaInteraction,
-  type EmpresaCalendarItem,
   type EmpresaListItem,
   type EvaAccountForLink,
 } from "@/lib/api/empresas";
 import { CheckoutLinkModal } from "@/components/empresas/CheckoutLinkModal";
 import { EmpresasKanban } from "@/components/empresas/EmpresasKanban";
-import { evaPlatformApi } from "@/lib/api/eva-platform";
-import type {
-  AccountDraft,
-  AccountOnboarding,
-  AccountPricing,
-  EvaAccount,
-  EvaBillingAdminStatus,
-  EvaBillingDocument,
-} from "@/types";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -128,10 +111,6 @@ const EMPTY_EMPRESA: EmpresaCreate = {
   eva_account_id: null,
   billing_recipient_emails: [],
 };
-
-const DEFAULT_ACCOUNT_TYPE = "COMMERCE";
-const DEFAULT_PLAN_TIER = "starter";
-const DEFAULT_BILLING_CYCLE = "monthly";
 
 // ── Channel health UI helpers ──────────────────────────────────────
 
@@ -197,22 +176,6 @@ const PAYMENT_STATUS_CONFIG: Record<string, { label: string; className: string }
   warning: { label: "Pendiente", className: "text-amber-600" },
   overdue: { label: "Vencido", className: "text-red-600" },
 };
-
-function formatDueLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("es-MX", { month: "short", day: "numeric" });
-}
-
-function monthBounds(month: Date): { start: string; end: string } {
-  const start = new Date(month.getFullYear(), month.getMonth(), 1);
-  const end = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  };
-}
 
 // ── Billing recipients chip input ──────────────────────────────────
 
@@ -328,11 +291,10 @@ export default function EmpresasPage() {
   const [empresas, setEmpresas] = useState<EmpresaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"grid" | "kanban" | "calendar" | "accounts">(() => {
+  const [view, setView] = useState<"grid" | "kanban">(() => {
     if (typeof window === "undefined") return "grid";
     const url = new URL(window.location.href);
-    const viewParam = url.searchParams.get("view");
-    return viewParam === "kanban" || viewParam === "calendar" || viewParam === "accounts" ? viewParam : "grid";
+    return url.searchParams.get("view") === "kanban" ? "kanban" : "grid";
   });
   const stageFilter = (() => {
     if (typeof window === "undefined") return null;
@@ -345,13 +307,11 @@ export default function EmpresasPage() {
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
   const [editingEmpresaVersion, setEditingEmpresaVersion] = useState<number>(0);
   const [extractingConstancia, setExtractingConstancia] = useState(false);
-  const [creatingEvaAccount, setCreatingEvaAccount] = useState(false);
 
   // History modal
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyEmpresaName, setHistoryEmpresaName] = useState("");
   const [historyEntries, setHistoryEntries] = useState<EmpresaHistory[]>([]);
-  const [interactionEntries, setInteractionEntries] = useState<EmpresaInteraction[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Checkout modal
@@ -360,7 +320,6 @@ export default function EmpresasPage() {
   // Inline add item
   const [addingItemFor, setAddingItemFor] = useState<string | null>(null);
   const [newItemTitle, setNewItemTitle] = useState("");
-  const [newItemDueAt, setNewItemDueAt] = useState("");
   const addItemInputRef = useRef<HTMLInputElement>(null);
 
   // Items expanded (show all)
@@ -378,18 +337,6 @@ export default function EmpresasPage() {
   // Eva accounts list (for the link dropdown in the edit modal)
   const [evaAccounts, setEvaAccounts] = useState<EvaAccountForLink[]>([]);
   const [loadingEvaAccounts, setLoadingEvaAccounts] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
-  const [calendarItems, setCalendarItems] = useState<EmpresaCalendarItem[]>([]);
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const [accounts, setAccounts] = useState<EvaAccount[]>([]);
-  const [accountDrafts, setAccountDrafts] = useState<AccountDraft[]>([]);
-  const [accountPricing, setAccountPricing] = useState<AccountPricing[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [approvingDrafts, setApprovingDrafts] = useState<Set<string>>(new Set());
-  const [accountOnboarding, setAccountOnboarding] = useState<Record<string, AccountOnboarding>>({});
-  const [billingByAccount, setBillingByAccount] = useState<Record<string, EvaBillingAdminStatus>>({});
-  const [checkoutLinkByAccount, setCheckoutLinkByAccount] = useState<Record<string, string>>({});
-  const [accountActionLoading, setAccountActionLoading] = useState<string | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────
 
@@ -407,190 +354,6 @@ export default function EmpresasPage() {
   useEffect(() => {
     loadEmpresas();
   }, [search]);
-
-  useEffect(() => {
-    if (view !== "calendar") return;
-    const loadCalendar = async () => {
-      setCalendarLoading(true);
-      try {
-        const bounds = monthBounds(calendarMonth);
-        const data = await empresasApi.calendar(bounds);
-        setCalendarItems(data);
-      } catch {
-        toast.error("Error al cargar calendario");
-      } finally {
-        setCalendarLoading(false);
-      }
-    };
-    void loadCalendar();
-  }, [view, calendarMonth]);
-
-  const loadAccountAdmin = async () => {
-    setAccountsLoading(true);
-    try {
-      const [activeAccounts, inactiveAccounts, drafts, pricing] = await Promise.all([
-        evaPlatformApi.listAccounts({ search: search || undefined }),
-        evaPlatformApi.listAccounts({ search: search || undefined }).then((items) => items.filter((account) => !account.is_active)),
-        evaPlatformApi.listDrafts(),
-        evaPlatformApi.listAccountPricing(),
-      ]);
-      const byId = new Map<string, EvaAccount>();
-      [...activeAccounts, ...inactiveAccounts].forEach((account) => byId.set(account.id, account));
-      setAccounts([...byId.values()]);
-      setAccountDrafts(drafts);
-      setAccountPricing(pricing);
-    } catch {
-      toast.error("Error al cargar cuentas de Eva");
-    } finally {
-      setAccountsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (view !== "accounts") return;
-    void loadAccountAdmin();
-  }, [view, search]);
-
-  const runAccountAction = async (key: string, action: () => Promise<void>) => {
-    setAccountActionLoading(key);
-    try {
-      await action();
-      await loadAccountAdmin();
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : detail?.message ?? err?.message ?? "Error en cuentas de Eva");
-    } finally {
-      setAccountActionLoading(null);
-    }
-  };
-
-  const createAccountFromAccountsTab = async () => {
-    const name = window.prompt("Nombre de la cuenta Eva");
-    if (!name?.trim()) return;
-    const ownerEmail = window.prompt("Email del owner");
-    if (!ownerEmail?.trim()) return;
-    const ownerName = window.prompt("Nombre del owner") ?? name.trim();
-    await runAccountAction("create-account", async () => {
-      const result = await evaPlatformApi.createAccount({
-        name: name.trim(),
-        owner_email: ownerEmail.trim().toLowerCase(),
-        owner_name: ownerName.trim(),
-        account_type: DEFAULT_ACCOUNT_TYPE,
-        plan_tier: DEFAULT_PLAN_TIER,
-        billing_cycle: DEFAULT_BILLING_CYCLE,
-        send_setup_email: true,
-      });
-      setAccountOnboarding((current) => ({ ...current, [result.account.id]: result.onboarding }));
-      toast.success("Cuenta Eva creada");
-    });
-  };
-
-  const createDraftFromAccountsTab = async () => {
-    const name = window.prompt("Nombre del borrador");
-    if (!name?.trim()) return;
-    const ownerEmail = window.prompt("Email del owner");
-    if (!ownerEmail?.trim()) return;
-    const ownerName = window.prompt("Nombre del owner") ?? name.trim();
-    await runAccountAction("create-draft", async () => {
-      await evaPlatformApi.createDraft({
-        name: name.trim(),
-        owner_email: ownerEmail.trim().toLowerCase(),
-        owner_name: ownerName.trim(),
-        account_type: DEFAULT_ACCOUNT_TYPE,
-        plan_tier: DEFAULT_PLAN_TIER,
-        billing_cycle: DEFAULT_BILLING_CYCLE,
-      });
-      toast.success("Borrador creado");
-    });
-  };
-
-  const updateDraftFromAccountsTab = async (draft: AccountDraft) => {
-    const notes = window.prompt("Notas del borrador", draft.notes ?? "");
-    if (notes == null) return;
-    await runAccountAction(`draft-${draft.id}`, async () => {
-      await evaPlatformApi.updateDraft(draft.id, { notes });
-      toast.success("Borrador actualizado");
-    });
-  };
-
-  const deleteDraftFromAccountsTab = async (draft: AccountDraft) => {
-    if (!window.confirm(`Eliminar borrador ${draft.name}?`)) return;
-    await runAccountAction(`draft-${draft.id}`, async () => {
-      await evaPlatformApi.deleteDraft(draft.id);
-      toast.success("Borrador eliminado");
-    });
-  };
-
-  const updatePricingFromAccountsTab = async (accountId: string) => {
-    const current = accountPricing.find((item) => item.account_id === accountId);
-    const amount = window.prompt("Monto de facturación", current?.billing_amount?.toString() ?? "");
-    if (amount == null) return;
-    const parsed = amount.trim() ? Number(amount) : null;
-    if (parsed != null && Number.isNaN(parsed)) {
-      toast.error("Monto inválido");
-      return;
-    }
-    await runAccountAction(`pricing-${accountId}`, async () => {
-      await evaPlatformApi.updateAccountPricing(accountId, {
-        billing_amount: parsed,
-        billing_currency: current?.billing_currency ?? "MXN",
-        billing_interval: current?.billing_interval ?? "MONTHLY",
-        is_billable: current?.is_billable ?? true,
-      });
-      toast.success("Pricing actualizado");
-    });
-  };
-
-  const openImpersonation = async (account: EvaAccount) => {
-    await runAccountAction(`impersonate-${account.id}`, async () => {
-      const result = await evaPlatformApi.impersonateAccount(account.id);
-      window.open(result.magic_link_url, "_blank", "noopener,noreferrer");
-    });
-  };
-
-  const resendOnboarding = async (account: EvaAccount) => {
-    await runAccountAction(`onboarding-${account.id}`, async () => {
-      const onboarding = await evaPlatformApi.resendAccountOnboarding(account.id, { send_setup_email: true });
-      setAccountOnboarding((current) => ({ ...current, [account.id]: onboarding }));
-      toast.success("Onboarding reenviado");
-    });
-  };
-
-  const loadBillingStatus = async (account: EvaAccount) => {
-    await runAccountAction(`billing-${account.id}`, async () => {
-      const billing = await evaPlatformApi.getAccountBillingStatus(account.id);
-      setBillingByAccount((current) => ({ ...current, [account.id]: billing }));
-    });
-  };
-
-  const createCheckoutLink = async (account: EvaAccount) => {
-    await runAccountAction(`checkout-${account.id}`, async () => {
-      const result = await evaPlatformApi.createAccountCheckoutLink(account.id, {
-        plan_tier: account.plan_tier,
-        billing_interval: account.billing_interval,
-      });
-      setCheckoutLinkByAccount((current) => ({ ...current, [account.id]: result.checkout_url }));
-      toast.success("Checkout creado");
-    });
-  };
-
-  const retryBillingDocument = async (account: EvaAccount, document: EvaBillingDocument) => {
-    await runAccountAction(`retry-${document.id}`, async () => {
-      await evaPlatformApi.retryAccountBillingDocument(account.id, document.id);
-      await loadBillingStatus(account);
-    });
-  };
-
-  const resendBillingEmail = async (account: EvaAccount, document: EvaBillingDocument) => {
-    if (!document.cfdi_uuid) {
-      toast.error("La factura no tiene UUID CFDI");
-      return;
-    }
-    await runAccountAction(`invoice-email-${document.id}`, async () => {
-      await evaPlatformApi.resendAccountBillingEmail(account.id, { cfdi_uuid: document.cfdi_uuid! });
-      await loadBillingStatus(account);
-    });
-  };
 
   // ── Empresa CRUD ────────────────────────────────────────────────
 
@@ -639,19 +402,12 @@ export default function EmpresasPage() {
         cfdi_use: full.cfdi_use,
         person_type: full.person_type,
         status: full.status,
-        lifecycle_stage: full.lifecycle_stage,
         ball_on: full.ball_on,
         summary_note: full.summary_note,
         monthly_amount: full.monthly_amount,
         payment_day: full.payment_day,
         last_paid_date: full.last_paid_date,
-        expected_close_date: full.expected_close_date,
         eva_account_id: full.eva_account_id,
-        website: full.website,
-        contact_name: full.contact_name,
-        contact_email: full.contact_email,
-        contact_phone: full.contact_phone,
-        contact_role: full.contact_role,
         billing_recipient_emails: seededRecipients,
       });
       setEditingEmpresaId(full.id);
@@ -741,58 +497,6 @@ export default function EmpresasPage() {
     }
   };
 
-  const createEvaAccountFromEmpresa = async () => {
-    if (!editingEmpresaId) return;
-    const ownerEmail =
-      empresaForm.billing_recipient_emails?.[0] ??
-      empresaForm.contact_email ??
-      empresaForm.email ??
-      "";
-    if (!ownerEmail) {
-      toast.error("Agrega un correo principal antes de crear la cuenta de Eva");
-      return;
-    }
-    setCreatingEvaAccount(true);
-    try {
-      await empresasApi.createEvaAccount(editingEmpresaId, {
-        owner_email: ownerEmail,
-        owner_name: empresaForm.contact_name ?? empresaForm.name,
-        account_type: "COMMERCE",
-        plan_tier: "STANDARD",
-        billing_cycle: (empresaForm.billing_interval ?? "monthly").toUpperCase(),
-        send_setup_email: true,
-      });
-      toast.success("Cuenta de Eva creada y vinculada");
-      setEmpresaModalOpen(false);
-      loadEmpresas();
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : detail?.message ?? "Error al crear cuenta de Eva");
-    } finally {
-      setCreatingEvaAccount(false);
-    }
-  };
-
-  const approveDraftAccount = async (draftId: string) => {
-    if (approvingDrafts.has(draftId)) return;
-    setApprovingDrafts((prev) => new Set(prev).add(draftId));
-    try {
-      await evaPlatformApi.approveDraft(draftId);
-      toast.success("Cuenta aprobada");
-      await loadAccountAdmin();
-      loadEmpresas();
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : detail?.message ?? "Error al aprobar cuenta");
-    } finally {
-      setApprovingDrafts((prev) => {
-        const next = new Set(prev);
-        next.delete(draftId);
-        return next;
-      });
-    }
-  };
-
   const deleteEmpresa = async (id: string) => {
     try {
       await empresasApi.delete(id);
@@ -839,13 +543,8 @@ export default function EmpresasPage() {
   const addItem = async (empresaId: string) => {
     if (!newItemTitle.trim()) return;
     try {
-      await empresasApi.createItem(empresaId, {
-        title: newItemTitle.trim(),
-        kind: newItemDueAt ? "event" : "todo",
-        due_at: newItemDueAt ? new Date(`${newItemDueAt}T09:00:00`).toISOString() : null,
-      });
+      await empresasApi.createItem(empresaId, { title: newItemTitle.trim() });
       setNewItemTitle("");
-      setNewItemDueAt("");
       setAddingItemFor(null);
       loadEmpresas();
     } catch {
@@ -856,7 +555,6 @@ export default function EmpresasPage() {
   const startAddingItem = (empresaId: string) => {
     setAddingItemFor(empresaId);
     setNewItemTitle("");
-    setNewItemDueAt("");
     setTimeout(() => addItemInputRef.current?.focus(), 50);
   };
 
@@ -865,16 +563,11 @@ export default function EmpresasPage() {
   const openHistory = async (empresaId: string, empresaName: string) => {
     setHistoryEmpresaName(empresaName);
     setHistoryEntries([]);
-    setInteractionEntries([]);
     setHistoryLoading(true);
     setHistoryModalOpen(true);
     try {
-      const [history, interactions] = await Promise.all([
-        empresasApi.getHistory(empresaId),
-        empresasApi.getInteractions(empresaId),
-      ]);
-      setHistoryEntries(history);
-      setInteractionEntries(interactions);
+      const data = await empresasApi.getHistory(empresaId);
+      setHistoryEntries(data);
     } catch {
       toast.error("Error al cargar historial");
     } finally {
@@ -928,34 +621,6 @@ export default function EmpresasPage() {
             >
               Pipeline
             </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm ${view === "calendar" ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
-              onClick={() => {
-                setView("calendar");
-                if (typeof window !== "undefined") {
-                  const url = new URL(window.location.href);
-                  url.searchParams.set("view", "calendar");
-                  window.history.replaceState({}, "", url);
-                }
-              }}
-            >
-              Calendario
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm ${view === "accounts" ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
-              onClick={() => {
-                setView("accounts");
-                if (typeof window !== "undefined") {
-                  const url = new URL(window.location.href);
-                  url.searchParams.set("view", "accounts");
-                  window.history.replaceState({}, "", url);
-                }
-              }}
-            >
-              Cuentas
-            </button>
           </div>
           <Button onClick={openCreateEmpresa}>
             <Plus className="mr-2 h-4 w-4" />
@@ -976,268 +641,11 @@ export default function EmpresasPage() {
       </div>
 
       {/* Kanban or cards grid */}
-      {loading && view !== "accounts" ? (
+      {loading ? (
         <div className="py-12 text-center text-muted-foreground">Cargando...</div>
-      ) : view === "accounts" ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={createAccountFromAccountsTab} disabled={accountActionLoading === "create-account"}>
-              <Plus className="mr-2 h-4 w-4" />
-              Cuenta Eva
-            </Button>
-            <Button size="sm" variant="outline" onClick={createDraftFromAccountsTab} disabled={accountActionLoading === "create-draft"}>
-              <Plus className="mr-2 h-4 w-4" />
-              Borrador
-            </Button>
-            <Button size="sm" variant="ghost" onClick={loadAccountAdmin} disabled={accountsLoading}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Actualizar
-            </Button>
-          </div>
-
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,460px)]">
-            <div className="rounded-xl border bg-card">
-              <div className="border-b px-4 py-3">
-                <p className="text-sm font-semibold">Cuentas Eva</p>
-                <p className="text-xs text-muted-foreground">Crear, administrar, facturar e impersonar cuentas desde Empresas.</p>
-              </div>
-              {accountsLoading ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">Cargando cuentas...</div>
-              ) : accounts.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">No hay cuentas Eva.</div>
-              ) : (
-                <div className="max-h-[640px] divide-y overflow-y-auto">
-                  {accounts.map((account) => {
-                    const pricing = accountPricing.find((item) => item.account_id === account.id);
-                    const billing = billingByAccount[account.id];
-                    const onboarding = accountOnboarding[account.id];
-                    const checkout = checkoutLinkByAccount[account.id];
-                    return (
-                      <div key={account.id} className="space-y-3 px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{account.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {account.plan_tier ?? "sin plan"} · {account.billing_interval ?? "sin ciclo"} · {account.subscription_status ?? "sin suscripción"}
-                            </p>
-                          </div>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${
-                            account.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
-                          }`}>
-                            {account.is_active ? "Activa" : "Inactiva"}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" onClick={() => updatePricingFromAccountsTab(account.id)}>
-                            <CreditCard className="mr-2 h-4 w-4" />
-                            Pricing
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => openImpersonation(account)}>
-                            <ExternalLink className="mr-2 h-4 w-4" />
-                            Impersonar
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => resendOnboarding(account)}>
-                            <Mail className="mr-2 h-4 w-4" />
-                            Onboarding
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => createCheckoutLink(account)}>
-                            <CreditCard className="mr-2 h-4 w-4" />
-                            Checkout
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => loadBillingStatus(account)}>
-                            <RefreshCw className="mr-2 h-4 w-4" />
-                            Facturas
-                          </Button>
-                          {account.is_active ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                if (window.confirm(`Desactivar ${account.name}?`)) {
-                                  void runAccountAction(`delete-${account.id}`, async () => {
-                                    await evaPlatformApi.deleteAccount(account.id);
-                                    toast.success("Cuenta desactivada");
-                                  });
-                                }
-                              }}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Desactivar
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => runAccountAction(`reactivate-${account.id}`, async () => {
-                                await evaPlatformApi.reactivateAccount(account.id);
-                                toast.success("Cuenta reactivada");
-                              })}
-                            >
-                              <Check className="mr-2 h-4 w-4" />
-                              Reactivar
-                            </Button>
-                          )}
-                        </div>
-
-                        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                          <div className="rounded-md bg-muted/40 px-3 py-2">
-                            <span className="font-medium text-foreground">Pricing: </span>
-                            {pricing?.billing_amount ?? "Sin monto"} {pricing?.billing_currency ?? ""} {pricing?.billing_interval ?? ""}
-                          </div>
-                          {checkout && (
-                            <a href={checkout} target="_blank" rel="noreferrer" className="rounded-md bg-muted/40 px-3 py-2 text-primary hover:underline">
-                              Abrir checkout
-                            </a>
-                          )}
-                          {onboarding && (
-                            <button
-                              type="button"
-                              className="rounded-md bg-muted/40 px-3 py-2 text-left text-primary hover:underline"
-                              onClick={() => navigator.clipboard.writeText(onboarding.onboarding_link)}
-                            >
-                              <Copy className="mr-1 inline h-3 w-3" />
-                              Copiar onboarding
-                            </button>
-                          )}
-                        </div>
-
-                        {billing && (
-                          <div className="rounded-md border bg-background">
-                            <div className="border-b px-3 py-2 text-xs font-medium">
-                              Facturación: {billing.status.subscription_status ?? "sin suscripción"}
-                            </div>
-                            <div className="divide-y">
-                              {billing.documents.length === 0 ? (
-                                <div className="px-3 py-2 text-xs text-muted-foreground">Sin documentos.</div>
-                              ) : (
-                                billing.documents.slice(0, 4).map((document) => (
-                                  <div key={document.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
-                                    <span className="min-w-0 truncate">{document.document_type} · {document.status}</span>
-                                    <div className="flex shrink-0 gap-1">
-                                      <Button size="sm" variant="ghost" onClick={() => retryBillingDocument(account, document)}>
-                                        <RefreshCw className="h-3 w-3" />
-                                      </Button>
-                                      <Button size="sm" variant="ghost" onClick={() => resendBillingEmail(account, document)}>
-                                        <Mail className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border bg-card">
-              <div className="border-b px-4 py-3">
-                <p className="text-sm font-semibold">Borradores de cuenta</p>
-                <p className="text-xs text-muted-foreground">Aprobar un borrador crea la cuenta de Eva y vincula la empresa si tiene empresa_id.</p>
-              </div>
-              {accountsLoading ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">Cargando borradores...</div>
-              ) : accountDrafts.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">No hay borradores.</div>
-              ) : (
-                <div className="max-h-[640px] divide-y overflow-y-auto">
-                  {accountDrafts.map((draft) => (
-                    <div key={draft.id} className="space-y-2 px-4 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{draft.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {draft.owner_email} · {draft.plan_tier} · {draft.billing_cycle} · {draft.status}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-                          {draft.empresa_id ? "Vinculado" : "Sin empresa"}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {draft.status === "draft" && (
-                          <Button
-                            size="sm"
-                            disabled={approvingDrafts.has(draft.id)}
-                            onClick={() => approveDraftAccount(draft.id)}
-                          >
-                            <Check className="mr-2 h-4 w-4" />
-                            {approvingDrafts.has(draft.id) ? "Aprobando..." : "Aprobar"}
-                          </Button>
-                        )}
-                        <Button size="sm" variant="outline" onClick={() => updateDraftFromAccountsTab(draft)}>
-                          Editar
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => deleteDraftFromAccountsTab(draft)}>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Eliminar
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       ) : empresas.length === 0 ? (
         <div className="py-12 text-center text-muted-foreground">
           {search ? "No se encontraron empresas" : "No hay empresas aún. Crea la primera."}
-        </div>
-      ) : view === "calendar" ? (
-        <div className="rounded-xl border bg-card">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              {calendarMonth.toLocaleDateString("es-MX", { month: "long", year: "numeric" })}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
-            >
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
-          {calendarLoading ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">Cargando calendario...</div>
-          ) : calendarItems.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No hay pendientes con fecha este mes.</div>
-          ) : (
-            <div className="divide-y">
-              {calendarItems.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => {
-                    const emp = empresas.find((candidate) => candidate.id === item.empresa_id);
-                    if (emp) void openEditEmpresa(emp);
-                  }}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/50"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{item.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{item.empresa_name}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                    {formatDueLabel(item.start_at ?? item.due_at) ?? "Sin fecha"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       ) : view === "kanban" ? (
         <EmpresasKanban
@@ -1459,11 +867,6 @@ export default function EmpresasPage() {
                             )}
                           </button>
                           <span className="text-xs leading-tight truncate">{item.title}</span>
-                          {formatDueLabel(item.due_at ?? item.start_at) && (
-                            <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                              {formatDueLabel(item.due_at ?? item.start_at)}
-                            </span>
-                          )}
                         </label>
                       ))}
                       {!isExpanded && overflowCount > 0 && (
@@ -1495,42 +898,34 @@ export default function EmpresasPage() {
                 {/* Inline add item */}
                 {addingItemFor === emp.id ? (
                   <div className="px-4 pb-2">
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex gap-1.5">
                       <Input
                         ref={addItemInputRef}
                         value={newItemTitle}
                         onChange={(e) => setNewItemTitle(e.target.value)}
-                        placeholder="Pendiente, visita o seguimiento..."
+                        placeholder="Nuevo pendiente..."
                         className="h-7 text-xs"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") addItem(emp.id);
                           if (e.key === "Escape") setAddingItemFor(null);
                         }}
                       />
-                      <div className="flex gap-1.5">
-                        <Input
-                          type="date"
-                          value={newItemDueAt}
-                          onChange={(e) => setNewItemDueAt(e.target.value)}
-                          className="h-7 text-xs"
-                        />
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => addItem(emp.id)}
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => setAddingItemFor(null)}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => addItem(emp.id)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => setAddingItemFor(null)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -1678,19 +1073,6 @@ export default function EmpresasPage() {
                 Vincula esta empresa con su cuenta correspondiente en Eva para
                 ver el estado de los canales en tiempo real.
               </p>
-              {editingEmpresaId && !empresaForm.eva_account_id && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  disabled={creatingEvaAccount}
-                  onClick={createEvaAccountFromEmpresa}
-                >
-                  <Building2 className="mr-2 h-4 w-4" />
-                  {creatingEvaAccount ? "Creando..." : "Crear cuenta Eva"}
-                </Button>
-              )}
             </div>
 
             {/* Summary note */}
@@ -1978,22 +1360,10 @@ export default function EmpresasPage() {
           </DialogHeader>
           {historyLoading ? (
             <p className="text-sm text-muted-foreground py-4 text-center">Cargando...</p>
-          ) : historyEntries.length === 0 && interactionEntries.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">Sin actividad registrada</p>
+          ) : historyEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Sin cambios registrados</p>
           ) : (
             <div className="space-y-3">
-              {interactionEntries.map((entry) => (
-                <div key={entry.id} className="border-l-2 border-primary/40 pl-3 py-1">
-                  <p className="text-sm">
-                    <span className="font-medium capitalize">{entry.type.replace(/_/g, " ")}</span>
-                    {" · "}
-                    <span className="text-foreground">{entry.summary}</span>
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {new Date(`${entry.date}T00:00:00`).toLocaleDateString("es-MX")}
-                  </p>
-                </div>
-              ))}
               {historyEntries.map((entry) => (
                 <div key={entry.id} className="border-l-2 border-muted pl-3 py-1">
                   <p className="text-sm">
@@ -2166,12 +1536,10 @@ function ChannelBadge({ icon: Icon, label, healthy, count, testId }: ChannelBadg
 function LogoAvatar({ url, name, size = "lg" }: { url: string | null; name: string; size?: "lg" | "sm" }) {
   const [failed, setFailed] = useState(false);
   const prevUrl = useRef(url);
-
-  useEffect(() => {
-    if (prevUrl.current === url) return;
+  if (prevUrl.current !== url) {
     prevUrl.current = url;
     setFailed(false);
-  }, [url]);
+  }
 
   const dim = size === "lg" ? "h-20 w-20" : "h-10 w-10";
   const iconDim = size === "lg" ? "h-9 w-9" : "h-5 w-5";

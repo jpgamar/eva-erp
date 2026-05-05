@@ -15,12 +15,16 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Dashboard", subtitle: "Overview of EVA operations" },
   "/finances": { title: "Finances", subtitle: "Revenue, expenses, and cash flow" },
   "/facturas": { title: "Facturas", subtitle: "CFDI electronic invoicing" },
+  "/vault": { title: "Vault", subtitle: "Secure document storage" },
   "/tasks": { title: "Tasks", subtitle: "Track and manage work" },
   // /prospects redirects to /empresas?stage=prospecto; metadata entry kept so
   // the brief moment before redirect shows a sensible heading.
   "/prospects": { title: "Pipeline", subtitle: "Redirigiendo a /empresas…" },
   "/meetings": { title: "Meetings", subtitle: "Schedule and notes" },
   "/documents": { title: "Documents", subtitle: "File management" },
+  "/okrs": { title: "OKRs", subtitle: "Objectives and key results" },
+  "/assistant": { title: "Eva AI", subtitle: "Embedded bot workspace" },
+  "/eva-customers": { title: "Eva Customers", subtitle: "Platform accounts and drafts" },
   "/monitoring": { title: "Monitoring", subtitle: "Platform health and issues" },
   "/infrastructure": { title: "Infrastructure", subtitle: "OpenClaw runtime hosts and employees" },
   "/partners": { title: "Partners", subtitle: "Partner management and deals" },
@@ -119,6 +123,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   const { title, subtitle } = getPageInfo(pathname);
   const isDashboard = pathname.startsWith("/dashboard");
+  const isAssistant = pathname.startsWith("/assistant");
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -157,7 +162,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
           subtitleNode={isDashboard ? <DashboardPeriodNav /> : undefined}
           onMenuClick={() => setSidebarOpen(true)}
         />
-        <main className={cn("animate-erp-entrance", "p-4 md:p-6")}>
+        <main
+          className={cn(
+            "animate-erp-entrance",
+            isAssistant ? "h-[calc(100vh-4rem)] overflow-hidden p-0" : "p-4 md:p-6",
+          )}
+        >
           {children}
         </main>
       </div>

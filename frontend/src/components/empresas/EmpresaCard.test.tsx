@@ -30,8 +30,6 @@ function makeEmpresa(overrides: Partial<EmpresaListItem> = {}): EmpresaListItem 
     item_count: 0,
     pending_count: 0,
     pending_items: [],
-    next_action: null,
-    overdue_count: 0,
     health: {
       status: "not_linked",
       unhealthy_count: 0,
@@ -96,24 +94,5 @@ describe("EmpresaCard", () => {
   it("shows 'Anual' chip when billing_interval is annual", () => {
     render(<EmpresaCard empresa={makeEmpresa({ billing_interval: "annual" })} />);
     expect(screen.getByText("Anual")).toBeInTheDocument();
-  });
-
-  it("shows the next CRM action when present", () => {
-    render(
-      <EmpresaCard
-        empresa={makeEmpresa({
-          next_action: {
-            id: "33333333-3333-3333-3333-333333333333",
-            title: "Visitar oficina",
-            kind: "event",
-            due_at: "2026-05-20T15:00:00Z",
-            start_at: null,
-            completed_at: null,
-          },
-        })}
-      />
-    );
-    expect(screen.getByText("Visitar oficina")).toBeInTheDocument();
-    expect(screen.getByText(/Siguiente:/)).toBeInTheDocument();
   });
 });

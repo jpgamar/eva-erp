@@ -5,10 +5,6 @@ import api from "./client";
 export interface PendingItem {
   id: string;
   title: string;
-  kind: EmpresaItemKind;
-  due_at: string | null;
-  start_at: string | null;
-  completed_at: string | null;
 }
 
 export type EmpresaHealthStatus = "healthy" | "unhealthy" | "unknown" | "not_linked";
@@ -65,8 +61,6 @@ export interface EmpresaListItem {
   item_count: number;
   pending_count: number;
   pending_items: PendingItem[];
-  next_action: PendingItem | null;
-  overdue_count: number;
   health: EmpresaHealth;
 }
 
@@ -100,21 +94,9 @@ export interface EmpresaItem {
   id: string;
   empresa_id: string;
   title: string;
-  kind: EmpresaItemKind;
-  description: string | null;
-  contact_method: EmpresaContactMethod | null;
-  due_at: string | null;
-  start_at: string | null;
-  end_at: string | null;
-  reminder_at: string | null;
-  assigned_to: string | null;
   done: boolean;
-  completed_at: string | null;
   created_at: string;
 }
-
-export type EmpresaItemKind = "todo" | "event" | "note" | "outreach";
-export type EmpresaContactMethod = "sms" | "whatsapp" | "call" | "email" | "visit" | "other";
 
 export interface Empresa {
   id: string;
@@ -256,30 +238,6 @@ export interface EvaAccountForLink {
 
 export interface EmpresaItemCreate {
   title: string;
-  kind?: EmpresaItemKind;
-  description?: string | null;
-  contact_method?: EmpresaContactMethod | null;
-  due_at?: string | null;
-  start_at?: string | null;
-  end_at?: string | null;
-  reminder_at?: string | null;
-  assigned_to?: string | null;
-}
-
-export interface EmpresaCalendarItem extends EmpresaItem {
-  empresa_name: string;
-  logo_url: string | null;
-  lifecycle_stage: LifecycleStage;
-}
-
-export interface CreateEvaAccountForEmpresaRequest {
-  owner_email: string;
-  owner_name?: string;
-  account_type?: string;
-  plan_tier?: string;
-  billing_cycle?: string;
-  temporary_password?: string | null;
-  send_setup_email?: boolean;
 }
 
 export interface EmpresaHistory {
@@ -292,16 +250,6 @@ export interface EmpresaHistory {
   changed_at: string;
 }
 
-export interface EmpresaInteraction {
-  id: string;
-  empresa_id: string;
-  type: string;
-  summary: string;
-  date: string;
-  created_by: string;
-  created_at: string;
-}
-
 // ── API ────────────────────────────────────────────────────────────
 
 export const empresasApi = {
@@ -309,9 +257,6 @@ export const empresasApi = {
     api.get<EmpresaListItem[]>("/empresas", { params: search ? { search } : undefined }).then((r) => r.data),
 
   get: (id: string) => api.get<Empresa>(`/empresas/${id}`).then((r) => r.data),
-
-  calendar: (params: { start: string; end: string; include_completed?: boolean }) =>
-    api.get<EmpresaCalendarItem[]>("/empresas/calendar", { params }).then((r) => r.data),
 
   create: (data: EmpresaCreate) => api.post<Empresa>("/empresas", data).then((r) => r.data),
 
@@ -340,9 +285,6 @@ export const empresasApi = {
   getHistory: (empresaId: string) =>
     api.get<EmpresaHistory[]>(`/empresas/${empresaId}/history`).then((r) => r.data),
 
-  getInteractions: (empresaId: string) =>
-    api.get<EmpresaInteraction[]>(`/empresas/${empresaId}/interactions`).then((r) => r.data),
-
   // Channel health (silent-channel-health plan)
   getAccountChannelHealth: (accountId: string) =>
     api
@@ -353,17 +295,6 @@ export const empresasApi = {
     api
       .get<EvaAccountForLink[]>("/eva-platform/accounts/list-for-link")
       .then((r) => r.data),
-
-  linkEvaAccount: (empresaId: string, accountId: string, expectedVersion?: number) =>
-    api
-      .post<Empresa>(`/empresas/${empresaId}/link-eva-account`, {
-        account_id: accountId,
-        expected_version: expectedVersion,
-      })
-      .then((r) => r.data),
-
-  createEvaAccount: (empresaId: string, data: CreateEvaAccountForEmpresaRequest) =>
-    api.post(`/empresas/${empresaId}/eva-account`, data).then((r) => r.data),
 
   // Billing
   previewCheckout: (empresaId: string, data: PreviewCheckoutRequest) =>

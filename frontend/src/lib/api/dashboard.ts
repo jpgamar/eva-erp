@@ -34,6 +34,9 @@ export interface DashboardData {
   total_meetings: number;
   upcoming_meetings: number;
   meetings_this_month: number;
+  vault_combined_usd: number;
+  vault_service_count: number;
+  vault_by_category: Record<string, number>;
   projected_revenue_mxn: number;
   invoiced_sat_mxn: number;
   payments_received_mxn: number;

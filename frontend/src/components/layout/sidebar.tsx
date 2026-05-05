@@ -5,9 +5,12 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   DollarSign,
+  Lock,
   CheckSquare,
+  Target,
   Calendar,
   FolderOpen,
+  Trophy,
   Settings,
   ChevronsLeft,
   ChevronsRight,
@@ -15,6 +18,7 @@ import {
   FileText,
   Activity,
   Briefcase,
+  Building2,
   Handshake,
   Server,
   Receipt,
@@ -62,6 +66,7 @@ const navGroups: NavGroup[] = [
   {
     group: "Manage",
     items: [
+      { label: "Vault", icon: Lock, href: "/vault", phase: 2 },
       { label: "Tasks", icon: CheckSquare, href: "/tasks", phase: 2 },
     ],
   },
@@ -74,8 +79,16 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    group: "Strategy",
+    items: [
+      { label: "OKRs", icon: Trophy, href: "/okrs", phase: 6 },
+      { label: "Eva AI", icon: OwlIcon, href: "/assistant", phase: 7 },
+    ],
+  },
+  {
     group: "Eva Platform",
     items: [
+      { label: "Eva Customers", icon: Building2, href: "/eva-customers", phase: 8 },
       { label: "Monitoring", icon: Activity, href: "/monitoring", phase: 8 },
       { label: "Infrastructure", icon: Server, href: "/infrastructure", phase: 8 },
     ],

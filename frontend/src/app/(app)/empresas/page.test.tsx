@@ -30,33 +30,9 @@ const apiMock = vi.hoisted(() => ({
   updateItem: vi.fn(),
   toggleItem: vi.fn(),
   deleteItem: vi.fn(),
-  calendar: vi.fn(),
   getHistory: vi.fn(),
-  getInteractions: vi.fn(),
   getAccountChannelHealth: vi.fn(),
   listEvaAccountsForLink: vi.fn(),
-  linkEvaAccount: vi.fn(),
-  createEvaAccount: vi.fn(),
-}));
-
-const evaPlatformMock = vi.hoisted(() => ({
-  listAccounts: vi.fn(),
-  listDrafts: vi.fn(),
-  listAccountPricing: vi.fn(),
-  createAccount: vi.fn(),
-  createDraft: vi.fn(),
-  updateDraft: vi.fn(),
-  approveDraft: vi.fn(),
-  deleteDraft: vi.fn(),
-  updateAccountPricing: vi.fn(),
-  impersonateAccount: vi.fn(),
-  resendAccountOnboarding: vi.fn(),
-  getAccountBillingStatus: vi.fn(),
-  createAccountCheckoutLink: vi.fn(),
-  retryAccountBillingDocument: vi.fn(),
-  resendAccountBillingEmail: vi.fn(),
-  deleteAccount: vi.fn(),
-  reactivateAccount: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -71,10 +47,6 @@ vi.mock("@/lib/api/empresas", async () => {
     empresasApi: apiMock,
   };
 });
-
-vi.mock("@/lib/api/eva-platform", () => ({
-  evaPlatformApi: evaPlatformMock,
-}));
 
 
 function buildEmpresa(overrides: Record<string, unknown> = {}) {
@@ -93,8 +65,6 @@ function buildEmpresa(overrides: Record<string, unknown> = {}) {
     item_count: 0,
     pending_count: 0,
     pending_items: [],
-    next_action: null,
-    overdue_count: 0,
     health: {
       status: "healthy",
       unhealthy_count: 0,
@@ -111,12 +81,6 @@ function buildEmpresa(overrides: Record<string, unknown> = {}) {
 describe("EmpresasPage — channel health UI", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.history.pushState({}, "", "/empresas");
-    apiMock.getInteractions.mockResolvedValue([]);
-    evaPlatformMock.listAccounts.mockResolvedValue([]);
-    evaPlatformMock.listDrafts.mockResolvedValue([]);
-    evaPlatformMock.listAccountPricing.mockResolvedValue([]);
-    evaPlatformMock.approveDraft.mockResolvedValue({});
     apiMock.listEvaAccountsForLink.mockResolvedValue([
       { id: "11111111-1111-1111-1111-111111111111", name: "Lucky Telecom" },
       { id: "22222222-2222-2222-2222-222222222222", name: "Gamership" },
@@ -301,31 +265,6 @@ describe("EmpresasPage — channel health UI", () => {
       "empresa-eva-account-11111111-1111-1111-1111-111111111111"
     );
     expect(link.textContent).toContain("Lucky Intelligence");
-  });
-
-  it("renders pending account drafts inside the Empresas accounts view", async () => {
-    window.history.pushState({}, "", "/empresas?view=accounts");
-    apiMock.list.mockResolvedValue([buildEmpresa()]);
-    evaPlatformMock.listDrafts.mockResolvedValue([
-      {
-        id: "draft-1",
-        name: "Lucky Draft",
-        owner_email: "owner@example.com",
-        plan_tier: "STANDARD",
-        billing_cycle: "MONTHLY",
-        status: "draft",
-      },
-    ]);
-    evaPlatformMock.listAccountPricing.mockResolvedValue([]);
-
-    render(<EmpresasPage />);
-
-    expect(await screen.findByText("Borradores de cuenta")).toBeInTheDocument();
-    expect(screen.getByText("Lucky Draft")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Aprobar/i }));
-
-    await waitFor(() => expect(evaPlatformMock.approveDraft).toHaveBeenCalledWith("draft-1"));
-    window.history.pushState({}, "", "/empresas");
   });
 
   it("renders 'Sin vincular a Eva' when not linked", async () => {
