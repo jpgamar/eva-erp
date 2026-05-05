@@ -892,12 +892,27 @@ async def empresa_calendar(
     return out
 
 
+_USE_LINK_ENDPOINT_DETAIL = {
+    "reason": "UseLinkEvaAccountEndpoint",
+    "message": (
+        "Para vincular o desvincular una cuenta de Eva usa "
+        "POST /empresas/{empresa_id}/link-eva-account o "
+        "DELETE /empresas/{empresa_id}/link-eva-account. El PATCH/POST "
+        "genericos no aceptan 'eva_account_id' porque saltan la "
+        "validacion de cuenta activa, sincronizacion de facturacion e "
+        "historial."
+    ),
+}
+
+
 @router.post("", response_model=EmpresaResponse, status_code=201)
 async def create_empresa(
     data: EmpresaCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if data.eva_account_id is not None:
+        raise HTTPException(status_code=400, detail=_USE_LINK_ENDPOINT_DETAIL)
     _enforce_business_rules(
         lifecycle_stage=data.lifecycle_stage,
         eva_account_id=data.eva_account_id,
@@ -955,6 +970,8 @@ async def update_empresa(
         raise HTTPException(status_code=404, detail="Empresa not found")
 
     update_data = data.model_dump(exclude_unset=True)
+    if "eva_account_id" in update_data:
+        raise HTTPException(status_code=400, detail=_USE_LINK_ENDPOINT_DETAIL)
 
     # Optimistic lock — PATCH must supply If-Match: <version> unless the payload
     # is empty (no-op). Mismatch returns 409 so the client can refetch.

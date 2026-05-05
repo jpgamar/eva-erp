@@ -413,6 +413,54 @@ def test_preflight_allows_grandfathered_operativo() -> None:
     assert result is empresa
 
 
+def test_generic_create_empresa_rejects_eva_account_id() -> None:
+    """The generic create path must refuse `eva_account_id`. Linking
+    has its own endpoint that runs the full validation; the generic
+    POST is just the company record.
+    """
+    from src.empresas.router import create_empresa
+    from src.empresas.schemas import EmpresaCreate
+
+    payload = EmpresaCreate(name="Acme", eva_account_id=uuid.uuid4())
+
+    class _Db:
+        def add(self, _obj: Any) -> None: ...
+
+        async def flush(self) -> None: ...
+
+        async def refresh(self, *_args: Any, **_kwargs: Any) -> None: ...
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(create_empresa(payload, db=_Db(), user=SimpleNamespace(id=uuid.uuid4())))  # type: ignore[arg-type]
+    assert exc.value.status_code == 400
+    assert exc.value.detail["reason"] == "UseLinkEvaAccountEndpoint"
+
+
+def test_generic_patch_empresa_rejects_eva_account_id() -> None:
+    """The generic PATCH path must refuse `eva_account_id`."""
+    from src.empresas.router import update_empresa
+    from src.empresas.schemas import EmpresaUpdate
+
+    update = EmpresaUpdate(eva_account_id=uuid.uuid4())
+
+    class _Db:
+        async def execute(self, _q: Any) -> _ScalarResult:
+            return _ScalarResult(_make_empresa(version=2))
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            update_empresa(
+                empresa_id=uuid.uuid4(),
+                data=update,
+                db=_Db(),  # type: ignore[arg-type]
+                user=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
+                if_match="2",
+            )
+        )
+    assert exc.value.status_code == 400
+    assert exc.value.detail["reason"] == "UseLinkEvaAccountEndpoint"
+
+
 def test_create_account_for_operativo_empresa_does_not_call_supabase() -> None:
     """Regression: a fresh-account create from an operativo empresa must
     fail before any Supabase admin call. We assert by patching the

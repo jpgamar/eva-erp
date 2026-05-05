@@ -487,12 +487,12 @@ export default function EmpresasPage() {
     };
     try {
       if (editingEmpresaId) {
-        // The empresa<->Eva account link must go through the dedicated
-        // /link-eva-account / unlink endpoints so the backend can sync
-        // billing cache, write a history row, and reject inactive or
-        // already-linked accounts. Strip eva_account_id from the
-        // generic PATCH and route it separately, then refresh the
-        // optimistic-lock version for the rest of the update.
+        // 1) Route the empresa<->Eva account link through the dedicated
+        //    /link-eva-account endpoints so the backend can sync billing
+        //    cache, write history, and reject inactive accounts.
+        // 2) Send ONLY the fields the operator actually changed in the
+        //    follow-up generic PATCH; sending unchanged billing fields
+        //    on a linked empresa would 400 with UseSubscriptionApply.
         const original = empresas.find((e) => e.id === editingEmpresaId);
         const previousAccountId = original?.eva_account_id ?? null;
         const proposedAccountId = payload.eva_account_id ?? null;
@@ -513,11 +513,26 @@ export default function EmpresasPage() {
           }
         }
 
+        const fullSnapshot = await empresasApi.get(editingEmpresaId);
         const { eva_account_id: _ignoredEvaAccountId, ...rest } = payload;
-        const remainingPayload = rest as EmpresaCreate;
-        const hasOtherChanges = Object.keys(remainingPayload).length > 0;
-        if (hasOtherChanges) {
-          await empresasApi.update(editingEmpresaId, remainingPayload, workingVersion);
+        const candidatePatch = rest as Record<string, unknown>;
+        const diffPatch: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(candidatePatch)) {
+          const current = (fullSnapshot as unknown as Record<string, unknown>)[key];
+          // Treat array-equality structurally (billing_recipient_emails)
+          // and otherwise rely on strict equality. JSON.stringify is
+          // sufficient for the field set we accept (strings, numbers,
+          // booleans, null, string[]).
+          if (JSON.stringify(current ?? null) !== JSON.stringify(value ?? null)) {
+            diffPatch[key] = value;
+          }
+        }
+        if (Object.keys(diffPatch).length > 0) {
+          await empresasApi.update(
+            editingEmpresaId,
+            diffPatch as Partial<EmpresaCreate>,
+            workingVersion
+          );
         }
         toast.success("Empresa actualizada");
       } else {
