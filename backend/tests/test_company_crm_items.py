@@ -337,6 +337,102 @@ def test_list_empresas_response_includes_all_card_contract_fields() -> None:
         assert key in src, f"GET /empresas payload missing key: {key}"
 
 
+def test_empresa_calendar_unions_items_meetings_and_interactions() -> None:
+    """Round-8 P3: prove `empresa_calendar()` actually merges all three
+    sources. Drives the route handler with a fake DB that returns mock
+    item / meeting / interaction rows and checks the merged payload.
+    """
+    import asyncio
+    import datetime as _dt
+    import uuid as _uuid
+    from types import SimpleNamespace
+    from src.empresas import router as empresas_router
+
+    empresa_id = _uuid.uuid4()
+    now = _dt.datetime(2026, 5, 10, 12, 0, tzinfo=_dt.timezone.utc)
+
+    item_id = _uuid.uuid4()
+    meeting_id = _uuid.uuid4()
+    interaction_id = _uuid.uuid4()
+
+    item_row = SimpleNamespace(
+        id=item_id,
+        empresa_id=empresa_id,
+        title="Visita Acme",
+        description="Discutir propuesta",
+        kind="event",
+        contact_method="visit",
+        start_at=now,
+        end_at=now + _dt.timedelta(hours=1),
+        due_at=None,
+        reminder_at=None,
+        completed_at=None,
+        assigned_to=None,
+    )
+    meeting_row = SimpleNamespace(
+        id=meeting_id,
+        empresa_id=empresa_id,
+        empresa_name="Acme",
+        title="Reunión legacy",
+        date=now - _dt.timedelta(days=2),
+        duration_minutes=30,
+        notes_markdown="Quedamos en mandar contrato",
+    )
+    interaction = SimpleNamespace(
+        id=interaction_id,
+        empresa_id=empresa_id,
+        type="whatsapp",
+        summary="Saludo inicial",
+        date=(now - _dt.timedelta(days=1)).date(),
+    )
+
+    class _ItemRows:
+        def all(self):
+            return [(item_row, "Acme")]
+
+    class _MeetingRows:
+        def all(self):
+            return [meeting_row]
+
+    class _InteractionRows:
+        def all(self):
+            return [(interaction, "Acme")]
+
+    sequence = ["items", "meetings", "interactions"]
+
+    class _FakeDb:
+        def __init__(self):
+            self._idx = 0
+
+        async def execute(self, _q, *_args, **_kwargs):
+            kind = sequence[self._idx]
+            self._idx += 1
+            if kind == "items":
+                return _ItemRows()
+            if kind == "meetings":
+                return _MeetingRows()
+            return _InteractionRows()
+
+    payload = asyncio.run(
+        empresas_router.empresa_calendar(
+            range_from=now - _dt.timedelta(days=30),
+            range_to=now + _dt.timedelta(days=30),
+            empresa_id=empresa_id,
+            db=_FakeDb(),  # type: ignore[arg-type]
+            user=SimpleNamespace(id=_uuid.uuid4()),  # type: ignore[arg-type]
+        )
+    )
+    sources = sorted({entry.source for entry in payload})
+    assert sources == ["interaction", "item", "meeting"], (
+        f"calendar must blend all three sources; got {sources}"
+    )
+    by_source = {entry.source: entry for entry in payload}
+    assert by_source["item"].title == "Visita Acme"
+    assert by_source["meeting"].title == "Reunión legacy"
+    assert by_source["meeting"].end_at == meeting_row.date + _dt.timedelta(minutes=30)
+    assert by_source["interaction"].contact_method == "whatsapp"
+
+
 def test_calendar_item_response_supports_all_sources() -> None:
     fields = set(EmpresaCalendarItemResponse.model_fields)
     assert "source" in fields

@@ -333,6 +333,12 @@ export default function EmpresasPage() {
   // Empresa modal
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
   const [empresaForm, setEmpresaForm] = useState<EmpresaCreate>(EMPTY_EMPRESA);
+  // Pre-edit snapshot of the form values so saveEmpresa can diff
+  // user-typed changes against the state that was loaded into the
+  // dialog. Without this we'd diff against the post-link backend
+  // snapshot, which can include cache-synced fields the user never
+  // touched (billing_interval) and trip UseSubscriptionApply.
+  const [editingEmpresaInitial, setEditingEmpresaInitial] = useState<EmpresaCreate | null>(null);
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
   const [editingEmpresaVersion, setEditingEmpresaVersion] = useState<number>(0);
   const [extractingConstancia, setExtractingConstancia] = useState(false);
@@ -350,6 +356,9 @@ export default function EmpresasPage() {
   // Inline add item
   const [addingItemFor, setAddingItemFor] = useState<string | null>(null);
   const [newItemTitle, setNewItemTitle] = useState("");
+  const [newItemKind, setNewItemKind] = useState<"todo" | "event" | "note" | "outreach">("todo");
+  const [newItemContactMethod, setNewItemContactMethod] = useState<string>("");
+  const [newItemDate, setNewItemDate] = useState<string>("");
   const addItemInputRef = useRef<HTMLInputElement>(null);
 
   // Items expanded (show all)
@@ -403,6 +412,7 @@ export default function EmpresasPage() {
 
   const openCreateEmpresa = () => {
     setEmpresaForm(EMPTY_EMPRESA);
+    setEditingEmpresaInitial(null);
     setEditingEmpresaId(null);
     setEditingEmpresaVersion(0);
     setEmpresaModalOpen(true);
@@ -418,7 +428,7 @@ export default function EmpresasPage() {
           : full.email
           ? [full.email]
           : [];
-      setEmpresaForm({
+      const initial: EmpresaCreate = {
         name: full.name,
         logo_url: full.logo_url,
         industry: full.industry,
@@ -439,7 +449,9 @@ export default function EmpresasPage() {
         last_paid_date: full.last_paid_date,
         eva_account_id: full.eva_account_id,
         billing_recipient_emails: seededRecipients,
-      });
+      };
+      setEmpresaForm(initial);
+      setEditingEmpresaInitial(initial);
       setEditingEmpresaId(full.id);
       setEditingEmpresaVersion(full.version ?? 0);
       setEmpresaModalOpen(true);
@@ -513,17 +525,24 @@ export default function EmpresasPage() {
           }
         }
 
-        const fullSnapshot = await empresasApi.get(editingEmpresaId);
+        // Diff the form payload against the PRE-edit snapshot (not the
+        // post-link backend state) so we only PATCH what the operator
+        // actually typed. Fields the link endpoint may have refreshed
+        // server-side (billing_interval, subscription_status,
+        // current_period_end) are absent from the form anyway and
+        // never reach this diff.
+        const baseline = editingEmpresaInitial ?? ({} as Partial<EmpresaCreate>);
         const { eva_account_id: _ignoredEvaAccountId, ...rest } = payload;
         const candidatePatch = rest as Record<string, unknown>;
+        const baselineRecord = baseline as unknown as Record<string, unknown>;
         const diffPatch: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(candidatePatch)) {
-          const current = (fullSnapshot as unknown as Record<string, unknown>)[key];
+          const original = baselineRecord[key];
           // Treat array-equality structurally (billing_recipient_emails)
           // and otherwise rely on strict equality. JSON.stringify is
           // sufficient for the field set we accept (strings, numbers,
           // booleans, null, string[]).
-          if (JSON.stringify(current ?? null) !== JSON.stringify(value ?? null)) {
+          if (JSON.stringify(original ?? null) !== JSON.stringify(value ?? null)) {
             diffPatch[key] = value;
           }
         }
@@ -652,19 +671,54 @@ export default function EmpresasPage() {
 
   const addItem = async (empresaId: string) => {
     if (!newItemTitle.trim()) return;
+    // Build the payload by kind so the backend gets the right
+    // start_at/due_at semantics for events vs todos.
+    const isoDate = newItemDate ? new Date(newItemDate).toISOString() : null;
+    const payload: { title: string; kind: typeof newItemKind } & Record<string, unknown> = {
+      title: newItemTitle.trim(),
+      kind: newItemKind,
+    };
+    if (newItemKind === "event") {
+      if (!isoDate) {
+        toast.error("Define la fecha del evento");
+        return;
+      }
+      payload.start_at = isoDate;
+    } else if (newItemKind === "todo" && isoDate) {
+      payload.due_at = isoDate;
+    } else if (newItemKind === "outreach" && isoDate) {
+      payload.due_at = isoDate;
+    }
+    if (newItemContactMethod) {
+      payload.contact_method = newItemContactMethod;
+    }
     try {
-      await empresasApi.createItem(empresaId, { title: newItemTitle.trim() });
+      await empresasApi.createItem(empresaId, payload);
       setNewItemTitle("");
+      setNewItemKind("todo");
+      setNewItemContactMethod("");
+      setNewItemDate("");
       setAddingItemFor(null);
       loadEmpresas();
-    } catch {
-      toast.error("Error al agregar pendiente");
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      const message = detail?.message;
+      if (detail?.reason === "EventDateRequired") {
+        toast.error(message ?? "Eventos requieren una fecha de inicio.");
+      } else if (detail?.reason === "InvalidDateWindow") {
+        toast.error(message ?? "El rango de fechas es inválido.");
+      } else {
+        toast.error(message ?? "Error al agregar pendiente");
+      }
     }
   };
 
   const startAddingItem = (empresaId: string) => {
     setAddingItemFor(empresaId);
     setNewItemTitle("");
+    setNewItemKind("todo");
+    setNewItemContactMethod("");
+    setNewItemDate("");
     setTimeout(() => addItemInputRef.current?.focus(), 50);
   };
 
@@ -1035,15 +1089,25 @@ export default function EmpresasPage() {
                   )}
                 </div>
 
-                {/* Inline add item */}
+                {/* Inline add item — supports todo / event / note / outreach
+                    with optional date + contact method so the backend
+                    `kind` model is reachable from the company card. */}
                 {addingItemFor === emp.id ? (
-                  <div className="px-4 pb-2">
+                  <div className="px-4 pb-2 space-y-1.5">
                     <div className="flex gap-1.5">
                       <Input
                         ref={addItemInputRef}
                         value={newItemTitle}
                         onChange={(e) => setNewItemTitle(e.target.value)}
-                        placeholder="Nuevo pendiente..."
+                        placeholder={
+                          newItemKind === "event"
+                            ? "Visita / reunión / demo..."
+                            : newItemKind === "outreach"
+                              ? "Resumen del contacto..."
+                              : newItemKind === "note"
+                                ? "Nota interna..."
+                                : "Pendiente..."
+                        }
                         className="h-7 text-xs"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") addItem(emp.id);
@@ -1055,6 +1119,7 @@ export default function EmpresasPage() {
                         variant="ghost"
                         className="h-7 w-7 shrink-0"
                         onClick={() => addItem(emp.id)}
+                        aria-label="Guardar item"
                       >
                         <Check className="h-3.5 w-3.5" />
                       </Button>
@@ -1063,9 +1128,56 @@ export default function EmpresasPage() {
                         variant="ghost"
                         className="h-7 w-7 shrink-0"
                         onClick={() => setAddingItemFor(null)}
+                        aria-label="Cancelar"
                       >
                         <X className="h-3.5 w-3.5" />
                       </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-[11px]">
+                      <select
+                        value={newItemKind}
+                        onChange={(e) =>
+                          setNewItemKind(e.target.value as typeof newItemKind)
+                        }
+                        className="h-6 rounded border border-border bg-background px-1 text-[11px]"
+                        data-testid={`empresa-item-kind-${emp.id}`}
+                      >
+                        <option value="todo">Pendiente</option>
+                        <option value="event">Evento</option>
+                        <option value="outreach">Outreach</option>
+                        <option value="note">Nota</option>
+                      </select>
+                      {newItemKind !== "note" ? (
+                        <input
+                          type="datetime-local"
+                          value={newItemDate}
+                          onChange={(e) => setNewItemDate(e.target.value)}
+                          className="h-6 rounded border border-border bg-background px-1 text-[11px]"
+                          aria-label={
+                            newItemKind === "event"
+                              ? "Fecha del evento"
+                              : "Fecha límite"
+                          }
+                        />
+                      ) : null}
+                      {(newItemKind === "outreach" || newItemKind === "event") ? (
+                        <select
+                          value={newItemContactMethod}
+                          onChange={(e) => setNewItemContactMethod(e.target.value)}
+                          className="h-6 rounded border border-border bg-background px-1 text-[11px]"
+                          aria-label="Método de contacto"
+                        >
+                          <option value="">Canal…</option>
+                          <option value="sms">SMS</option>
+                          <option value="whatsapp">WhatsApp</option>
+                          <option value="call">Llamada</option>
+                          <option value="email">Email</option>
+                          <option value="visit">Visita</option>
+                          <option value="demo">Demo</option>
+                          <option value="meeting">Reunión</option>
+                          <option value="other">Otro</option>
+                        </select>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
