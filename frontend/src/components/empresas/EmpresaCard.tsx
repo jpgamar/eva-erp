@@ -1,7 +1,9 @@
 "use client";
 
-import { CalendarClock, Link2, Building2, AlertCircle, Unplug } from "lucide-react";
-import type { EmpresaListItem, PendingItem } from "@/lib/api/empresas";
+import { CalendarClock, Link2, Building2, AlertCircle, Plus, Unplug } from "lucide-react";
+import type { EmpresaContactMethod, EmpresaListItem, PendingItem } from "@/lib/api/empresas";
+
+import { CHANNEL_SHORTCUTS, kindBadgeStyle } from "@/components/empresas/ItemEditorPanel";
 
 const MONTH_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -22,6 +24,10 @@ function formatMxn(amount: number | null): string | null {
 interface Props {
   empresa: EmpresaListItem;
   onClick?: (empresa: EmpresaListItem) => void;
+  /** Quick-add follow-up button. When set, a "+" appears on the card. */
+  onQuickAdd?: (empresa: EmpresaListItem) => void;
+  /** Channel-shortcut click. When set, the card shows the icon row. */
+  onLogChannel?: (empresa: EmpresaListItem, method: EmpresaContactMethod) => void;
 }
 
 function nextActionLabel(item: PendingItem): string {
@@ -36,7 +42,7 @@ function nextActionLabel(item: PendingItem): string {
  * collapses to its actual content (no fixed min-height) so sparse rows
  * stay short and dense rows stay readable.
  */
-export function EmpresaCard({ empresa, onClick }: Props) {
+export function EmpresaCard({ empresa, onClick, onQuickAdd, onLogChannel }: Props) {
   const monthlyAmount = formatMxn(empresa.monthly_amount);
   const nextDate =
     formatShortDate(empresa.cancellation_scheduled_at) ||
@@ -113,6 +119,17 @@ export function EmpresaCard({ empresa, onClick }: Props) {
 
       {empresa.next_action ? (
         <div className="flex items-center gap-1 text-xs">
+          {(() => {
+            const badge = kindBadgeStyle(empresa.next_action.kind);
+            return (
+              <span
+                className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${badge.className}`}
+                aria-label={`Tipo: ${badge.label}`}
+              >
+                {badge.label}
+              </span>
+            );
+          })()}
           <CalendarClock className="h-3 w-3 shrink-0 text-sky-600" />
           <span className="truncate text-foreground">{nextActionLabel(empresa.next_action)}</span>
         </div>
@@ -133,6 +150,63 @@ export function EmpresaCard({ empresa, onClick }: Props) {
         <div className="flex items-center gap-1 text-[11px] font-semibold text-destructive">
           <AlertCircle className="h-3 w-3" />
           {empresa.overdue_count} vencido{empresa.overdue_count === 1 ? "" : "s"}
+        </div>
+      ) : null}
+
+      {!empresa.eva_account_id && empresa.lifecycle_stage === "operativo" ? (
+        <div className="flex items-center gap-1 text-[11px] text-amber-700">
+          <AlertCircle className="h-3 w-3" />
+          Sin cuenta de Eva — vincula o cambia la fase
+        </div>
+      ) : null}
+
+      {(onQuickAdd || onLogChannel) ? (
+        <div
+          className="-mx-1 mt-1 flex items-center justify-between gap-1 border-t border-border/40 pt-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {onLogChannel ? (
+            <div
+              className="flex items-center gap-0.5 text-muted-foreground"
+              data-testid={`empresa-channels-${empresa.id}`}
+            >
+              {CHANNEL_SHORTCUTS.map((opt) => {
+                const Icon = opt.icon;
+                return (
+                  <button
+                    key={opt.method}
+                    type="button"
+                    title={`Log ${opt.label}`}
+                    aria-label={`Log ${opt.label}`}
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted ${opt.color}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onLogChannel(empresa, opt.method);
+                    }}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div />
+          )}
+          {onQuickAdd ? (
+            <button
+              type="button"
+              title="Nuevo pendiente"
+              aria-label="Nuevo pendiente"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+              data-testid={`empresa-quick-add-${empresa.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickAdd(empresa);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

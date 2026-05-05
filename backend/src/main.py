@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from src.common.config import settings
 from src.common.database import engine, eva_engine
+from src.empresas.reminders import empresa_item_reminder_runner_loop
 from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
 from src.facturas.outbox import facturas_outbox_runner_loop
 from src.facturas.reconciliation import facturapi_reconciliation_runner_loop
@@ -38,6 +39,11 @@ async def lifespan(app: FastAPI):
     if settings.facturapi_reconciliation_enabled:
         stop = asyncio.Event()
         loops.append((stop, asyncio.create_task(facturapi_reconciliation_runner_loop(stop))))
+    # Empresa item reminders: 24h + 1h before start_at, sent to
+    # `settings.empresa_item_reminder_email` (default gus@goeva.ai).
+    if settings.empresa_item_reminders_enabled:
+        stop = asyncio.Event()
+        loops.append((stop, asyncio.create_task(empresa_item_reminder_runner_loop(stop))))
 
     yield
 
@@ -76,8 +82,6 @@ api_router = APIRouter(prefix="/api/v1")
 from src.auth.router import router as auth_router
 from src.users.router import router as users_router
 from src.notifications.router import router as notifications_router
-from src.tasks.router import router as task_router
-from src.tasks.router import board_router
 from src.finances.router import router as finances_router
 from src.kpis.router import router as kpis_router
 # Prospects router unmounted in the Empresas Pipeline unification. The import
@@ -101,8 +105,9 @@ from src.facturas_recibidas.router import router as gastos_router
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(notifications_router)
-api_router.include_router(task_router)
-api_router.include_router(board_router)
+# tasks/boards routers unmounted in the empresas-ux-pass consolidation.
+# All tasks live in `empresa_items` now (with empresa_id NULL for internal
+# tasks). The Tareas tab in /empresas is the new operator surface.
 api_router.include_router(finances_router)
 api_router.include_router(kpis_router)
 # Prospects router unmounted — /prospects/* now returns 404. Clients should

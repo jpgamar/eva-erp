@@ -2,11 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Building2, Plus } from "lucide-react";
+import {
+  ItemEditorPanel,
+  type EmpresaPickerOption,
+  type ItemEditorMode,
+} from "@/components/empresas/ItemEditorPanel";
 import { empresasApi, type EmpresaCalendarItem } from "@/lib/api/empresas";
 
 interface Props {
   empresaId?: string;
+  empresas?: EmpresaPickerOption[];
   onSelectEmpresa?: (empresaId: string) => void;
 }
 
@@ -46,10 +52,27 @@ const SOURCE_LABEL: Record<string, string> = {
   interaction: "Outreach",
 };
 
-export function EmpresasCalendarView({ empresaId, onSelectEmpresa }: Props) {
+export function EmpresasCalendarView({ empresaId, empresas = [], onSelectEmpresa }: Props) {
   const [anchor, setAnchor] = useState<Date>(() => startOfMonth(new Date()));
   const [items, setItems] = useState<EmpresaCalendarItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorMode, setEditorMode] = useState<ItemEditorMode>({ type: "create" });
+
+  function openCreateOnDay(day: Date) {
+    // Default to 09:00 local on the clicked day.
+    const startAt = new Date(day);
+    startAt.setHours(9, 0, 0, 0);
+    setEditorMode({
+      type: "create",
+      defaults: {
+        kind: "event",
+        start_at: startAt.toISOString(),
+        empresa_id: empresaId ?? null,
+      },
+    });
+    setEditorOpen(true);
+  }
 
   const monthStart = useMemo(() => startOfMonth(anchor), [anchor]);
   const monthEnd = useMemo(() => endOfMonth(anchor), [anchor]);
@@ -92,6 +115,21 @@ export function EmpresasCalendarView({ empresaId, onSelectEmpresa }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
+      <ItemEditorPanel
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        mode={editorMode}
+        empresas={empresas}
+        onChanged={() => {
+          // Re-fetch the current month after a save.
+          setLoading(true);
+          empresasApi
+            .calendar({ from: monthStart.toISOString(), to: monthEnd.toISOString(), empresaId })
+            .then(setItems)
+            .catch(() => toast.error("No se pudo refrescar el calendario"))
+            .finally(() => setLoading(false));
+        }}
+      />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
@@ -132,15 +170,23 @@ export function EmpresasCalendarView({ empresaId, onSelectEmpresa }: Props) {
             {days.map((day) => {
               const key = localDayKey(day);
               const bucket = grouped.get(key) ?? [];
-              if (bucket.length === 0) return null;
               const label = day.toLocaleDateString("es-MX", {
                 weekday: "short",
                 day: "numeric",
                 month: "short",
               });
               return (
-                <li key={key} className="grid grid-cols-[120px_1fr] gap-3 p-4">
-                  <div className="text-sm font-medium capitalize text-muted-foreground">{label}</div>
+                <li key={key} className="group grid grid-cols-[120px_1fr] gap-3 p-4">
+                  <button
+                    type="button"
+                    className="text-left text-sm font-medium capitalize text-muted-foreground hover:text-foreground"
+                    onClick={() => openCreateOnDay(day)}
+                    title="Crear evento en este día"
+                    data-testid={`empresas-calendar-day-${key}`}
+                  >
+                    {label}
+                    <Plus className="ml-1 inline-block h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+                  </button>
                   <ul className="space-y-2">
                     {bucket.map((item) => {
                       const time = item.start_at

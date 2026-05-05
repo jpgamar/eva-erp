@@ -106,6 +106,40 @@ def test_validate_item_window_todo_no_date_ok() -> None:
 # ── Route ordering ──────────────────────────────────────────────────
 
 
+def test_items_list_route_registered_before_dynamic_empresa_route() -> None:
+    """`GET /empresas/items` MUST come before `GET /empresas/{empresa_id}`
+    so the dynamic UUID route doesn't swallow the literal `items` segment.
+    Same convention we applied to /calendar in the original CRM
+    consolidation (P1 from that earlier review).
+    """
+    paths = _all_paths_in_order()
+    items_idx = _index_of(paths, "/api/v1/empresas/items", "GET")
+    dynamic_idx = _index_of(paths, "/api/v1/empresas/{empresa_id}", "GET")
+    assert items_idx >= 0, "GET /empresas/items must be registered"
+    assert dynamic_idx >= 0
+    assert items_idx < dynamic_idx, (
+        f"items route at {items_idx} must come before dynamic empresa route at {dynamic_idx}"
+    )
+
+
+def test_post_items_route_registered() -> None:
+    """`POST /empresas/items` (top-level, internal-task-friendly) must
+    exist alongside the existing `POST /empresas/{empresa_id}/items`."""
+    paths = _all_paths_in_order()
+    top_level = _index_of(paths, "/api/v1/empresas/items", "POST")
+    nested = _index_of(paths, "/api/v1/empresas/{empresa_id}/items", "POST")
+    assert top_level >= 0
+    assert nested >= 0
+    assert top_level < nested, (
+        "Top-level /items POST must register before /{empresa_id}/items POST"
+    )
+
+
+def test_bulk_stage_route_registered() -> None:
+    paths = _all_paths_in_order()
+    assert _index_of(paths, "/api/v1/empresas/bulk-stage", "POST") >= 0
+
+
 def test_calendar_route_registered_before_dynamic_empresa_route() -> None:
     paths = _all_paths_in_order()
     calendar_idx = _index_of(paths, "/api/v1/empresas/calendar", "GET")

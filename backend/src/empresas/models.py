@@ -103,7 +103,13 @@ class EmpresaItem(Base):
     __tablename__ = "empresa_items"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    empresa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
+    # Nullable as of the empresas-ux-pass migration: items with
+    # empresa_id IS NULL are "internal" tasks (replace the deleted
+    # /tasks section). They surface in the Tareas tab under the
+    # "Sin empresa (internas)" bucket.
+    empresa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=True
+    )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     # Activity kind drives UX (todo gets a checkbox, event lands on the
     # calendar, note is read-only context, outreach maps to a channel).
@@ -117,11 +123,16 @@ class EmpresaItem(Base):
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Reminder dispatcher stamps these atomically via UPDATE...RETURNING
+    # before sending the email, so concurrent loops never double-send.
+    # SendGrid failure compensates by setting them back to NULL.
+    reminder_24h_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminder_1h_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    empresa: Mapped["Empresa"] = relationship("Empresa", back_populates="items")
+    empresa: Mapped["Empresa | None"] = relationship("Empresa", back_populates="items")
 
 
 class PaymentLink(Base):

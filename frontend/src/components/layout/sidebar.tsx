@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   DollarSign,
-  CheckSquare,
   Settings,
   ChevronsLeft,
   ChevronsRight,
@@ -58,14 +57,9 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    group: "Manage",
-    items: [
-      { label: "Tasks", icon: CheckSquare, href: "/tasks", phase: 2 },
-    ],
-  },
-  {
     group: "Growth",
     items: [
+      // /tasks merged into /empresas?view=tasks per the empresas-ux-pass.
       { label: "Empresas", icon: Briefcase, href: "/empresas", phase: 8 },
     ],
   },

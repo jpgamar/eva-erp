@@ -66,6 +66,13 @@ class Settings(BaseSettings):
     sendgrid_from_name: str = "EvaAI"
     sendgrid_reply_to: str = "hi@goeva.ai"
     sendgrid_logo_url: str = "https://app.goeva.ai/favicon.ico"
+
+    # Empresa item reminders (24h + 1h before start_at) — see
+    # backend/src/empresas/reminders.py.
+    empresa_item_reminders_enabled: bool = True
+    empresa_item_reminder_email: str = "gus@goeva.ai"
+    empresa_item_reminder_loop_interval_seconds: int = 300
+
     billing_invoice_from_email: str = "hi@goeva.ai"
     billing_invoice_from_name: str = "EvaAI"
     eva_app_onboarding_redirect_url: str = "https://app.goeva.ai/auth/change-password"

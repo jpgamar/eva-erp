@@ -18,7 +18,9 @@ describe("Sidebar (post company-CRM consolidation)", () => {
   it("still renders Empresas + core ERP entries", () => {
     render(<Sidebar collapsed={false} onToggle={() => {}} mobileOpen={true} onMobileClose={() => {}} />);
     expect(screen.getByText("Empresas")).toBeInTheDocument();
-    expect(screen.getByText("Tasks")).toBeInTheDocument();
+    // "Tasks" sidebar entry was removed in the empresas-ux-pass —
+    // tasks live under /empresas?view=tasks now.
+    expect(screen.queryByText("Tasks")).toBeNull();
     expect(screen.getByText("Finances")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });

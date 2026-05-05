@@ -55,6 +55,7 @@ import { CheckoutLinkModal } from "@/components/empresas/CheckoutLinkModal";
 import { EmpresasKanban } from "@/components/empresas/EmpresasKanban";
 import { EmpresasCalendarView } from "@/components/empresas/EmpresasCalendarView";
 import { EmpresasAccountsView } from "@/components/empresas/EmpresasAccountsView";
+import { EmpresasTareasView } from "@/components/empresas/EmpresasTareasView";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -318,11 +319,11 @@ export default function EmpresasPage() {
   const [empresas, setEmpresas] = useState<EmpresaListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"grid" | "kanban" | "calendar" | "accounts">(() => {
+  const [view, setView] = useState<"grid" | "kanban" | "calendar" | "tasks" | "accounts">(() => {
     if (typeof window === "undefined") return "grid";
     const url = new URL(window.location.href);
     const v = url.searchParams.get("view");
-    if (v === "kanban" || v === "calendar" || v === "accounts") return v;
+    if (v === "kanban" || v === "calendar" || v === "tasks" || v === "accounts") return v;
     return "grid";
   });
   const stageFilter = (() => {
@@ -772,6 +773,7 @@ export default function EmpresasPage() {
                 { key: "grid", label: "Tarjetas" },
                 { key: "kanban", label: "Pipeline" },
                 { key: "calendar", label: "Calendario" },
+                { key: "tasks", label: "Tareas" },
                 { key: "accounts", label: "Cuentas" },
               ] as const
             ).map((option) => (
@@ -823,11 +825,14 @@ export default function EmpresasPage() {
       {/* View body */}
       {view === "calendar" ? (
         <EmpresasCalendarView
+          empresas={empresas.map((e) => ({ id: e.id, name: e.name }))}
           onSelectEmpresa={(empresaId) => {
             const target = empresas.find((emp) => emp.id === empresaId);
             if (target) openEditEmpresa(target);
           }}
         />
+      ) : view === "tasks" ? (
+        <EmpresasTareasView empresas={empresas.map((e) => ({ id: e.id, name: e.name }))} />
       ) : view === "accounts" ? (
         <EmpresasAccountsView
           empresas={empresas}
@@ -1232,7 +1237,7 @@ export default function EmpresasPage() {
 
       {/* ── Empresa Modal ──────────────────────────────────────────── */}
       <Dialog open={empresaModalOpen} onOpenChange={setEmpresaModalOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingEmpresaId ? "Editar Empresa" : "Nueva Empresa"}
@@ -1328,7 +1333,9 @@ export default function EmpresasPage() {
               </p>
             </div>
 
-            {/* Summary note */}
+            {/* Summary note — taller, resizable, the operator's main
+                free-text field. Operator complaint: "make it much
+                nicer and the textbox should be bigger and better!!" */}
             <div>
               <label className="text-sm font-medium">Nota de seguimiento</label>
               <Textarea
@@ -1336,8 +1343,9 @@ export default function EmpresasPage() {
                 onChange={(e) =>
                   setEmpresaForm({ ...empresaForm, summary_note: e.target.value || null })
                 }
-                placeholder="Resumen del estado actual..."
-                rows={2}
+                placeholder="Resumen del estado actual, próximos pasos, contexto…"
+                rows={5}
+                className="resize-y min-h-[120px]"
               />
             </div>
 

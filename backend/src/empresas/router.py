@@ -14,6 +14,9 @@ from src.common.database import get_db, get_eva_db, get_optional_eva_db
 from src.common.config import settings
 from src.empresas.models import Empresa, EmpresaHistory, EmpresaInteraction, EmpresaItem, PaymentLink
 from src.empresas.schemas import (
+    BulkStageConflict,
+    BulkStageRequest,
+    BulkStageResponse,
     CheckoutLinkRequest,
     CheckoutLinkResponse,
     ConstanciaExtractResponse,
@@ -24,8 +27,11 @@ from src.empresas.schemas import (
     EmpresaInteractionCreate,
     EmpresaInteractionResponse,
     EmpresaItemCreate,
+    EmpresaItemEmpresaSummary,
     EmpresaItemResponse,
+    EmpresaItemTopCreate,
     EmpresaItemUpdate,
+    EmpresaItemWithEmpresaResponse,
     EmpresaListPendingItem,
     EmpresaResponse,
     EmpresaUpdate,
@@ -952,6 +958,230 @@ _USE_LINK_ENDPOINT_DETAIL = {
 }
 
 
+# ── Cross-empresa item endpoints (must be registered BEFORE /{empresa_id}) ──
+
+
+def _stamp_past_event_reminders(item: EmpresaItem) -> None:
+    """If the item's start_at is already in the past, mark both reminder
+    columns sent so the dispatcher never tries to email a past event.
+    Mirrors the migration backfill rule for created/edited items.
+    """
+    if item.start_at is None:
+        return
+    now = datetime.now(timezone.utc)
+    if item.start_at < now:
+        if item.reminder_24h_sent_at is None:
+            item.reminder_24h_sent_at = now
+        if item.reminder_1h_sent_at is None:
+            item.reminder_1h_sent_at = now
+
+
+@router.get("/items", response_model=list[EmpresaItemWithEmpresaResponse])
+async def list_items_across_empresas(
+    assigned_to: str | None = Query(default=None, description="UUID or 'me' for current user"),
+    done: bool | None = Query(default=None),
+    overdue: bool = Query(default=False),
+    kind: str | None = Query(default=None, description="Comma-separated: todo,event,note,outreach"),
+    empresa_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List empresa_items across ALL empresas (Tareas tab feed).
+
+    LEFT JOIN against `empresas` so internal items (`empresa_id IS NULL`)
+    are included with `empresa: null`. Frontend groups them under
+    "Sin empresa (internas)".
+    """
+    q = (
+        select(
+            EmpresaItem,
+            Empresa.id.label("emp_id"),
+            Empresa.name.label("emp_name"),
+            Empresa.logo_url.label("emp_logo"),
+        )
+        .outerjoin(Empresa, Empresa.id == EmpresaItem.empresa_id)
+    )
+    if assigned_to:
+        target = user.id if assigned_to == "me" else assigned_to
+        q = q.where(EmpresaItem.assigned_to == target)
+    if done is not None:
+        q = q.where(EmpresaItem.done == done)
+    if kind:
+        kinds = [k.strip() for k in kind.split(",") if k.strip()]
+        if kinds:
+            q = q.where(EmpresaItem.kind.in_(kinds))
+    if empresa_id is not None:
+        q = q.where(EmpresaItem.empresa_id == empresa_id)
+    if overdue:
+        q = q.where(
+            EmpresaItem.due_at.is_not(None),
+            EmpresaItem.due_at < datetime.now(timezone.utc),
+            EmpresaItem.done == False,  # noqa: E712
+        )
+
+    q = q.order_by(
+        func.coalesce(EmpresaItem.start_at, EmpresaItem.due_at, EmpresaItem.created_at).asc().nulls_last()
+    ).limit(limit)
+    rows = (await db.execute(q)).all()
+    out: list[EmpresaItemWithEmpresaResponse] = []
+    for item, emp_id, emp_name, emp_logo in rows:
+        empresa_summary = (
+            EmpresaItemEmpresaSummary(id=emp_id, name=emp_name, logo_url=emp_logo)
+            if emp_id is not None
+            else None
+        )
+        out.append(
+            EmpresaItemWithEmpresaResponse(
+                id=item.id,
+                empresa_id=item.empresa_id,
+                title=item.title,
+                kind=item.kind,
+                description=item.description,
+                contact_method=item.contact_method,
+                due_at=item.due_at,
+                start_at=item.start_at,
+                end_at=item.end_at,
+                reminder_at=item.reminder_at,
+                reminder_24h_sent_at=item.reminder_24h_sent_at,
+                reminder_1h_sent_at=item.reminder_1h_sent_at,
+                assigned_to=item.assigned_to,
+                done=item.done,
+                completed_at=item.completed_at,
+                created_at=item.created_at,
+                empresa=empresa_summary,
+            )
+        )
+    return out
+
+
+@router.post("/items", response_model=EmpresaItemResponse, status_code=201)
+async def create_item_top_level(
+    data: EmpresaItemTopCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Top-level item create that supports `empresa_id=None` for internal
+    tasks. The legacy `POST /empresas/{empresa_id}/items` is preserved
+    for code paths that already know the empresa.
+    """
+    payload = data.model_dump()
+    _validate_item_window(payload)
+
+    if payload.get("empresa_id") is not None:
+        exists = await db.execute(select(Empresa.id).where(Empresa.id == payload["empresa_id"]))
+        if not exists.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Empresa not found")
+
+    item = EmpresaItem(created_by=user.id, **payload)
+    _stamp_past_event_reminders(item)
+    db.add(item)
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+@router.post("/bulk-stage", response_model=BulkStageResponse)
+async def bulk_stage_empresas(
+    payload: BulkStageRequest,
+    db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
+    user: User = Depends(get_current_user),
+):
+    """Move N empresas to a target lifecycle stage atomically.
+
+    All empresas in the batch must:
+      - Match their reported `version` (optimistic lock).
+      - Pass the same business rules the single-card path enforces.
+      - For target=inactivo, NOT have an active/trialing subscription
+        (operator drags those individually, which triggers the existing
+        cancel-subscription dialog).
+
+    Any single failure rejects the WHOLE batch. Conflicts are returned in
+    the response body so the UI can surface them inline.
+    """
+    target_stage = payload.lifecycle_stage_to
+    requested_ids = [m.empresa_id for m in payload.moves]
+    expected_versions = {m.empresa_id: m.version for m in payload.moves}
+
+    rows = (
+        await db.execute(
+            select(Empresa)
+            .where(Empresa.id.in_(requested_ids))
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
+    by_id = {emp.id: emp for emp in rows}
+
+    conflicts: list[BulkStageConflict] = []
+
+    for empresa_id in requested_ids:
+        empresa = by_id.get(empresa_id)
+        if empresa is None:
+            conflicts.append(BulkStageConflict(empresa_id=empresa_id, reason="not_found"))
+            continue
+        if expected_versions[empresa_id] != empresa.version:
+            conflicts.append(
+                BulkStageConflict(
+                    empresa_id=empresa_id,
+                    reason="OptimisticLockMismatch",
+                    server_version=empresa.version,
+                )
+            )
+            continue
+        # Inactivo guard
+        if target_stage == "inactivo" and empresa.subscription_status in ("active", "trialing"):
+            conflicts.append(
+                BulkStageConflict(empresa_id=empresa_id, reason="BulkInactivoNeedsCancel")
+            )
+            continue
+        # Operativo + close-date rules
+        try:
+            _enforce_business_rules(
+                lifecycle_stage=target_stage,
+                eva_account_id=empresa.eva_account_id,
+                subscription_status=empresa.subscription_status,
+                expected_close_date=empresa.expected_close_date,
+                grandfathered=empresa.grandfathered,
+                check_operativo=True,
+                check_close_date=True,
+            )
+        except HTTPException as exc:
+            reason = (
+                exc.detail.get("reason") if isinstance(exc.detail, dict) else "BusinessRuleViolation"
+            )
+            conflicts.append(BulkStageConflict(empresa_id=empresa_id, reason=reason or "BusinessRuleViolation"))
+
+    if conflicts:
+        # Atomic: if ANY empresa fails, NO empresa moves. Operator
+        # resolves the conflicts and retries.
+        return BulkStageResponse(moved=[], conflicts=conflicts)
+
+    # All clear — apply the move and bump versions.
+    moved: list[uuid.UUID] = []
+    for empresa_id in requested_ids:
+        empresa = by_id[empresa_id]
+        if empresa.lifecycle_stage != target_stage:
+            old_value = empresa.lifecycle_stage
+            empresa.lifecycle_stage = target_stage
+            empresa.version = (empresa.version or 0) + 1
+            db.add(
+                EmpresaHistory(
+                    empresa_id=empresa.id,
+                    field_changed="lifecycle_stage",
+                    old_value=str(old_value),
+                    new_value=str(target_stage),
+                    changed_by=user.id,
+                )
+            )
+            db.add(empresa)
+        moved.append(empresa.id)
+
+    await db.flush()
+    return BulkStageResponse(moved=moved, conflicts=[])
+
+
 @router.post("", response_model=EmpresaResponse, status_code=201)
 async def create_empresa(
     data: EmpresaCreate,
@@ -1253,6 +1483,7 @@ async def create_item(
         created_by=user.id,
         **payload,
     )
+    _stamp_past_event_reminders(item)
     db.add(item)
     await db.flush()
     await db.refresh(item)
@@ -1291,6 +1522,10 @@ async def update_item(
 
     for field, value in update_data.items():
         setattr(item, field, value)
+
+    # If the operator moved the start_at to a past time, no reminder is
+    # owed any longer. Stamp both columns so the dispatcher skips it.
+    _stamp_past_event_reminders(item)
 
     db.add(item)
     await db.flush()

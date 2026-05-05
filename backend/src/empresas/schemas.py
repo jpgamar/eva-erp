@@ -178,7 +178,8 @@ class EmpresaUpdate(BaseModel):
 
 class EmpresaItemResponse(BaseModel):
     id: uuid.UUID
-    empresa_id: uuid.UUID
+    # Nullable: internal tasks (no parent empresa) live here too.
+    empresa_id: uuid.UUID | None = None
     title: str
     kind: str = "todo"
     description: str | None = None
@@ -187,11 +188,29 @@ class EmpresaItemResponse(BaseModel):
     start_at: _dt.datetime | None = None
     end_at: _dt.datetime | None = None
     reminder_at: _dt.datetime | None = None
+    reminder_24h_sent_at: _dt.datetime | None = None
+    reminder_1h_sent_at: _dt.datetime | None = None
     assigned_to: uuid.UUID | None = None
     done: bool
     completed_at: _dt.datetime | None = None
     created_at: _dt.datetime
     model_config = {"from_attributes": True}
+
+
+class EmpresaItemEmpresaSummary(BaseModel):
+    id: uuid.UUID
+    name: str
+    logo_url: str | None = None
+
+
+class EmpresaItemWithEmpresaResponse(EmpresaItemResponse):
+    """Used by the cross-empresa list endpoint (Tareas tab feed).
+
+    `empresa` is nullable so internal tasks render under
+    "Sin empresa (internas)" without a join failure.
+    """
+
+    empresa: EmpresaItemEmpresaSummary | None = None
 
 
 class EmpresaResponse(BaseModel):
@@ -423,8 +442,10 @@ class EmpresaItemUpdate(BaseModel):
 
 class EmpresaCalendarItemResponse(BaseModel):
     id: uuid.UUID
-    empresa_id: uuid.UUID
-    empresa_name: str
+    # Both nullable — internal items (`empresa_id IS NULL`) appear on the
+    # calendar too. The frontend renders "Tarea interna" when null.
+    empresa_id: uuid.UUID | None = None
+    empresa_name: str | None = None
     source: EmpresaCalendarSource
     kind: str
     title: str
@@ -456,6 +477,56 @@ class CreateEvaAccountForEmpresaRequest(BaseModel):
     facturapi_org_api_key: str | None = None
     temporary_password: str | None = None
     send_setup_email: bool = True
+
+
+# ── Top-level item create + bulk-stage ──────────────────────────────
+
+
+class EmpresaItemTopCreate(BaseModel):
+    """Top-level item create that supports `empresa_id=None` for
+    internal tasks. Reuses the same kind / contact-method literals as
+    `EmpresaItemCreate` but the empresa is optional.
+    """
+
+    title: str
+    empresa_id: uuid.UUID | None = None
+    kind: EmpresaItemKind = "todo"
+    description: str | None = None
+    contact_method: EmpresaContactMethod | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_required(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("title cannot be blank")
+        return cleaned
+
+
+class BulkStageMove(BaseModel):
+    empresa_id: uuid.UUID
+    version: int
+
+
+class BulkStageRequest(BaseModel):
+    moves: list[BulkStageMove] = Field(..., min_length=1, max_length=100)
+    lifecycle_stage_to: LifecycleStage
+
+
+class BulkStageConflict(BaseModel):
+    empresa_id: uuid.UUID
+    reason: str
+    server_version: int | None = None
+
+
+class BulkStageResponse(BaseModel):
+    moved: list[uuid.UUID] = []
+    conflicts: list[BulkStageConflict] = []
 
 
 # ── History ──────────────────────────────────────────────────────────

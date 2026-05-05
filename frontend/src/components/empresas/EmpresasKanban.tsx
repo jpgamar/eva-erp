@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import { KanbanBoardWithGuard, type ColumnDef } from "@/components/kanban/kanban-board-with-guard";
 import { EmpresaCard } from "@/components/empresas/EmpresaCard";
 import { CancelSubscriptionDialog } from "@/components/empresas/CancelSubscriptionDialog";
+import { ItemEditorPanel, type ItemEditorMode } from "@/components/empresas/ItemEditorPanel";
 import api from "@/lib/api/client";
-import type { EmpresaListItem } from "@/lib/api/empresas";
+import type { EmpresaContactMethod, EmpresaListItem } from "@/lib/api/empresas";
 
 const COLUMNS: ColumnDef[] = [
   { id: "prospecto", label: "Prospecto", color: "bg-slate-400" },
@@ -34,6 +35,36 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
   const [cancelOpen, setCancelOpen] = useState(false);
   const [pendingCancelEmpresaId, setPendingCancelEmpresaId] = useState<string | null>(null);
   const [cancelResolver, setCancelResolver] = useState<((v: boolean) => void) | null>(null);
+
+  // Inline item editor opened from the per-card "+" button or
+  // channel-shortcut row. The same panel is used for create + edit.
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorMode, setEditorMode] = useState<ItemEditorMode>({ type: "create" });
+
+  const empresaPickerOptions = useMemo(
+    () => empresas.map((e) => ({ id: e.id, name: e.name })),
+    [empresas],
+  );
+
+  function openQuickAdd(emp: EmpresaListItem) {
+    setEditorMode({ type: "create", defaults: { empresa_id: emp.id, kind: "todo" } });
+    setEditorOpen(true);
+  }
+
+  function openLogChannel(emp: EmpresaListItem, method: EmpresaContactMethod) {
+    const nowIso = new Date().toISOString();
+    setEditorMode({
+      type: "create",
+      defaults: {
+        empresa_id: emp.id,
+        kind: "outreach",
+        contact_method: method,
+        due_at: nowIso,
+        title: "",
+      },
+    });
+    setEditorOpen(true);
+  }
 
   const items: KanbanItem[] = useMemo(
     () =>
@@ -101,7 +132,14 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
       <KanbanBoardWithGuard<KanbanItem>
         columns={filteredColumns}
         items={items}
-        renderCard={(item) => <EmpresaCard empresa={item} onClick={onCardClick} />}
+        renderCard={(item) => (
+          <EmpresaCard
+            empresa={item}
+            onClick={onCardClick}
+            onQuickAdd={openQuickAdd}
+            onLogChannel={openLogChannel}
+          />
+        )}
         onStatusChange={persistStageChange}
         onBeforeStageChange={handleBeforeStageChange}
         onCardClick={onCardClick as ((item: KanbanItem) => void) | undefined}
@@ -124,6 +162,15 @@ export function EmpresasKanban({ empresas, onChanged, onCardClick, stageFilter }
             setCancelResolver(null);
           }
           setPendingCancelEmpresaId(null);
+        }}
+      />
+      <ItemEditorPanel
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        mode={editorMode}
+        empresas={empresaPickerOptions}
+        onChanged={() => {
+          void onChanged();
         }}
       />
     </div>

@@ -13,7 +13,7 @@ from src.customers.models import Customer
 from src.finances.models import CashBalance, Expense, IncomeEntry
 from src.kpis.models import KPISnapshot
 from src.kpis.schemas import KPICurrentResponse, KPISnapshotResponse
-from src.tasks.models import Task
+from src.empresas.models import EmpresaItem
 
 router = APIRouter(prefix="/kpis", tags=["kpis"])
 
@@ -76,14 +76,24 @@ async def current_kpis(
     )).scalar() or 0
     arpu = Decimal(str(mrr / total_cust)) if total_cust > 0 else Decimal("0")
 
-    # Tasks — open = not done
+    # Tasks — now sourced from empresa_items (the standalone /tasks
+    # section was deleted in the empresas-ux-pass consolidation).
+    # Notes are excluded since they aren't actionable.
     open_tasks_result = await db.execute(
-        select(func.count(Task.id)).where(Task.status != "done")
+        select(func.count(EmpresaItem.id)).where(
+            EmpresaItem.done == False,  # noqa: E712
+            EmpresaItem.kind != "note",
+        )
     )
     open_tasks = open_tasks_result.scalar() or 0
 
     overdue_result = await db.execute(
-        select(func.count(Task.id)).where(Task.due_date < today, Task.status != "done")
+        select(func.count(EmpresaItem.id)).where(
+            EmpresaItem.done == False,  # noqa: E712
+            EmpresaItem.kind != "note",
+            EmpresaItem.due_at.is_not(None),
+            EmpresaItem.due_at < today,
+        )
     )
     overdue_tasks = overdue_result.scalar() or 0
 

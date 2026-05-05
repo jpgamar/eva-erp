@@ -11,9 +11,13 @@ from src.finances.recurrence import extract_income_recurrence, income_monthly_mr
 from src.kpis.models import KPISnapshot
 from src.meetings.models import Meeting
 from src.okrs.models import KeyResult, OKRPeriod, Objective
-from src.empresas.models import Empresa
-from src.tasks.models import Task
+from src.empresas.models import Empresa, EmpresaItem
 from src.vault.models import Credential
+
+# `Task` removed in the empresas-ux-pass consolidation — tasks live in
+# `empresa_items` now. This module is dead code (router unmounted) but
+# the Task reference would break if anything ever imports it.
+Task = EmpresaItem  # noqa: N806 — alias for backwards-compatible legacy refs
 
 TOOL_DEFINITIONS = [
     {

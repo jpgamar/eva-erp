@@ -67,7 +67,10 @@ describe("EmpresaCard", () => {
     render(
       <EmpresaCard empresa={makeEmpresa({ eva_account_id: null, lifecycle_stage: "operativo" })} />
     );
-    expect(screen.getByText(/Sin cuenta de Eva/)).toBeInTheDocument();
+    // Operativo+unlinked surfaces TWO 'Sin cuenta de Eva' messages: the
+    // header chip and the amber footer warning. Both should be present.
+    const matches = screen.getAllByText(/Sin cuenta de Eva/);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows the linked Eva account name when linked", () => {

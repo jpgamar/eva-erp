@@ -396,7 +396,7 @@ export default function DashboardPage() {
             <div className="rounded-2xl bg-card overflow-hidden transition-all hover:shadow-lg">
               <div className="h-1 bg-gradient-to-r from-sky-400 to-sky-500" />
               <div className="p-6">
-                <Link href="/tasks" className="group">
+                <Link href="/empresas?view=tasks" className="group">
                   <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50">
@@ -458,7 +458,7 @@ export default function DashboardPage() {
                         )}
                       </div>
                     ))}
-                    <Link href="/tasks" className="text-[10px] text-sky-600 hover:text-sky-700 font-medium mt-1.5 block">
+                    <Link href="/empresas?view=tasks" className="text-[10px] text-sky-600 hover:text-sky-700 font-medium mt-1.5 block">
                       View all tasks
                     </Link>
                   </div>

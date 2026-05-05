@@ -18,7 +18,8 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   "/gastos": { title: "Gastos", subtitle: "Facturas recibidas e IVA acreditable" },
   "/declaracion": { title: "Declaración", subtitle: "Cálculo mensual RESICO" },
   "/empresas": { title: "Empresas", subtitle: "CRM, follow-ups, and Eva accounts" },
-  "/tasks": { title: "Tasks", subtitle: "Track and manage work" },
+  // /tasks merged into /empresas?view=tasks (empresas-ux-pass).
+  "/tasks": { title: "Empresas", subtitle: "Redirigiendo a /empresas?view=tasks…" },
   // /prospects redirects to /empresas?stage=prospecto; metadata entry kept so
   // the brief moment before redirect shows a sensible heading.
   "/prospects": { title: "Pipeline", subtitle: "Redirigiendo a /empresas…" },

@@ -110,7 +110,9 @@ export interface CheckoutLinkResponse {
 
 export interface EmpresaItem {
   id: string;
-  empresa_id: string;
+  // Nullable as of the empresas-ux-pass migration: items with
+  // empresa_id=null are "internal" tasks (no parent empresa).
+  empresa_id: string | null;
   title: string;
   kind: EmpresaItemKind;
   description: string | null;
@@ -119,10 +121,65 @@ export interface EmpresaItem {
   start_at: string | null;
   end_at: string | null;
   reminder_at: string | null;
+  reminder_24h_sent_at?: string | null;
+  reminder_1h_sent_at?: string | null;
   assigned_to: string | null;
   done: boolean;
   completed_at: string | null;
   created_at: string;
+}
+
+export interface EmpresaItemEmpresaSummary {
+  id: string;
+  name: string;
+  logo_url: string | null;
+}
+
+export interface EmpresaItemWithEmpresa extends EmpresaItem {
+  empresa: EmpresaItemEmpresaSummary | null;
+}
+
+export interface EmpresaItemListFilters {
+  assigned_to?: "me" | string;
+  done?: boolean;
+  overdue?: boolean;
+  kind?: EmpresaItemKind | EmpresaItemKind[];
+  empresa_id?: string;
+  limit?: number;
+}
+
+export interface EmpresaItemTopCreate {
+  title: string;
+  empresa_id?: string | null;
+  kind?: EmpresaItemKind;
+  description?: string | null;
+  contact_method?: EmpresaContactMethod | null;
+  due_at?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  reminder_at?: string | null;
+  assigned_to?: string | null;
+}
+
+export interface BulkStageMove {
+  empresa_id: string;
+  version: number;
+}
+
+export interface BulkStageRequest {
+  moves: BulkStageMove[];
+  lifecycle_stage_to: LifecycleStage;
+}
+
+export interface BulkStageConflict {
+  empresa_id: string;
+  reason: string;
+  server_version?: number | null;
+}
+
+export interface BulkStageResponse {
+  moved: string[];
+  conflicts: BulkStageConflict[];
 }
 
 export interface EmpresaCalendarItem {
@@ -376,6 +433,26 @@ export const empresasApi = {
   delete: (id: string) => api.delete(`/empresas/${id}`),
 
   // Items
+  listAllItems: (filters: EmpresaItemListFilters = {}) => {
+    const params: Record<string, string | undefined> = {
+      assigned_to: filters.assigned_to,
+      done: filters.done == null ? undefined : String(filters.done),
+      overdue: filters.overdue ? "true" : undefined,
+      kind: Array.isArray(filters.kind) ? filters.kind.join(",") : filters.kind,
+      empresa_id: filters.empresa_id,
+      limit: filters.limit == null ? undefined : String(filters.limit),
+    };
+    return api
+      .get<EmpresaItemWithEmpresa[]>("/empresas/items", { params })
+      .then((r) => r.data);
+  },
+
+  createInternalItem: (data: EmpresaItemTopCreate) =>
+    api.post<EmpresaItem>("/empresas/items", data).then((r) => r.data),
+
+  bulkStage: (payload: BulkStageRequest) =>
+    api.post<BulkStageResponse>("/empresas/bulk-stage", payload).then((r) => r.data),
+
   createItem: (empresaId: string, data: EmpresaItemCreate) =>
     api.post<EmpresaItem>(`/empresas/${empresaId}/items`, data).then((r) => r.data),
 

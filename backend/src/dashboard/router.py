@@ -1,7 +1,7 @@
 """Consolidated dashboard endpoint — one request, all queries in parallel."""
 
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,8 +30,7 @@ from src.finances.recurrence import (
     income_monthly_equivalent,
     income_monthly_mrr_equivalent,
 )
-from src.empresas.models import Empresa
-from src.tasks.models import Task
+from src.empresas.models import Empresa, EmpresaItem
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -178,15 +177,21 @@ async def dashboard_summary(
             Customer.churn_date >= month_start,
             Customer.churn_date < next_month_start,
         ),
-        "open_tasks": select(func.count(Task.id)).where(
-            Task.status != "done",
-            func.date(Task.created_at) < next_month_start,
+        # Tasks moved to empresa_items in the empresas-ux-pass
+        # consolidation. We exclude `note` kind since notes aren't
+        # actionable. Counts include both empresa-linked and internal
+        # (empresa_id IS NULL) items.
+        "open_tasks": select(func.count(EmpresaItem.id)).where(
+            EmpresaItem.done == False,  # noqa: E712
+            EmpresaItem.kind != "note",
+            func.date(EmpresaItem.created_at) < next_month_start,
         ),
-        "overdue_tasks": select(func.count(Task.id)).where(
-            Task.status != "done",
-            func.date(Task.created_at) < next_month_start,
-            Task.due_date.isnot(None),
-            Task.due_date <= period_end,
+        "overdue_tasks": select(func.count(EmpresaItem.id)).where(
+            EmpresaItem.done == False,  # noqa: E712
+            EmpresaItem.kind != "note",
+            EmpresaItem.due_at.isnot(None),
+            EmpresaItem.due_at <= datetime.combine(period_end, datetime.min.time(), tzinfo=timezone.utc),
+            func.date(EmpresaItem.created_at) < next_month_start,
         ),
         "all_income": select(IncomeEntry).where(IncomeEntry.date < next_month_start),
         "all_expenses": select(Expense).where(Expense.date < next_month_start),
@@ -196,10 +201,18 @@ async def dashboard_summary(
             func.date(Empresa.created_at) < next_month_start,
             Empresa.lifecycle_stage.in_(("prospecto", "interesado", "demo", "negociacion")),
         ),
-        "tasks_active": select(Task).where(
-            Task.status.in_(["todo", "in_progress"]),
-            func.date(Task.created_at) < next_month_start,
-        ).order_by(Task.created_at.desc()).limit(6),
+        # Active tasks list (used by the Dashboard "Tasks" card). Reads
+        # the same empresa_items table now; orders by next-action date
+        # instead of created_at so the card surfaces what's coming up.
+        "tasks_active": select(EmpresaItem).where(
+            EmpresaItem.done == False,  # noqa: E712
+            EmpresaItem.kind != "note",
+            func.date(EmpresaItem.created_at) < next_month_start,
+        )
+        .order_by(
+            func.coalesce(EmpresaItem.start_at, EmpresaItem.due_at, EmpresaItem.created_at).asc().nulls_last()
+        )
+        .limit(6),
         "usd_to_mxn_rate": select(ExchangeRate.rate)
         .where(ExchangeRate.from_currency == "USD", ExchangeRate.to_currency == "MXN")
         .order_by(ExchangeRate.effective_date.desc())
@@ -313,17 +326,29 @@ async def dashboard_summary(
         elif "priority_low" in tags:
             urgency["can_wait"] += 1
 
-    # Process tasks
+    # Process tasks (now empresa_items). The dashboard card contract
+    # keeps the {id, title, status, due_date} shape so the frontend
+    # doesn't need to change. `status` is derived ("done" / "todo" /
+    # "overdue") and `due_date` falls back to start_at for events.
     tasks = r["tasks_active"].scalars().all()
-    recent_tasks = [
-        {
-            "id": str(t.id),
-            "title": t.title,
-            "status": t.status,
-            "due_date": t.due_date.isoformat() if t.due_date else None,
-        }
-        for t in tasks
-    ]
+    now_utc = datetime.now(timezone.utc)
+    recent_tasks = []
+    for t in tasks:
+        target_dt = t.due_at or t.start_at
+        if t.done:
+            derived_status = "done"
+        elif target_dt is not None and target_dt < now_utc:
+            derived_status = "overdue"
+        else:
+            derived_status = "todo"
+        recent_tasks.append(
+            {
+                "id": str(t.id),
+                "title": t.title,
+                "status": derived_status,
+                "due_date": target_dt.date().isoformat() if target_dt else None,
+            }
+        )
 
     # Revenue lifecycle metrics (MXN).
     usd_to_mxn_rate = r["usd_to_mxn_rate"].scalar() or Decimal("20")

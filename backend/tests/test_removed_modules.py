@@ -19,6 +19,9 @@ REMOVED_PREFIXES = (
     "/api/v1/assistant",
     "/api/v1/meetings",
     "/api/v1/documents",
+    # empresas-ux-pass: tasks/boards rolled into empresa_items
+    "/api/v1/tasks",
+    "/api/v1/boards",
 )
 
 
