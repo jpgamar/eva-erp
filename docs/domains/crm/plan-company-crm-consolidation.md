@@ -1,8 +1,8 @@
 # Company CRM Consolidation Plan
 
-**Overall Progress:** `5%`
+**Overall Progress:** `90%`
 
-> **Status:** Plan reviewed (Codex 2026-05-04, FAIL → P1/P2 incorporated). Implementation in progress.
+> **Status:** Implementation complete on `feat/company-crm-consolidation`. 10 codex code-review rounds done (final verdict PASS, no P0/P1). Pending: merge to main + production verification.
 
 ## Progress Checklist
 
@@ -16,11 +16,11 @@
 - 🟩 Frontend: sidebar + command palette + dashboard cleanup (incl. legacy `/customers` palette entry)
 - 🟩 Frontend: Empresas calendar + accounts views + linked/unlinked state
 - 🟩 Frontend: delete removed pages (vault, okrs, assistant, meetings, documents) + redirect eva-customers
-- 🟩 Backend tests
-- 🟩 Frontend tests
-- 🟩 `npm run check` + `npm test` + `pytest` (325 backend + 35 frontend, all passing; build succeeds)
-- 🟨 Cross-model code review until clean (round 1: P1/P2 findings folded; round 2 in flight)
-- 🟥 Production migration + browser verification (gated on user push approval — branch ready, not deployed)
+- 🟩 Backend tests (365 passing)
+- 🟩 Frontend tests (41 passing)
+- 🟩 `npx tsc --noEmit` + `npm test` + `npm run lint` + `npm run build` + `pytest` (all green; lint warnings only)
+- 🟩 Cross-model code review iteration (10 rounds, FAIL → ... → PASS)
+- 🟥 Production migration + browser verification (gated on user push approval — branch on origin/feat/company-crm-consolidation, not deployed)
 
 ---
 
