@@ -10,7 +10,7 @@ function makeEmpresa(overrides: Partial<EmpresaListItem> = {}): EmpresaListItem 
     name: "Acabados Premier",
     logo_url: null,
     status: "operativo",
-    lifecycle_stage: "negociacion",
+    lifecycle_stage: "operativo",
     ball_on: null,
     summary_note: null,
     monthly_amount: 1500,
@@ -45,23 +45,48 @@ function makeEmpresa(overrides: Partial<EmpresaListItem> = {}): EmpresaListItem 
 }
 
 describe("EmpresaCard", () => {
-  it("renders name + stage label + monthly amount", () => {
+  it("renders name and monthly amount; lifecycle stage is owned by the column header", () => {
     render(<EmpresaCard empresa={makeEmpresa()} />);
     expect(screen.getByText("Acabados Premier")).toBeInTheDocument();
-    expect(screen.getByText("Negociación")).toBeInTheDocument();
     expect(screen.getByText(/\$1,500/)).toBeInTheDocument();
+    // Lifecycle stage label intentionally NOT duplicated on the card —
+    // the kanban column already shows it.
+    expect(screen.queryByText("Operativo")).toBeNull();
   });
 
-  it("shows 'Sin vincular' when eva_account_id is null", () => {
-    render(<EmpresaCard empresa={makeEmpresa({ eva_account_id: null })} />);
-    expect(screen.getByText("Sin vincular")).toBeInTheDocument();
-  });
-
-  it("shows 'Vinculada' when eva_account_id is set", () => {
+  it("hides the linked-account row entirely for unlinked non-operativo prospects", () => {
     render(
-      <EmpresaCard empresa={makeEmpresa({ eva_account_id: "22222222-2222-2222-2222-222222222222" })} />
+      <EmpresaCard empresa={makeEmpresa({ eva_account_id: null, lifecycle_stage: "prospecto" })} />
     );
-    expect(screen.getByText("Vinculada")).toBeInTheDocument();
+    // Outbound prospects should NOT loudly advertise "Sin vincular";
+    // it's the expected default for that stage.
+    expect(screen.queryByText(/Sin cuenta de Eva/)).toBeNull();
+  });
+
+  it("shows 'Sin cuenta de Eva' on operativo cards that lack a linked account", () => {
+    render(
+      <EmpresaCard empresa={makeEmpresa({ eva_account_id: null, lifecycle_stage: "operativo" })} />
+    );
+    expect(screen.getByText(/Sin cuenta de Eva/)).toBeInTheDocument();
+  });
+
+  it("shows the linked Eva account name when linked", () => {
+    render(
+      <EmpresaCard
+        empresa={makeEmpresa({
+          eva_account_id: "22222222-2222-2222-2222-222222222222",
+          health: {
+            status: "healthy",
+            unhealthy_count: 0,
+            linked_account_name: "Acabados Premier (Eva)",
+            messenger: { present: false, healthy: false, count: 0 },
+            instagram: { present: false, healthy: false, count: 0 },
+            whatsapp: { present: false, healthy: false, count: 0 },
+          },
+        })}
+      />
+    );
+    expect(screen.getByText("Acabados Premier (Eva)")).toBeInTheDocument();
   });
 
   it("shows 'Revisar' chip for grandfathered rows", () => {
@@ -81,7 +106,7 @@ describe("EmpresaCard", () => {
     expect(screen.getByText(/Cancelación:/)).toBeInTheDocument();
   });
 
-  it("shows 'Próxima factura: …' when only current_period_end is set", () => {
+  it("shows 'Próx. factura: …' when only current_period_end is set", () => {
     render(
       <EmpresaCard
         empresa={makeEmpresa({
@@ -90,11 +115,16 @@ describe("EmpresaCard", () => {
         })}
       />
     );
-    expect(screen.getByText(/Próxima factura:/)).toBeInTheDocument();
+    expect(screen.getByText(/Próx. factura:/)).toBeInTheDocument();
   });
 
-  it("shows 'Anual' chip when billing_interval is annual", () => {
+  it("renders 'anual' lower-case suffix when billing_interval is annual", () => {
     render(<EmpresaCard empresa={makeEmpresa({ billing_interval: "annual" })} />);
-    expect(screen.getByText("Anual")).toBeInTheDocument();
+    expect(screen.getByText("anual")).toBeInTheDocument();
+  });
+
+  it("hides the monthly-amount row entirely when amount is null", () => {
+    render(<EmpresaCard empresa={makeEmpresa({ monthly_amount: null })} />);
+    expect(screen.queryByText(/\$—/)).toBeNull();
   });
 });

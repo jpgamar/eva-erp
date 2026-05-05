@@ -1,18 +1,7 @@
 "use client";
 
-import { CalendarClock, Link2, Building2, AlertCircle } from "lucide-react";
+import { CalendarClock, Link2, Building2, AlertCircle, Unplug } from "lucide-react";
 import type { EmpresaListItem, PendingItem } from "@/lib/api/empresas";
-
-const STAGE_LABELS: Record<string, string> = {
-  prospecto: "Prospecto",
-  interesado: "Interesado",
-  demo: "Demo",
-  negociacion: "Negociación",
-  implementacion: "Implementación",
-  operativo: "Operativo",
-  churn_risk: "Churn Risk",
-  inactivo: "Inactivo",
-};
 
 const MONTH_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -23,8 +12,8 @@ function formatShortDate(iso: string | null): string | null {
   return `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
-function formatMxn(amount: number | null): string {
-  if (amount == null) return "$—";
+function formatMxn(amount: number | null): string | null {
+  if (amount == null || amount <= 0) return null;
   return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(
     amount
   );
@@ -42,106 +31,108 @@ function nextActionLabel(item: PendingItem): string {
 }
 
 /**
- * Kanban card for one empresa. Shows logo, name, Eva link chip, monthly
- * amount + billing interval, next/close/cancellation date row, and
- * grandfathered/warning chip when applicable. Min 320×240 per UI/UX table.
+ * Kanban card for one empresa. The lifecycle stage label is intentionally
+ * NOT repeated here — the column header already provides it. The card
+ * collapses to its actual content (no fixed min-height) so sparse rows
+ * stay short and dense rows stay readable.
  */
 export function EmpresaCard({ empresa, onClick }: Props) {
-  const stageLabel = STAGE_LABELS[empresa.lifecycle_stage] ?? empresa.lifecycle_stage;
+  const monthlyAmount = formatMxn(empresa.monthly_amount);
   const nextDate =
     formatShortDate(empresa.cancellation_scheduled_at) ||
     formatShortDate(empresa.current_period_end) ||
     formatShortDate(empresa.expected_close_date);
-  const linkedLabel = empresa.eva_account_id ? "Vinculada" : "Sin vincular";
+  const linked = !!empresa.eva_account_id;
+  const linkedAccountName = empresa.health.linked_account_name;
+  const overdue = empresa.overdue_count > 0;
+  const showLinkedRow = linked || empresa.lifecycle_stage === "operativo";
 
+  // The KanbanCard wrapper already paints the border, background, and
+  // padding for this card; we just lay out the inner content. Without
+  // this we end up with a double-bordered / double-padded card with
+  // a lot of dead vertical space.
   return (
     <div
-      className="flex min-h-60 min-w-80 cursor-pointer flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md"
+      className="flex flex-col gap-1.5"
       onClick={() => onClick?.(empresa)}
       data-testid={`empresa-card-${empresa.id}`}
     >
-      <div className="flex items-start gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-lg font-semibold text-accent-foreground">
+      <div className="flex items-start gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
           {empresa.logo_url ? (
-            <img src={empresa.logo_url} alt={empresa.name} className="h-12 w-12 rounded-lg object-contain" />
+            <img src={empresa.logo_url} alt={empresa.name} className="h-9 w-9 object-contain" />
           ) : (
-            <Building2 className="h-5 w-5" />
+            <Building2 className="h-4 w-4" />
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-foreground">{empresa.name}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{stageLabel}</p>
+          <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
+            {empresa.name}
+          </h3>
+          {monthlyAmount ? (
+            <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+              {monthlyAmount}
+              <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                {empresa.billing_interval === "annual" ? "anual" : "mensual"}
+              </span>
+            </p>
+          ) : empresa.billing_interval === "annual" ? (
+            <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">anual</p>
+          ) : null}
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
-            empresa.eva_account_id
-              ? "bg-emerald-50 text-emerald-700"
-              : "border border-destructive/30 text-destructive"
-          }`}
-        >
-          <Link2 className="h-3 w-3" />
-          {linkedLabel}
-        </span>
-        {empresa.billing_interval === "annual" ? (
-          <span className="rounded-full bg-sky-50 px-2 py-0.5 text-sky-700">Anual</span>
-        ) : (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Mensual</span>
-        )}
-        {empresa.payment_day ? (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-            Día {empresa.payment_day}
-          </span>
-        ) : null}
         {empresa.grandfathered ? (
-          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-700">
+          <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
             Revisar
           </span>
         ) : null}
       </div>
 
-      <div className="flex items-baseline justify-between">
-        <span className="font-mono text-lg font-bold text-foreground">
-          {formatMxn(empresa.monthly_amount)}
-        </span>
-        {empresa.subscription_status ? (
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            {empresa.subscription_status.replace(/_/g, " ")}
+      {showLinkedRow ? (
+        <div
+          className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] ${
+            linked
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {linked ? <Link2 className="h-3 w-3 shrink-0" /> : <Unplug className="h-3 w-3 shrink-0" />}
+          <span className="truncate">
+            {linked ? (linkedAccountName ?? "Vinculada a Eva") : "Sin cuenta de Eva"}
           </span>
-        ) : null}
-      </div>
-
-      {nextDate ? (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <CalendarClock className="h-3.5 w-3.5" />
-          {empresa.cancellation_scheduled_at
-            ? `Cancelación: ${nextDate}`
-            : empresa.current_period_end
-              ? `Próxima factura: ${nextDate}`
-              : `Cierre esperado: ${nextDate}`}
+          {empresa.subscription_status ? (
+            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide opacity-70">
+              {empresa.subscription_status.replace(/_/g, " ")}
+            </span>
+          ) : null}
         </div>
+      ) : null}
+
+      {empresa.summary_note ? (
+        <p className="line-clamp-2 text-xs text-muted-foreground">{empresa.summary_note}</p>
       ) : null}
 
       {empresa.next_action ? (
-        <div className="flex items-center gap-1 text-xs text-foreground">
-          <CalendarClock className="h-3.5 w-3.5 text-sky-600" />
-          <span className="truncate">{nextActionLabel(empresa.next_action)}</span>
+        <div className="flex items-center gap-1 text-xs">
+          <CalendarClock className="h-3 w-3 shrink-0 text-sky-600" />
+          <span className="truncate text-foreground">{nextActionLabel(empresa.next_action)}</span>
+        </div>
+      ) : nextDate ? (
+        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          <CalendarClock className="h-3 w-3 shrink-0" />
+          <span className="truncate">
+            {empresa.cancellation_scheduled_at
+              ? `Cancelación: ${nextDate}`
+              : empresa.current_period_end
+                ? `Próx. factura: ${nextDate}`
+                : `Cierre esperado: ${nextDate}`}
+          </span>
         </div>
       ) : null}
 
-      {empresa.overdue_count > 0 ? (
-        <div className="flex items-center gap-1 text-xs font-semibold text-destructive">
-          <AlertCircle className="h-3.5 w-3.5" />
-          {empresa.overdue_count} vencido{empresa.overdue_count === 1 ? "" : "s"}
-        </div>
-      ) : null}
-
-      {!empresa.eva_account_id && empresa.lifecycle_stage === "operativo" ? (
-        <div className="flex items-center gap-1 text-[11px] text-amber-700">
+      {overdue ? (
+        <div className="flex items-center gap-1 text-[11px] font-semibold text-destructive">
           <AlertCircle className="h-3 w-3" />
-          Sin cuenta de Eva — vincula o cambia la fase
+          {empresa.overdue_count} vencido{empresa.overdue_count === 1 ? "" : "s"}
         </div>
       ) : null}
     </div>
