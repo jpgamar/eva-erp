@@ -47,6 +47,8 @@ LifecycleStage = Literal[
     "implementacion", "operativo", "churn_risk", "inactivo",
 ]
 BillingIntervalLiteral = Literal["monthly", "annual"]
+EmpresaItemKind = Literal["todo", "event", "note", "outreach"]
+EmpresaContactMethod = Literal["sms", "whatsapp", "call", "email", "visit", "other"]
 
 
 class EmpresaCreate(BaseModel):
@@ -173,7 +175,16 @@ class EmpresaItemResponse(BaseModel):
     id: uuid.UUID
     empresa_id: uuid.UUID
     title: str
+    kind: str = "todo"
+    description: str | None = None
+    contact_method: str | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
     done: bool
+    completed_at: _dt.datetime | None = None
     created_at: _dt.datetime
     model_config = {"from_attributes": True}
 
@@ -304,6 +315,15 @@ class EvaAccountForLink(BaseModel):
     name: str
 
 
+class EmpresaListPendingItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    kind: str = "todo"
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    completed_at: _dt.datetime | None = None
+
+
 class EmpresaListResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -324,6 +344,10 @@ class EmpresaListResponse(BaseModel):
     grandfathered: bool = False
     version: int = 0
     item_count: int = 0
+    pending_count: int = 0
+    pending_items: list[EmpresaListPendingItem] = []
+    next_action: EmpresaListPendingItem | None = None
+    overdue_count: int = 0
     model_config = {"from_attributes": True}
 
 
@@ -348,11 +372,87 @@ class EmpresaInteractionCreate(BaseModel):
 
 class EmpresaItemCreate(BaseModel):
     title: str
+    kind: EmpresaItemKind = "todo"
+    description: str | None = None
+    contact_method: EmpresaContactMethod | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_required(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("title is required")
+        return cleaned
+
+    @field_validator("end_at")
+    @classmethod
+    def _end_after_start(cls, v: _dt.datetime | None, info) -> _dt.datetime | None:
+        start_at = info.data.get("start_at")
+        if v is not None and start_at is not None and v < start_at:
+            raise ValueError("end_at must be after start_at")
+        return v
 
 
 class EmpresaItemUpdate(BaseModel):
     title: str | None = None
+    kind: EmpresaItemKind | None = None
+    description: str | None = None
+    contact_method: EmpresaContactMethod | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    assigned_to: uuid.UUID | None = None
     done: bool | None = None
+    completed_at: _dt.datetime | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("title cannot be blank")
+        return cleaned
+
+
+class EmpresaCalendarItemResponse(BaseModel):
+    id: uuid.UUID
+    empresa_id: uuid.UUID
+    empresa_name: str
+    logo_url: str | None = None
+    lifecycle_stage: str
+    title: str
+    kind: str
+    description: str | None = None
+    contact_method: str | None = None
+    due_at: _dt.datetime | None = None
+    start_at: _dt.datetime | None = None
+    end_at: _dt.datetime | None = None
+    reminder_at: _dt.datetime | None = None
+    done: bool
+    completed_at: _dt.datetime | None = None
+
+
+class LinkEvaAccountRequest(BaseModel):
+    account_id: uuid.UUID
+    expected_version: int | None = None
+
+
+class CreateEvaAccountForEmpresaRequest(BaseModel):
+    owner_email: EmailStr
+    owner_name: str = ""
+    account_type: str = "COMMERCE"
+    plan_tier: str = "STANDARD"
+    billing_cycle: str = "MONTHLY"
+    temporary_password: str | None = None
+    send_setup_email: bool = True
 
 
 # ── History ──────────────────────────────────────────────────────────

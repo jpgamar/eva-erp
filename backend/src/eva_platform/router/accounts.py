@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db, get_eva_db
+from src.empresas.models import Empresa
+from src.empresas.router import link_empresa_to_eva_account
 from src.eva_platform.onboarding import build_account_onboarding
 from src.eva_platform.eva_billing_client import EvaBillingClient, EvaBillingClientError
 from src.eva_platform.models import EvaAccount, EvaAccountUser
@@ -58,6 +60,23 @@ logger = logging.getLogger(__name__)
 
 VALID_BILLING_CURRENCIES = {"MXN", "USD"}
 VALID_BILLING_INTERVALS = {"MONTHLY", "ANNUAL"}
+
+
+def _ensure_empresa_accepts_new_account_link(empresa: Empresa) -> None:
+    """A fresh Eva account has no active subscription yet.
+
+    Linking it to an already-operativo Empresa would fail later in the shared
+    link helper, after external Supabase user provisioning. Block that before
+    any outside side effects.
+    """
+    if empresa.lifecycle_stage == "operativo" and not empresa.grandfathered:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "OperativoRequiresActiveSubscription",
+                "message": "Operativo requires an existing active Eva subscription. Link an active account first or move the Empresa to a pipeline stage before creating a new account.",
+            },
+        )
 
 
 def _normalize_account_user_role(role: str | None) -> str:
@@ -440,6 +459,7 @@ async def resend_account_onboarding(
 @router.post("/accounts", response_model=EvaAccountProvisionResponse, status_code=201)
 async def create_account(
     data: EvaAccountCreateRequest,
+    db: AsyncSession = Depends(get_db),
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
 ):
@@ -448,6 +468,23 @@ async def create_account(
     normalized_plan_tier = normalize_plan_tier(data.plan_tier)
     normalized_billing_interval = normalize_billing_cycle(data.billing_cycle)
     password = data.temporary_password or secrets.token_urlsafe(16)
+
+    if data.empresa_id is not None:
+        empresa_result = await db.execute(
+            select(Empresa)
+            .where(Empresa.id == data.empresa_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        empresa = empresa_result.scalar_one_or_none()
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Empresa not found")
+        if empresa.eva_account_id:
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "empresa_already_linked", "message": "Esta empresa ya esta vinculada a una cuenta de Eva."},
+            )
+        _ensure_empresa_accepts_new_account_link(empresa)
 
     # Create Supabase user
     try:
@@ -500,6 +537,12 @@ async def create_account(
             updated_at=now,
         )
         eva_db.add(account_user)
+        await eva_db.flush()
+
+        if data.empresa_id is not None:
+            await link_empresa_to_eva_account(db, eva_db, data.empresa_id, account.id, changed_by=user.id)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception(
             "Provisioning failed after Supabase auth user creation for email=%s sb_user_id=%s",
@@ -601,12 +644,33 @@ async def approve_draft(
     user: User = Depends(get_current_user),
 ):
     """Approve a draft: provision real account in Eva DB + Supabase user."""
-    result = await db.execute(select(AccountDraft).where(AccountDraft.id == draft_id))
+    result = await db.execute(
+        select(AccountDraft)
+        .where(AccountDraft.id == draft_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     draft = result.scalar_one_or_none()
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
     if draft.status != "draft":
         raise HTTPException(status_code=400, detail=f"Draft is already '{draft.status}'")
+    if draft.empresa_id is not None:
+        empresa_result = await db.execute(
+            select(Empresa)
+            .where(Empresa.id == draft.empresa_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        empresa = empresa_result.scalar_one_or_none()
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Empresa not found")
+        if empresa.eva_account_id:
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "empresa_already_linked", "message": "Esta empresa ya esta vinculada a una cuenta de Eva."},
+            )
+        _ensure_empresa_accepts_new_account_link(empresa)
 
     normalized_owner_email = draft.owner_email.strip().lower()
     normalized_account_type = normalize_account_type(draft.account_type)
@@ -666,6 +730,7 @@ async def approve_draft(
             updated_at=now,
         )
         eva_db.add(account_user)
+        await eva_db.flush()
 
         # 3. Persist pricing profile in ERP DB
         db.add(
@@ -680,12 +745,18 @@ async def approve_draft(
             )
         )
 
-        # 4. Update draft in ERP DB
+        # 4. Link the source empresa when this draft came from the CRM.
+        if draft.empresa_id is not None:
+            await link_empresa_to_eva_account(db, eva_db, draft.empresa_id, account.id, changed_by=user.id)
+
+        # 5. Update draft in ERP DB
         draft.status = "approved"
         draft.provisioned_account_id = account.id
         draft.approved_by = user.id
         draft.approved_at = now
         db.add(draft)
+    except HTTPException:
+        raise
     except Exception as exc:
         draft.status = "failed"
         db.add(draft)
@@ -724,6 +795,7 @@ async def approve_draft(
 @router.delete("/accounts/{account_id}")
 async def deactivate_account(
     account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
     eva_db: AsyncSession = Depends(get_eva_db),
     user: User = Depends(get_current_user),
 ):
@@ -734,6 +806,15 @@ async def deactivate_account(
         raise HTTPException(status_code=404, detail="Account not found")
     if not account.is_active:
         raise HTTPException(status_code=400, detail="Account is already inactive")
+
+    linked_result = await db.execute(select(Empresa.id).where(Empresa.eva_account_id == account_id).limit(1))
+    linked_empresa_id = linked_result.scalar_one_or_none()
+    if linked_empresa_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This Eva account is linked to an Empresa. Unlink or move the Empresa before deactivating it.",
+        )
+
     account.is_active = False
     account.updated_at = datetime.now(timezone.utc)
     eva_db.add(account)

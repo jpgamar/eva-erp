@@ -45,6 +45,7 @@ def test_resend_invoice_email_marks_record_sent(monkeypatch):
     )
     factura = SimpleNamespace(
         id=factura_id,
+        facturapi_id="facturapi-invoice-123",
         cfdi_uuid="UUID-123",
         customer_name="Cliente SA de CV",
         customer_rfc="ABC123456T89",

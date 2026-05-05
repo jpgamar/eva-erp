@@ -1,8 +1,9 @@
 import logging
 import uuid
+from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
-from sqlalchemy import Boolean, func, select, case, literal
+from sqlalchemy import Boolean, func, select, case, literal, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,18 +12,23 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db, get_optional_eva_db
 from src.common.config import settings
-from src.empresas.models import Empresa, EmpresaHistory, EmpresaItem, PaymentLink
+from src.empresas.models import Empresa, EmpresaHistory, EmpresaInteraction, EmpresaItem, PaymentLink
 from src.empresas.schemas import (
     CheckoutLinkRequest,
     CheckoutLinkResponse,
     ConstanciaExtractResponse,
+    CreateEvaAccountForEmpresaRequest,
+    EmpresaCalendarItemResponse,
     EmpresaCreate,
     EmpresaHistoryResponse,
+    EmpresaInteractionCreate,
+    EmpresaInteractionResponse,
     EmpresaItemCreate,
     EmpresaItemResponse,
     EmpresaItemUpdate,
     EmpresaResponse,
     EmpresaUpdate,
+    LinkEvaAccountRequest,
     PortalLinkResponse,
     PreviewCheckoutRequest,
     PreviewCheckoutResponse,
@@ -39,6 +45,7 @@ from src.eva_platform.models import (
     EvaMessengerChannel,
     EvaWhatsAppChannel,
 )
+from src.eva_platform.schemas import EvaAccountCreateRequest, EvaAccountProvisionResponse
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
 logger = logging.getLogger(__name__)
@@ -140,21 +147,15 @@ async def _attempt_auto_match(
         # layer; we mirror the check here so auto-match skips gracefully
         # (no 409 surfaced to the operator) and the operator can dedupe
         # manually.
-        existing = await db.execute(
-            select(Empresa.id).where(
-                Empresa.eva_account_id == candidate_id,
-                Empresa.id != empresa.id,
-            ).limit(1)
-        )
-        if existing.scalar_one_or_none():
+        linked = await _auto_match_loaded_empresa(db, eva_db, empresa, candidate_id)
+        if not linked:
             logger.info(
                 "empresas.auto_match.skip_collision empresa=%s name=%r eva_account_id=%s",
                 empresa.id, normalized, candidate_id,
             )
             return
-        empresa.eva_account_id = candidate_id
         logger.info(
-            "empresas.auto_match.linked empresa=%s name=%r → eva_account_id=%s",
+            "empresas.auto_match.linked empresa=%s name=%r eva_account_id=%s",
             empresa.id,
             normalized,
             candidate_id,
@@ -343,6 +344,139 @@ async def _compute_health_for_empresas(
     return out
 
 
+def _sync_empresa_from_eva_account(empresa: Empresa, account: EvaAccount) -> None:
+    """Copy safe account/billing cache fields onto the ERP empresa row."""
+    empresa.eva_account_id = account.id
+    empresa.auto_match_attempted = True
+    empresa.stripe_customer_id = getattr(account, "stripe_customer_id", None)
+    empresa.stripe_subscription_id = getattr(account, "stripe_subscription_id", None)
+    subscription_status = getattr(account, "subscription_status", None)
+    empresa.subscription_status = str(subscription_status).lower() if subscription_status else None
+    empresa.current_period_end = getattr(account, "current_period_end", None)
+    billing_interval = getattr(account, "billing_interval", None)
+    empresa.billing_interval = str(billing_interval).lower() if billing_interval else "monthly"
+
+
+def _record_eva_account_link(
+    db: AsyncSession,
+    empresa: Empresa,
+    account: EvaAccount,
+    changed_by: uuid.UUID | None,
+) -> None:
+    old_account_id = empresa.eva_account_id
+    _sync_empresa_from_eva_account(empresa, account)
+    if old_account_id != account.id:
+        empresa.version = (empresa.version or 0) + 1
+        db.add(
+            EmpresaHistory(
+                empresa_id=empresa.id,
+                field_changed="eva_account_id",
+                old_value=str(old_account_id) if old_account_id else None,
+                new_value=str(account.id),
+                changed_by=changed_by,
+            )
+        )
+
+
+async def link_empresa_to_eva_account(
+    db: AsyncSession,
+    eva_db: AsyncSession,
+    empresa_id: uuid.UUID,
+    account_id: uuid.UUID,
+    changed_by: uuid.UUID | None = None,
+    expected_version: int | None = None,
+) -> Empresa:
+    """Link an ERP empresa to an Eva account and keep local billing cache fresh."""
+    empresa_result = await db.execute(
+        select(Empresa)
+        .where(Empresa.id == empresa_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    empresa = empresa_result.scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if expected_version is not None and expected_version != empresa.version:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "OptimisticLockMismatch",
+                "message": "Another user changed this empresa — reload.",
+                "server_version": empresa.version,
+            },
+        )
+    if empresa.eva_account_id and empresa.eva_account_id != account_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "empresa_already_linked", "message": "Esta empresa ya esta vinculada a otra cuenta de Eva."},
+        )
+
+    duplicate = await db.execute(
+        select(Empresa.id).where(Empresa.eva_account_id == account_id, Empresa.id != empresa_id).limit(1)
+    )
+    if duplicate.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "already_linked", "message": "Esta cuenta de Eva ya esta vinculada a otra empresa."},
+        )
+
+    account_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = account_result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Eva account not found")
+
+    _record_eva_account_link(db, empresa, account, changed_by)
+    _enforce_business_rules(
+        lifecycle_stage=empresa.lifecycle_stage,
+        eva_account_id=empresa.eva_account_id,
+        subscription_status=empresa.subscription_status,
+        expected_close_date=empresa.expected_close_date,
+        grandfathered=empresa.grandfathered,
+        check_operativo=True,
+        check_close_date=False,
+    )
+    db.add(empresa)
+    await db.flush()
+    await db.refresh(empresa, attribute_names=["items"])
+    return empresa
+
+
+async def _auto_match_loaded_empresa(
+    db: AsyncSession,
+    eva_db: AsyncSession,
+    empresa: Empresa,
+    account_id: uuid.UUID,
+) -> bool:
+    duplicate = await db.execute(
+        select(Empresa.id).where(Empresa.eva_account_id == account_id, Empresa.id != empresa.id).limit(1)
+    )
+    if duplicate.scalar_one_or_none():
+        return False
+
+    account_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == account_id))
+    account = account_result.scalar_one_or_none()
+    if not account:
+        return False
+
+    try:
+        _record_eva_account_link(db, empresa, account, changed_by=None)
+        _enforce_business_rules(
+            lifecycle_stage=empresa.lifecycle_stage,
+            eva_account_id=empresa.eva_account_id,
+            subscription_status=empresa.subscription_status,
+            expected_close_date=empresa.expected_close_date,
+            grandfathered=empresa.grandfathered,
+            check_operativo=True,
+            check_close_date=False,
+        )
+    except HTTPException:
+        return False
+
+    db.add(empresa)
+    await db.flush()
+    return True
+
+
 @router.get("")
 async def list_empresas(
     search: str | None = None,
@@ -356,15 +490,21 @@ async def list_empresas(
             Empresa.name,
             Empresa.logo_url,
             Empresa.status,
+            Empresa.lifecycle_stage,
             Empresa.ball_on,
             Empresa.summary_note,
             Empresa.monthly_amount,
+            Empresa.billing_interval,
             Empresa.payment_day,
             Empresa.last_paid_date,
+            Empresa.expected_close_date,
+            Empresa.cancellation_scheduled_at,
             Empresa.eva_account_id,
             Empresa.auto_match_attempted,
             Empresa.subscription_status,
             Empresa.current_period_end,
+            Empresa.grandfathered,
+            Empresa.version,
             Empresa.person_type,
             Empresa.rfc,
             func.count(EmpresaItem.id).label("item_count"),
@@ -382,16 +522,46 @@ async def list_empresas(
     # Fetch pending items for all empresas in one query
     empresa_ids = [r.id for r in rows]
     pending_items_map: dict[uuid.UUID, list[dict]] = {eid: [] for eid in empresa_ids}
+    overdue_count_map: dict[uuid.UUID, int] = {eid: 0 for eid in empresa_ids}
+    now = datetime.now(timezone.utc)
 
     if empresa_ids:
         items_q = (
-            select(EmpresaItem.id, EmpresaItem.empresa_id, EmpresaItem.title)
+            select(
+                EmpresaItem.id,
+                EmpresaItem.empresa_id,
+                EmpresaItem.title,
+                EmpresaItem.kind,
+                EmpresaItem.due_at,
+                EmpresaItem.start_at,
+                EmpresaItem.completed_at,
+            )
             .where(EmpresaItem.empresa_id.in_(empresa_ids), EmpresaItem.done == False)
-            .order_by(EmpresaItem.created_at.asc())
+            .order_by(
+                EmpresaItem.due_at.is_(None),
+                EmpresaItem.due_at.asc(),
+                EmpresaItem.start_at.is_(None),
+                EmpresaItem.start_at.asc(),
+                EmpresaItem.created_at.asc(),
+            )
         )
         items_result = await db.execute(items_q)
         for item in items_result.all():
-            pending_items_map[item.empresa_id].append({"id": str(item.id), "title": item.title})
+            due_at = item.due_at
+            if due_at is not None:
+                compare_due_at = due_at if due_at.tzinfo else due_at.replace(tzinfo=timezone.utc)
+                if compare_due_at < now:
+                    overdue_count_map[item.empresa_id] = overdue_count_map.get(item.empresa_id, 0) + 1
+            pending_items_map[item.empresa_id].append(
+                {
+                    "id": str(item.id),
+                    "title": item.title,
+                    "kind": item.kind,
+                    "due_at": item.due_at.isoformat() if item.due_at else None,
+                    "start_at": item.start_at.isoformat() if item.start_at else None,
+                    "completed_at": item.completed_at.isoformat() if item.completed_at else None,
+                }
+            )
 
     # Lazy auto-match: for any empresa whose ``auto_match_attempted``
     # flag is False, try to link it to an Eva account by name. Only
@@ -432,20 +602,28 @@ async def list_empresas(
             "name": r.name,
             "logo_url": r.logo_url,
             "status": r.status,
+            "lifecycle_stage": r.lifecycle_stage,
             "ball_on": r.ball_on,
             "summary_note": r.summary_note,
             "monthly_amount": float(r.monthly_amount) if r.monthly_amount is not None else None,
+            "billing_interval": r.billing_interval,
             "payment_day": r.payment_day,
             "last_paid_date": r.last_paid_date.isoformat() if r.last_paid_date else None,
+            "expected_close_date": r.expected_close_date.isoformat() if r.expected_close_date else None,
+            "cancellation_scheduled_at": r.cancellation_scheduled_at.isoformat() if r.cancellation_scheduled_at else None,
             "eva_account_id": str(empresa_account_ids[r.id]) if empresa_account_ids[r.id] else None,
             "auto_match_attempted": r.auto_match_attempted or (r.id in refreshed_account_ids),
             "subscription_status": r.subscription_status,
             "current_period_end": r.current_period_end.isoformat() if r.current_period_end else None,
+            "grandfathered": r.grandfathered,
+            "version": r.version,
             "person_type": r.person_type,
             "rfc": r.rfc,
             "item_count": r.item_count,
             "pending_count": r.pending_count,
             "pending_items": pending_items_map.get(r.id, []),
+            "next_action": (pending_items_map.get(r.id) or [None])[0],
+            "overdue_count": overdue_count_map.get(r.id, 0),
             "health": health_map.get(
                 r.id,
                 {
@@ -507,18 +685,35 @@ async def create_empresa(
     data: EmpresaCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
 ):
-    _enforce_business_rules(
-        lifecycle_stage=data.lifecycle_stage,
-        eva_account_id=data.eva_account_id,
-        subscription_status=None,
-        expected_close_date=data.expected_close_date,
-        grandfathered=False,
-    )
-    empresa = Empresa(**data.model_dump(), created_by=user.id)
+    link_account_id = data.eva_account_id
+    if link_account_id is None:
+        _enforce_business_rules(
+            lifecycle_stage=data.lifecycle_stage,
+            eva_account_id=None,
+            subscription_status=None,
+            expected_close_date=data.expected_close_date,
+            grandfathered=False,
+        )
+    elif eva_db is None:
+        raise HTTPException(status_code=503, detail="Eva database not configured")
+
+    payload = data.model_dump()
+    payload["eva_account_id"] = None
+    empresa = Empresa(**payload, created_by=user.id)
     db.add(empresa)
     try:
         await db.flush()
+        if link_account_id is not None:
+            await link_empresa_to_eva_account(db, eva_db, empresa.id, link_account_id, changed_by=user.id)
+            _enforce_business_rules(
+                lifecycle_stage=empresa.lifecycle_stage,
+                eva_account_id=empresa.eva_account_id,
+                subscription_status=empresa.subscription_status,
+                expected_close_date=empresa.expected_close_date,
+                grandfathered=empresa.grandfathered,
+            )
     except IntegrityError as exc:
         await db.rollback()
         if "empresas_eva_account_id_uniq" in str(exc.orig):
@@ -529,6 +724,177 @@ async def create_empresa(
         raise
     await db.refresh(empresa, attribute_names=["items"])
     return empresa
+
+
+@router.get("/calendar", response_model=list[EmpresaCalendarItemResponse])
+async def list_empresa_calendar_items(
+    start: date,
+    end: date,
+    include_completed: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if end < start:
+        raise HTTPException(status_code=422, detail="end must be on or after start")
+    start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc)
+    end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
+    q = (
+        select(
+            EmpresaItem,
+            Empresa.name.label("empresa_name"),
+            Empresa.logo_url,
+            Empresa.lifecycle_stage,
+        )
+        .join(Empresa, Empresa.id == EmpresaItem.empresa_id)
+        .where(
+            or_(
+                EmpresaItem.due_at.between(start_dt, end_dt),
+                EmpresaItem.start_at.between(start_dt, end_dt),
+                EmpresaItem.reminder_at.between(start_dt, end_dt),
+            )
+        )
+        .order_by(
+            EmpresaItem.start_at.is_(None),
+            EmpresaItem.start_at.asc(),
+            EmpresaItem.due_at.is_(None),
+            EmpresaItem.due_at.asc(),
+        )
+    )
+    if not include_completed:
+        q = q.where(EmpresaItem.done == False)
+    result = await db.execute(q)
+    return [
+        {
+            "id": item.id,
+            "empresa_id": item.empresa_id,
+            "empresa_name": empresa_name,
+            "logo_url": logo_url,
+            "lifecycle_stage": lifecycle_stage,
+            "title": item.title,
+            "kind": item.kind,
+            "description": item.description,
+            "contact_method": item.contact_method,
+            "due_at": item.due_at,
+            "start_at": item.start_at,
+            "end_at": item.end_at,
+            "reminder_at": item.reminder_at,
+            "done": item.done,
+            "completed_at": item.completed_at,
+        }
+        for item, empresa_name, logo_url, lifecycle_stage in result.all()
+    ]
+
+
+@router.post("/{empresa_id}/link-eva-account", response_model=EmpresaResponse)
+async def link_eva_account_endpoint(
+    empresa_id: uuid.UUID,
+    data: LinkEvaAccountRequest,
+    db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession = Depends(get_optional_eva_db),
+    user: User = Depends(get_current_user),
+):
+    if eva_db is None:
+        raise HTTPException(status_code=503, detail="Eva database not configured")
+    return await link_empresa_to_eva_account(
+        db,
+        eva_db,
+        empresa_id,
+        data.account_id,
+        changed_by=user.id,
+        expected_version=data.expected_version,
+    )
+
+
+@router.post("/{empresa_id}/eva-account", response_model=EvaAccountProvisionResponse, status_code=201)
+async def create_eva_account_for_empresa(
+    empresa_id: uuid.UUID,
+    data: CreateEvaAccountForEmpresaRequest,
+    db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession = Depends(get_optional_eva_db),
+    user: User = Depends(get_current_user),
+):
+    if eva_db is None:
+        raise HTTPException(status_code=503, detail="Eva database not configured")
+    empresa = await db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa not found")
+    if empresa.eva_account_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "empresa_already_linked", "message": "Esta empresa ya esta vinculada a una cuenta de Eva."},
+        )
+
+    from src.eva_platform.router.accounts import create_account
+
+    request = EvaAccountCreateRequest(
+        name=empresa.name,
+        owner_email=str(data.owner_email),
+        owner_name=data.owner_name,
+        account_type=data.account_type,
+        plan_tier=data.plan_tier,
+        billing_cycle=data.billing_cycle,
+        temporary_password=data.temporary_password,
+        send_setup_email=data.send_setup_email,
+        empresa_id=empresa.id,
+    )
+    return await create_account(request, eva_db=eva_db, db=db, user=user)
+
+
+@router.post("/link-eva-accounts/auto-match")
+async def auto_match_eva_accounts(
+    db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession = Depends(get_optional_eva_db),
+    user: User = Depends(get_current_user),
+):
+    if eva_db is None:
+        raise HTTPException(status_code=503, detail="Eva database not configured")
+
+    empresas_result = await db.execute(
+        select(Empresa.id, Empresa.name).where(Empresa.eva_account_id.is_(None)).order_by(Empresa.name)
+    )
+    empresas = list(empresas_result.all())
+    if not empresas:
+        return {"linked": 0, "ambiguous": [], "missing": [], "duplicates": []}
+
+    accounts_result = await eva_db.execute(
+        select(EvaAccount.id, EvaAccount.name).where(EvaAccount.is_active == True)
+    )
+    accounts_by_name: dict[str, list[uuid.UUID]] = {}
+    for account_id, account_name in accounts_result.all():
+        key = (account_name or "").strip().lower()
+        if key:
+            accounts_by_name.setdefault(key, []).append(account_id)
+
+    linked = 0
+    ambiguous: list[dict] = []
+    missing: list[dict] = []
+    duplicates: list[dict] = []
+    for empresa_id, empresa_name in empresas:
+        key = (empresa_name or "").strip().lower()
+        matches = accounts_by_name.get(key, [])
+        if not matches:
+            missing.append({"empresa_id": str(empresa_id), "name": empresa_name})
+            continue
+        if len(matches) > 1:
+            ambiguous.append(
+                {"empresa_id": str(empresa_id), "name": empresa_name, "account_ids": [str(match) for match in matches]}
+            )
+            continue
+        try:
+            await link_empresa_to_eva_account(db, eva_db, empresa_id, matches[0], changed_by=user.id)
+            linked += 1
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                duplicates.append({"empresa_id": str(empresa_id), "name": empresa_name, "account_id": str(matches[0])})
+                continue
+            raise
+
+    return {
+        "linked": linked,
+        "ambiguous": ambiguous,
+        "missing": missing,
+        "duplicates": duplicates,
+    }
 
 
 @router.get("/{empresa_id}", response_model=EmpresaResponse)
@@ -554,6 +920,7 @@ async def update_empresa(
     empresa_id: uuid.UUID,
     data: EmpresaUpdate,
     db: AsyncSession = Depends(get_db),
+    eva_db: AsyncSession | None = Depends(get_optional_eva_db),
     user: User = Depends(get_current_user),
     if_match: str | None = Header(default=None, alias="If-Match"),
 ):
@@ -609,13 +976,39 @@ async def update_empresa(
     stage_changing = "lifecycle_stage" in update_data
     link_changing = "eva_account_id" in update_data
     close_changing = "expected_close_date" in update_data
+    version_incremented = False
+    if link_changing:
+        new_account_id = update_data.get("eva_account_id")
+        if new_account_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"reason": "UnlinkNotSupported", "message": "Unlinking Eva accounts is not supported here."},
+            )
+        if eva_db is None:
+            raise HTTPException(status_code=503, detail="Eva database not configured")
+        duplicate = await db.execute(
+            select(Empresa.id).where(Empresa.eva_account_id == new_account_id, Empresa.id != empresa.id).limit(1)
+        )
+        if duplicate.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "already_linked", "message": "Esta cuenta de Eva ya esta vinculada a otra empresa."},
+            )
+        account_result = await eva_db.execute(select(EvaAccount).where(EvaAccount.id == new_account_id))
+        account = account_result.scalar_one_or_none()
+        if not account:
+            raise HTTPException(status_code=404, detail="Eva account not found")
+        old_account_id = empresa.eva_account_id
+        _record_eva_account_link(db, empresa, account, changed_by=user.id)
+        version_incremented = old_account_id != account.id
+        update_data.pop("eva_account_id")
+
     if stage_changing or link_changing or close_changing:
         proposed_stage = update_data.get("lifecycle_stage", empresa.lifecycle_stage)
-        proposed_eva_account_id = update_data.get("eva_account_id", empresa.eva_account_id)
         proposed_close_date = update_data.get("expected_close_date", empresa.expected_close_date)
         _enforce_business_rules(
             lifecycle_stage=proposed_stage,
-            eva_account_id=proposed_eva_account_id,
+            eva_account_id=empresa.eva_account_id,
             subscription_status=empresa.subscription_status,
             expected_close_date=proposed_close_date,
             grandfathered=empresa.grandfathered,
@@ -645,7 +1038,7 @@ async def update_empresa(
         setattr(empresa, field, value)
 
     # Increment version if anything actually changed (even non-tracked fields).
-    if update_data:
+    if update_data and not version_incremented:
         empresa.version = (empresa.version or 0) + 1
 
     db.add(empresa)
@@ -753,6 +1146,48 @@ async def get_empresa_history(
 # ── Items ──────────────────────────────────────────────────────────
 
 
+@router.get("/{empresa_id}/interactions", response_model=list[EmpresaInteractionResponse])
+async def list_interactions(
+    empresa_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Empresa.id).where(Empresa.id == empresa_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Empresa not found")
+
+    rows = await db.execute(
+        select(EmpresaInteraction)
+        .where(EmpresaInteraction.empresa_id == empresa_id)
+        .order_by(EmpresaInteraction.date.desc(), EmpresaInteraction.created_at.desc())
+    )
+    return rows.scalars().all()
+
+
+@router.post("/{empresa_id}/interactions", response_model=EmpresaInteractionResponse, status_code=201)
+async def create_interaction(
+    empresa_id: uuid.UUID,
+    data: EmpresaInteractionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Empresa.id).where(Empresa.id == empresa_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Empresa not found")
+
+    interaction = EmpresaInteraction(
+        empresa_id=empresa_id,
+        type=data.type,
+        summary=data.summary,
+        date=data.date,
+        created_by=user.id,
+    )
+    db.add(interaction)
+    await db.flush()
+    await db.refresh(interaction)
+    return interaction
+
+
 @router.post("/{empresa_id}/items", response_model=EmpresaItemResponse, status_code=201)
 async def create_item(
     empresa_id: uuid.UUID,
@@ -766,7 +1201,7 @@ async def create_item(
 
     item = EmpresaItem(
         empresa_id=empresa_id,
-        title=data.title,
+        **data.model_dump(),
         created_by=user.id,
     )
     db.add(item)
@@ -787,7 +1222,10 @@ async def update_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    if "done" in update_data and update_data["done"] != item.done:
+        update_data["completed_at"] = datetime.now(timezone.utc) if update_data["done"] else None
+    for field, value in update_data.items():
         setattr(item, field, value)
 
     db.add(item)
@@ -808,6 +1246,7 @@ async def toggle_item(
         raise HTTPException(status_code=404, detail="Item not found")
 
     item.done = not item.done
+    item.completed_at = datetime.now(timezone.utc) if item.done else None
     db.add(item)
     await db.flush()
     await db.refresh(item)

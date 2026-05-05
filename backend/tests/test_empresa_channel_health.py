@@ -31,6 +31,7 @@ from src.empresas.schemas import (
     EmpresaHealth,
     EvaAccountForLink,
 )
+from src.eva_platform.models import EvaAccount
 
 
 # Named tuples that mimic SQLAlchemy result rows. The production code
@@ -88,6 +89,13 @@ class _FakeScalarsResult:
     def all(self) -> list[Any]:
         return self._values
 
+    def scalar_one_or_none(self) -> Any:
+        if not self._values:
+            return None
+        if len(self._values) > 1:
+            raise AssertionError("Expected at most one fake row")
+        return self._values[0]
+
 
 class _FakeRowResult:
     """Result of execute() that supports both .scalars().all() and .all()."""
@@ -100,6 +108,13 @@ class _FakeRowResult:
 
     def all(self) -> list[Any]:
         return self._values
+
+    def scalar_one_or_none(self) -> Any:
+        if not self._values:
+            return None
+        if len(self._values) > 1:
+            raise AssertionError("Expected at most one fake row")
+        return self._values[0]
 
 
 class _FakeEvaDB:
@@ -137,6 +152,10 @@ class _FakeLocalDB:
     def __init__(self, existing_linked_id: uuid.UUID | None = None) -> None:
         self.flushed = False
         self._existing = existing_linked_id
+        self.added: list[Any] = []
+
+    def add(self, value: Any) -> None:
+        self.added.append(value)
 
     async def flush(self) -> None:
         self.flushed = True
@@ -206,10 +225,21 @@ def test_auto_match_skips_blank_name():
 def test_auto_match_links_on_unique_name_match():
     target_id = uuid.uuid4()
     empresa = _make_empresa("Lucky Telecom")
-    eva_db = _FakeEvaDB([[target_id]])  # one matching account
+    account = EvaAccount(
+        id=target_id,
+        name="Lucky Telecom",
+        owner_user_id=uuid.uuid4(),
+        account_type="COMMERCE",
+        plan_tier="starter",
+        billing_interval="monthly",
+        subscription_status="active",
+        is_active=True,
+    )
+    eva_db = _FakeEvaDB([[target_id], [account]])  # one matching account, then loaded account
     asyncio.run(_attempt_auto_match(_FakeLocalDB(), eva_db, empresa))
     assert empresa.auto_match_attempted is True
     assert empresa.eva_account_id == target_id
+    assert empresa.subscription_status == "active"
 
 
 def test_auto_match_skips_on_ambiguous_name_match(caplog):
