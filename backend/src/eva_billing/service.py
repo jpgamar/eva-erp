@@ -637,6 +637,19 @@ class EvaBillingService:
             "reply_to": {"email": settings.sendgrid_reply_to},
             "subject": "Tu factura de EvaAI",
             "content": [{"type": "text/html", "value": html}],
+            # Match the explicit tracking-disabled pattern used by every other
+            # SendGrid send-path in this codebase (empresas/reminders.py and
+            # eva_platform/onboarding.py). Without this, SendGrid's
+            # account-level Link Branding rewrites every <a href> to
+            # url<n>.goeva.ai/ls/click?upn=... — those subdomains pointed at
+            # a decommissioned Hetzner VPS, so customer clicks died with
+            # ERR_CONNECTION_TIMED_OUT (Acabados report, May 2026).
+            "mail_settings": {"bypass_list_management": {"enable": True}},
+            "tracking_settings": {
+                "click_tracking": {"enable": False, "enable_text": False},
+                "open_tracking": {"enable": False},
+                "subscription_tracking": {"enable": False},
+            },
         }
 
         attachments = await self._download_invoice_attachments(factura, uuid_short)
