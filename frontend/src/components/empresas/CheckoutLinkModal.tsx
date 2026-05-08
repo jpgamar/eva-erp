@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Settings2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,17 +12,59 @@ import {
   type PreviewCheckoutResponse,
 } from "@/lib/api/empresas";
 
+interface ConfigError {
+  code: string;
+  message: string;
+  missingFields: string[];
+}
+
 interface CheckoutLinkModalProps {
   empresa: EmpresaListItem;
   open: boolean;
   onClose: () => void;
+  onConfigure?: (missingFields: string[]) => void;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  person_type: "Tipo de persona (moral o fisica)",
+  rfc: "RFC",
+  razon_social: "Razon Social",
+  regimen_fiscal: "Regimen Fiscal",
+  fiscal_postal_code: "CP Fiscal",
+  cfdi_use: "Uso CFDI",
+};
+
+function humanizeField(field: string): string {
+  return FIELD_LABELS[field] ?? field;
+}
+
+function parseConfigError(err: any): ConfigError | null {
+  const detail = err?.response?.data?.detail;
+  if (
+    detail &&
+    typeof detail === "object" &&
+    Array.isArray(detail.missing_fields) &&
+    detail.missing_fields.length > 0
+  ) {
+    return {
+      code: typeof detail.code === "string" ? detail.code : "config_error",
+      message:
+        typeof detail.message === "string"
+          ? detail.message
+          : "Faltan datos de configuracion",
+      missingFields: detail.missing_fields.filter(
+        (f: unknown): f is string => typeof f === "string",
+      ),
+    };
+  }
+  return null;
 }
 
 function formatMXN(minorUnits: number): string {
   return `$${(minorUnits / 100).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalProps) {
+export function CheckoutLinkModal({ empresa, open, onClose, onConfigure }: CheckoutLinkModalProps) {
   const [amount, setAmount] = useState(empresa.monthly_amount?.toString() || "4000");
   const [description, setDescription] = useState(`Servicio EvaAI — ${empresa.name}`);
   const [interval, setInterval] = useState<"month" | "year">("month");
@@ -30,6 +73,17 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
   const [preview, setPreview] = useState<PreviewCheckoutResponse | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<ConfigError | null>(null);
+
+  // Reset transient state whenever the modal is dismissed.
+  useEffect(() => {
+    if (!open) {
+      setPreview(null);
+      setCheckoutUrl(null);
+      setError(null);
+      setConfigError(null);
+    }
+  }, [open]);
 
   const handlePreview = async () => {
     if (!amount) {
@@ -38,13 +92,20 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
     }
     setLoading(true);
     setError(null);
+    setConfigError(null);
     try {
       const result = await empresasApi.previewCheckout(empresa.id, {
         amount_mxn: parseFloat(amount),
       });
       setPreview(result);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Error al calcular desglose");
+      const cfg = parseConfigError(err);
+      if (cfg) {
+        setConfigError(cfg);
+      } else {
+        const detail = err?.response?.data?.detail;
+        setError(typeof detail === "string" ? detail : "Error al calcular desglose");
+      }
     } finally {
       setLoading(false);
     }
@@ -57,6 +118,7 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
     }
     setLoading(true);
     setError(null);
+    setConfigError(null);
     try {
       const result = await empresasApi.createCheckoutLink(empresa.id, {
         amount_mxn: parseFloat(amount),
@@ -66,7 +128,14 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
       });
       setCheckoutUrl(result.checkout_url);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Error al crear el link");
+      const cfg = parseConfigError(err);
+      if (cfg) {
+        setConfigError(cfg);
+        setPreview(null); // bounce user back to step 1 so the callout is visible
+      } else {
+        const detail = err?.response?.data?.detail;
+        setError(typeof detail === "string" ? detail : "Error al crear el link");
+      }
     } finally {
       setLoading(false);
     }
@@ -82,6 +151,7 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
     setCheckoutUrl(null);
     setPreview(null);
     setError(null);
+    setConfigError(null);
     onClose();
   };
 
@@ -89,6 +159,38 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
     setPreview(null);
     setError(null);
   };
+
+  const handleConfigureClick = () => {
+    if (configError && onConfigure) {
+      onConfigure(configError.missingFields);
+    }
+  };
+
+  const renderConfigCallout = () =>
+    configError && (
+      <div
+        className="rounded-md border border-amber-300 bg-amber-50 p-3 space-y-2 dark:border-amber-700/60 dark:bg-amber-950/40"
+        data-testid="checkout-config-error"
+      >
+        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+          {configError.message}
+        </p>
+        <p className="text-xs text-amber-800 dark:text-amber-200">
+          Faltan: {configError.missingFields.map(humanizeField).join(", ")}
+        </p>
+        {onConfigure && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-amber-400 bg-white text-amber-900 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-100"
+            onClick={handleConfigureClick}
+          >
+            <Settings2 className="mr-1 h-3.5 w-3.5" />
+            Configurar empresa
+          </Button>
+        )}
+      </div>
+    );
 
   // Step 3: URL generated — show copy/open
   if (checkoutUrl) {
@@ -180,6 +282,7 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
               </p>
             </div>
 
+            {renderConfigCallout()}
             {error && <p className="text-sm text-red-500">{error}</p>}
 
             <div className="flex gap-2 justify-end">
@@ -244,6 +347,7 @@ export function CheckoutLinkModal({ empresa, open, onClose }: CheckoutLinkModalP
             </div>
           </div>
 
+          {renderConfigCallout()}
           {error && <p className="text-sm text-red-500">{error}</p>}
 
           <div className="flex gap-2 justify-end">

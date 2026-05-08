@@ -1770,11 +1770,22 @@ async def preview_checkout_endpoint(
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa not found")
 
-    from src.empresas.billing_service import preview_checkout
+    from src.empresas.billing_service import FiscalConfigError, preview_checkout
 
     try:
         quote = preview_checkout(empresa, amount_mxn=payload.amount_mxn)
         return PreviewCheckoutResponse(**quote)
+    except FiscalConfigError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "missing_fields": exc.missing_fields,
+                "entity_type": "empresa",
+                "entity_id": str(empresa_id),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1794,7 +1805,7 @@ async def create_checkout_link(
     if empresa.stripe_subscription_id and empresa.subscription_status == "active":
         raise HTTPException(status_code=409, detail="Empresa already has an active subscription")
 
-    from src.empresas.billing_service import preview_checkout
+    from src.empresas.billing_service import FiscalConfigError, preview_checkout
 
     try:
         quote = preview_checkout(empresa, amount_mxn=payload.amount_mxn)
@@ -1823,6 +1834,17 @@ async def create_checkout_link(
             checkout_url=branded_url,
             quote=PreviewCheckoutResponse(**quote),
         )
+    except FiscalConfigError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "missing_fields": exc.missing_fields,
+                "entity_type": "empresa",
+                "entity_id": str(empresa_id),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:

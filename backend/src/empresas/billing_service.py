@@ -18,6 +18,7 @@ from src.eva_billing.service import (
     IVA_RATE,
     ISR_RETENTION_RATE,
     IVA_RETENTION_RATE,
+    PERSONA_MORAL_REGIMENES,
     _compute_quote,
     is_fiscal_complete,
     resolve_retention_applicable,
@@ -27,6 +28,45 @@ logger = logging.getLogger(__name__)
 
 
 PlanTierLiteral = Literal["standard", "pro"]
+
+
+class FiscalConfigError(ValueError):
+    """Empresa is missing fiscal data needed to issue a CFDI.
+
+    Inherits ValueError so existing handlers still catch it. Carries
+    structured fields (`code`, `missing_fields`) so the frontend can
+    deep-link the operator to the exact form section to fix.
+    """
+
+    def __init__(self, code: str, message: str, missing_fields: list[str]):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.missing_fields = missing_fields
+
+
+def _missing_fiscal_fields(empresa: Empresa) -> list[str]:
+    """Return the empresa fields blocking persona-moral CFDI stamping.
+
+    Mirrors `is_fiscal_complete` so the UI can highlight precisely
+    what's empty rather than showing a single generic message.
+    """
+    missing: list[str] = []
+    if not empresa.rfc:
+        missing.append("rfc")
+    if not empresa.razon_social:
+        missing.append("razon_social")
+    if not empresa.regimen_fiscal:
+        missing.append("regimen_fiscal")
+    if not empresa.fiscal_postal_code:
+        missing.append("fiscal_postal_code")
+    if not empresa.cfdi_use:
+        missing.append("cfdi_use")
+    if not empresa.person_type and not (
+        empresa.regimen_fiscal and empresa.regimen_fiscal in PERSONA_MORAL_REGIMENES
+    ):
+        missing.append("person_type")
+    return missing
 
 
 def next_billing_cycle_anchor(payment_day: int, *, from_date: date | None = None) -> int:
@@ -86,8 +126,10 @@ def preview_checkout(empresa: Empresa, *, amount_mxn: Decimal) -> dict:
     """
     retention = resolve_retention_applicable(empresa.person_type, empresa.regimen_fiscal)
     if retention is None:
-        raise ValueError(
-            "Define el tipo de persona (moral o fisica) antes de crear el link de cobro"
+        raise FiscalConfigError(
+            code="missing_person_type",
+            message="Define el tipo de persona (moral o fisica) antes de crear el link de cobro",
+            missing_fields=["person_type"],
         )
 
     if retention and not is_fiscal_complete(
@@ -98,8 +140,10 @@ def preview_checkout(empresa: Empresa, *, amount_mxn: Decimal) -> dict:
         empresa.cfdi_use,
         empresa.person_type,
     ):
-        raise ValueError(
-            "Completa la informacion fiscal antes de crear el link de cobro"
+        raise FiscalConfigError(
+            code="incomplete_fiscal_data",
+            message="Completa la informacion fiscal antes de crear el link de cobro",
+            missing_fields=_missing_fiscal_fields(empresa),
         )
 
     base_minor = int(amount_mxn * 100)

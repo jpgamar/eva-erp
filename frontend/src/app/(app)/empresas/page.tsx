@@ -349,6 +349,10 @@ export default function EmpresasPage() {
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
   const [editingEmpresaVersion, setEditingEmpresaVersion] = useState<number>(0);
   const [extractingConstancia, setExtractingConstancia] = useState(false);
+  // Fiscal section: controlled so we can deep-link from a config error.
+  const [fiscalSectionOpen, setFiscalSectionOpen] = useState(false);
+  const [highlightedFiscalFields, setHighlightedFiscalFields] = useState<Set<string>>(new Set());
+  const fiscalFieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // History modal
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -469,6 +473,33 @@ export default function EmpresasPage() {
     loadEmpresas();
   }, [search]);
 
+  // Reset fiscal-section deep-link state whenever the empresa modal closes,
+  // and auto-clear field highlights after a few seconds so the ring isn't sticky.
+  useEffect(() => {
+    if (!empresaModalOpen) {
+      setFiscalSectionOpen(false);
+      setHighlightedFiscalFields(new Set());
+      return;
+    }
+    if (highlightedFiscalFields.size === 0) return;
+    const t = window.setTimeout(() => setHighlightedFiscalFields(new Set()), 6000);
+    return () => window.clearTimeout(t);
+  }, [empresaModalOpen, highlightedFiscalFields]);
+
+  // After the fiscal section opens with highlighted fields, scroll the first
+  // missing field into view so the operator sees exactly what to fix.
+  useEffect(() => {
+    if (!empresaModalOpen || !fiscalSectionOpen) return;
+    if (highlightedFiscalFields.size === 0) return;
+    const first = Array.from(highlightedFiscalFields)[0];
+    const el = fiscalFieldRefs.current[first];
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+  }, [empresaModalOpen, fiscalSectionOpen, highlightedFiscalFields]);
+
   // ── Empresa CRUD ────────────────────────────────────────────────
 
   const ensureEvaAccountsLoaded = async () => {
@@ -534,6 +565,19 @@ export default function EmpresasPage() {
     } catch {
       toast.error("Error al cargar empresa");
     }
+  };
+
+  // Deep-link from CheckoutLinkModal: close it, open the edit modal for the
+  // same empresa, expand the fiscal section, and ring-highlight the missing
+  // fields so the operator can fix the gap without hunting through the form.
+  const openEditWithFiscalFocus = async (
+    empresa: EmpresaListItem,
+    missingFields: string[],
+  ) => {
+    setCheckoutEmpresa(null);
+    await openEditEmpresa(empresa);
+    setFiscalSectionOpen(true);
+    setHighlightedFiscalFields(new Set(missingFields));
   };
 
   // ── Channel health modal ────────────────────────────────────────
@@ -1595,17 +1639,15 @@ export default function EmpresasPage() {
               <button
                 type="button"
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
-                onClick={(e) => {
-                  const target = e.currentTarget.nextElementSibling;
-                  if (target) target.classList.toggle("hidden");
-                  const chevron = e.currentTarget.querySelector("svg");
-                  if (chevron) chevron.classList.toggle("rotate-180");
-                }}
+                onClick={() => setFiscalSectionOpen((v) => !v)}
+                aria-expanded={fiscalSectionOpen}
               >
-                <ChevronDown className="h-3 w-3 transition-transform" />
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform ${fiscalSectionOpen ? "rotate-180" : ""}`}
+                />
                 Datos fiscales y contacto
               </button>
-              <div className="hidden mt-3 space-y-3">
+              <div className={`mt-3 space-y-3 ${fiscalSectionOpen ? "" : "hidden"}`}>
                 {/* Constancia drag-and-drop upload */}
                 <div
                   className={`relative rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
@@ -1690,7 +1732,11 @@ export default function EmpresasPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div
+                    ref={(el) => { fiscalFieldRefs.current.rfc = el; }}
+                    data-field="rfc"
+                    className={`rounded-md transition-shadow ${highlightedFiscalFields.has("rfc") ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-background" : ""}`}
+                  >
                     <label className="text-sm font-medium">RFC</label>
                     <Input
                       value={empresaForm.rfc ?? ""}
@@ -1700,7 +1746,11 @@ export default function EmpresasPage() {
                       maxLength={13}
                     />
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => { fiscalFieldRefs.current.razon_social = el; }}
+                    data-field="razon_social"
+                    className={`rounded-md transition-shadow ${highlightedFiscalFields.has("razon_social") ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-background" : ""}`}
+                  >
                     <label className="text-sm font-medium">Razon Social</label>
                     <Input
                       value={empresaForm.razon_social ?? ""}
@@ -1709,7 +1759,11 @@ export default function EmpresasPage() {
                       }
                     />
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => { fiscalFieldRefs.current.regimen_fiscal = el; }}
+                    data-field="regimen_fiscal"
+                    className={`rounded-md transition-shadow ${highlightedFiscalFields.has("regimen_fiscal") ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-background" : ""}`}
+                  >
                     <label className="text-sm font-medium">Regimen Fiscal</label>
                     <Input
                       value={empresaForm.regimen_fiscal ?? ""}
@@ -1719,7 +1773,11 @@ export default function EmpresasPage() {
                       placeholder="601"
                     />
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => { fiscalFieldRefs.current.fiscal_postal_code = el; }}
+                    data-field="fiscal_postal_code"
+                    className={`rounded-md transition-shadow ${highlightedFiscalFields.has("fiscal_postal_code") ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-background" : ""}`}
+                  >
                     <label className="text-sm font-medium">CP Fiscal</label>
                     <Input
                       value={empresaForm.fiscal_postal_code ?? ""}
@@ -1730,7 +1788,11 @@ export default function EmpresasPage() {
                       placeholder="11560"
                     />
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => { fiscalFieldRefs.current.cfdi_use = el; }}
+                    data-field="cfdi_use"
+                    className={`rounded-md transition-shadow ${highlightedFiscalFields.has("cfdi_use") ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-background" : ""}`}
+                  >
                     <label className="text-sm font-medium">Uso CFDI</label>
                     <Input
                       value={empresaForm.cfdi_use ?? "G03"}
@@ -1740,7 +1802,11 @@ export default function EmpresasPage() {
                       placeholder="G03"
                     />
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => { fiscalFieldRefs.current.person_type = el; }}
+                    data-field="person_type"
+                    className={`rounded-md transition-shadow ${highlightedFiscalFields.has("person_type") ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-background" : ""}`}
+                  >
                     <label className="text-sm font-medium">Tipo de persona</label>
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
@@ -1984,6 +2050,9 @@ export default function EmpresasPage() {
           empresa={checkoutEmpresa}
           open={!!checkoutEmpresa}
           onClose={() => setCheckoutEmpresa(null)}
+          onConfigure={(missingFields) =>
+            void openEditWithFiscalFocus(checkoutEmpresa, missingFields)
+          }
         />
       )}
 
