@@ -475,10 +475,15 @@ export default function EmpresasPage() {
 
   // Reset fiscal-section deep-link state whenever the empresa modal closes,
   // and auto-clear field highlights after a few seconds so the ring isn't sticky.
+  // IMPORTANT: only call setHighlightedFiscalFields when the contents actually
+  // need to change — `new Set()` is a fresh reference every render, so an
+  // unconditional set re-triggers the effect forever.
   useEffect(() => {
     if (!empresaModalOpen) {
       setFiscalSectionOpen(false);
-      setHighlightedFiscalFields(new Set());
+      if (highlightedFiscalFields.size > 0) {
+        setHighlightedFiscalFields(new Set());
+      }
       return;
     }
     if (highlightedFiscalFields.size === 0) return;
