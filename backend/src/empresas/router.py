@@ -1379,6 +1379,12 @@ async def update_empresa(
                 "cedular_auto_reprice failed for empresa %s", empresa.id
             )
 
+    # Refresh after flush so Pydantic's response_model can read columns the DB
+    # populates via ON UPDATE (`updated_at`) without triggering a lazy load
+    # outside the async context (MissingGreenlet → 500).
+    if update_data:
+        await db.refresh(empresa)
+
     return empresa
 
 
