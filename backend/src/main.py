@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from src.common.config import settings
@@ -142,35 +143,54 @@ from src.webhooks.router import router as webhooks_router
 app.include_router(webhooks_router, prefix="/api/v1")
 
 
-async def _db_health() -> tuple[bool, str | None, bool, str | None]:
-    erp_ok = False
-    erp_error = None
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-            erp_ok = True
-    except Exception as exc:
-        erp_error = str(exc)[:200]
-
-    eva_ok = False
-    eva_error = None
-    if eva_engine is not None:
-        try:
-            async with eva_engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-                eva_ok = True
-        except Exception as exc:
-            eva_error = str(exc)[:200]
-    return erp_ok, erp_error, eva_ok, eva_error
-
-
-@app.get("/health/liveness")
-async def health_liveness():
+def _liveness_payload() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "eva-erp",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def _check_db_connection(
+    db_engine,
+    label: str,
+    *,
+    timeout_seconds: float,
+) -> tuple[bool, str | None]:
+    async def _ping() -> None:
+        async with db_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+
+    try:
+        await asyncio.wait_for(_ping(), timeout=timeout_seconds)
+        return True, None
+    except asyncio.TimeoutError:
+        return False, f"{label} health check timed out after {timeout_seconds:.1f}s"
+    except Exception as exc:
+        return False, str(exc)[:200]
+
+
+async def _db_health(timeout_seconds: float = 2.0) -> tuple[bool, str | None, bool, str | None]:
+    erp_ok, erp_error = await _check_db_connection(
+        engine,
+        "ERP database",
+        timeout_seconds=timeout_seconds,
+    )
+
+    eva_ok = False
+    eva_error: str | None = None
+    if eva_engine is not None:
+        eva_ok, eva_error = await _check_db_connection(
+            eva_engine,
+            "Eva database",
+            timeout_seconds=timeout_seconds,
+        )
+    return erp_ok, erp_error, eva_ok, eva_error
+
+
+@app.get("/health/liveness")
+async def health_liveness():
+    return _liveness_payload()
 
 
 @app.get("/health/readiness")
@@ -196,7 +216,7 @@ async def health_readiness():
     db_ready = erp_ok and (eva_engine is None or eva_ok)
     ready = db_ready and len(failing_critical) == 0
 
-    return {
+    payload = {
         "status": "ok" if ready else "error",
         "service": "eva-erp",
         "erp_db_connected": erp_ok,
@@ -216,18 +236,11 @@ async def health_readiness():
         ],
         "critical_failures": failing_critical,
     }
+    if not ready:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @app.get("/health")
 async def health():
-    erp_ok, erp_error, eva_ok, eva_error = await _db_health()
-    status = "ok" if erp_ok and (eva_engine is None or eva_ok) else "error"
-    return {
-        "status": status,
-        "service": "eva-erp",
-        "erp_db_connected": erp_ok,
-        "erp_db_error": erp_error,
-        "eva_db_configured": eva_engine is not None,
-        "eva_db_connected": eva_ok if eva_engine is not None else None,
-        "eva_db_error": eva_error if eva_engine is not None else None,
-    }
+    return _liveness_payload()
