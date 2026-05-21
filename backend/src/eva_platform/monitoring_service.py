@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -21,6 +22,24 @@ logger = logging.getLogger(__name__)
 
 FAILURE_STATES = {"down", "degraded"}
 
+# Hard circuit-breaker ceiling: no single check_key may execute more than
+# this many times in any rolling hour, ever. If a misconfiguration or a
+# rogue caller tries to exceed it, the check is short-circuited and a
+# critical log is emitted. Set high enough to never trip during normal
+# operation (worst legitimate case: 30s interval = 120/hour).
+CIRCUIT_BREAKER_MAX_PER_HOUR = 240
+
+# Per-spec last-execution timestamps (epoch seconds). Used to throttle
+# checks whose CheckSpec declares a `min_interval_seconds` larger than the
+# monitor loop interval. Module-level so it survives across loop cycles
+# inside the same process; per-process is fine because there is exactly
+# one monitor loop per backend instance.
+_LAST_RUN_TS: dict[str, float] = {}
+_LAST_RESULT: dict[str, "CheckResult"] = {}
+
+# Per-check rolling 1-hour timestamps for the circuit breaker.
+_CALL_LOG: dict[str, deque[float]] = {}
+
 
 @dataclass(frozen=True, slots=True)
 class CheckSpec:
@@ -35,6 +54,11 @@ class CheckSpec:
     api_key: str = ""
     timeout_seconds: float | None = None
     retry_attempts: int = 2
+    # Minimum seconds between two real executions of this check. The
+    # background loop runs every `monitoring_interval_seconds` (default 30s);
+    # checks against external billing/SaaS APIs override this to slow down
+    # their cadence (FacturAPI defaults to 600s = 10 min). 0 = always run.
+    min_interval_seconds: int = 0
 
 
 @dataclass(slots=True)
@@ -80,6 +104,70 @@ def classify_issue_severity(status: str, critical: bool) -> str:
     return "low"
 
 
+def _dedupe_facturapi_specs_by_api_key(specs: list[CheckSpec]) -> list[CheckSpec]:
+    """Collapse FacturAPI specs that point at the same API key.
+
+    Without separately configured monitoring keys, all three FacturAPI
+    targets fall back to ``settings.facturapi_api_key`` — meaning every
+    monitor cycle would trigger 3 GETs against the same FacturAPI org. We
+    keep the first spec per (kind, api_key) pair and silently drop the
+    duplicates. This is safe because the underlying request is identical.
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: list[CheckSpec] = []
+    for spec in specs:
+        if spec.kind == "facturapi":
+            api_key = (spec.api_key or settings.facturapi_api_key or "").strip()
+            key = (spec.kind, api_key)
+            if api_key and key in seen:
+                logger.info(
+                    "Dedupe: skipping FacturAPI check %r — same API key as a prior spec",
+                    spec.check_key,
+                )
+                continue
+            seen.add(key)
+        deduped.append(spec)
+    return deduped
+
+
+def _circuit_breaker_allows(check_key: str, now_ts: float) -> bool:
+    """Return False if this check_key has fired too many times in the last hour."""
+    log = _CALL_LOG.setdefault(check_key, deque())
+    cutoff = now_ts - 3600.0
+    while log and log[0] < cutoff:
+        log.popleft()
+    if len(log) >= CIRCUIT_BREAKER_MAX_PER_HOUR:
+        return False
+    log.append(now_ts)
+    return True
+
+
+def _should_skip_for_min_interval(spec: CheckSpec, now_ts: float) -> bool:
+    """Return True if this check ran too recently per its min_interval_seconds."""
+    if spec.min_interval_seconds <= 0:
+        return False
+    last = _LAST_RUN_TS.get(spec.check_key)
+    if last is None:
+        return False
+    return (now_ts - last) < spec.min_interval_seconds
+
+
+def _cached_result(spec: CheckSpec) -> "CheckResult | None":
+    return _LAST_RESULT.get(spec.check_key)
+
+
+def _record_execution(spec: CheckSpec, result: "CheckResult", now_ts: float) -> None:
+    _LAST_RUN_TS[spec.check_key] = now_ts
+    _LAST_RESULT[spec.check_key] = result
+
+
+def reset_monitoring_throttles() -> None:
+    """Test hook — clears all throttle and circuit-breaker state."""
+    _LAST_RUN_TS.clear()
+    _LAST_RESULT.clear()
+    _CALL_LOG.clear()
+
+
 def _build_check_specs() -> list[CheckSpec]:
     supabase_base = (settings.supabase_url or settings.monitoring_supabase_url).rstrip("/")
     supabase_auth_api_key = (
@@ -113,13 +201,12 @@ def _build_check_specs() -> list[CheckSpec]:
             category="database",
             kind="eva_db",
         ),
-        CheckSpec(
-            check_key="erp-api",
-            service="ERP API",
-            target=settings.monitoring_erp_api_health_url,
-            critical=True,
-            category="api",
-        ),
+        # NOTE: the `erp-api` self-check has been deliberately removed. It
+        # used to target `/health/readiness` which, until 2026-05-21, itself
+        # called `run_live_checks` — creating a self-referential reflection
+        # loop that doubled every external API call (including FacturAPI) per
+        # monitor cycle. Liveness is checked by Koyeb's platform health probe,
+        # and DB readiness is covered by the dedicated `erp-db` check below.
         CheckSpec(
             check_key="erp-frontend",
             service="ERP Frontend",
@@ -171,6 +258,8 @@ def _build_check_specs() -> list[CheckSpec]:
             critical=False,
             category="ai",
             kind="openai",
+            # OpenAI does not need 30s polling; 10 min is more than enough.
+            min_interval_seconds=600,
         ),
         CheckSpec(
             check_key="facturapi-fmac-erp",
@@ -180,6 +269,10 @@ def _build_check_specs() -> list[CheckSpec]:
             category="billing",
             kind="facturapi",
             api_key=facturapi_fmac_key,
+            # FacturAPI is a metered billing API. Cap to 10 min between hits.
+            # Combined with the dedupe-by-API-key pass below, this is the
+            # primary defense against the 2026-05-21 runaway.
+            min_interval_seconds=600,
         ),
         CheckSpec(
             check_key="sendgrid-fmac-erp",
@@ -189,6 +282,7 @@ def _build_check_specs() -> list[CheckSpec]:
             category="messaging",
             kind="http",
             success_statuses=(200,),
+            min_interval_seconds=600,
         ),
         CheckSpec(
             check_key="facturapi-eva-erp",
@@ -198,6 +292,7 @@ def _build_check_specs() -> list[CheckSpec]:
             category="billing",
             kind="facturapi",
             api_key=facturapi_eva_erp_key,
+            min_interval_seconds=600,
         ),
         CheckSpec(
             check_key="facturapi-eva-app",
@@ -207,8 +302,15 @@ def _build_check_specs() -> list[CheckSpec]:
             category="billing",
             kind="facturapi",
             api_key=facturapi_eva_app_key,
+            min_interval_seconds=600,
         ),
     ]
+
+    # Dedupe FacturAPI specs that resolve to the same API key. Three
+    # check_keys all defaulting to settings.facturapi_api_key would
+    # triple-hit a single FacturAPI organization, which is exactly what
+    # caused the 2026-05-21 incident.
+    specs = _dedupe_facturapi_specs_by_api_key(specs)
 
     if settings.monitoring_whatsapp_health_url:
         specs.append(
@@ -622,10 +724,65 @@ async def run_live_checks(exclude_check_keys: set[str] | None = None) -> list[Ch
     specs = _build_check_specs()
     if exclude_check_keys:
         specs = [spec for spec in specs if spec.check_key not in exclude_check_keys]
+
+    now_ts = asyncio.get_running_loop().time()
+    to_execute: list[CheckSpec] = []
+    cached_results: list[CheckResult] = []
+
+    for spec in specs:
+        # Layer 3 — per-spec min-interval throttle. External SaaS APIs
+        # (FacturAPI, OpenAI, SendGrid) declare min_interval_seconds=600
+        # so we never poll them more than once per 10 min even if the
+        # monitor loop ticks every 30s.
+        if _should_skip_for_min_interval(spec, now_ts):
+            cached = _cached_result(spec)
+            if cached is not None:
+                cached_results.append(cached)
+            continue
+        # Layer 4 — hard rolling-hour cap per check_key. If a bug or
+        # misconfiguration tries to fire the same check >240 times/hour
+        # we short-circuit and emit a critical log. This is the
+        # never-again safety net against runaway loops like 2026-05-21.
+        if not _circuit_breaker_allows(spec.check_key, now_ts):
+            logger.critical(
+                "Monitoring circuit breaker tripped for %r — hourly cap %d exceeded; "
+                "returning cached result and skipping live call",
+                spec.check_key,
+                CIRCUIT_BREAKER_MAX_PER_HOUR,
+            )
+            cached = _cached_result(spec)
+            if cached is not None:
+                cached_results.append(cached)
+            else:
+                cached_results.append(
+                    CheckResult(
+                        check_key=spec.check_key,
+                        service=spec.service,
+                        target=spec.target,
+                        status="degraded",
+                        critical=spec.critical,
+                        category=spec.category,
+                        checked_at=_now_utc(),
+                        error_message=(
+                            f"Circuit breaker: >{CIRCUIT_BREAKER_MAX_PER_HOUR} calls/hour"
+                        ),
+                    )
+                )
+            continue
+        to_execute.append(spec)
+
+    if not to_execute:
+        return cached_results
+
     timeout = max(float(settings.monitoring_check_timeout_seconds), 1.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        tasks = [_run_single_check(client, spec) for spec in specs]
-        return list(await asyncio.gather(*tasks))
+        tasks = [_run_single_check(client, spec) for spec in to_execute]
+        live_results = list(await asyncio.gather(*tasks))
+
+    for spec, result in zip(to_execute, live_results):
+        _record_execution(spec, result, now_ts)
+
+    return cached_results + live_results
 
 
 def _parse_dt(value: Any) -> datetime | None:

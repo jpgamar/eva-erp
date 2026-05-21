@@ -2,12 +2,18 @@ import asyncio
 
 import httpx
 
+import src.eva_platform.monitoring_service as monitoring_service
 from src.eva_platform.monitoring_service import (
+    CIRCUIT_BREAKER_MAX_PER_HOUR,
     CheckSpec,
+    _build_check_specs,
+    _dedupe_facturapi_specs_by_api_key,
     _run_single_check,
     classify_http_status,
     classify_issue_severity,
     compute_streaks,
+    reset_monitoring_throttles,
+    run_live_checks,
 )
 from src.common.config import settings
 
@@ -205,3 +211,158 @@ def test_http_check_honors_custom_retry_attempts():
     result = asyncio.run(_run_single_check(client, spec))
     assert result.status == "up"
     assert client.calls == 3
+
+
+# ── Regression tests for the 2026-05-21 FacturAPI runaway ─────────────
+
+
+def test_no_erp_api_self_check_spec():
+    """The erp-api spec used to target /health/readiness, which itself
+    called run_live_checks — producing a reflection loop that doubled
+    every external monitoring call (the proximate cause of the 14,799/day
+    FacturAPI loop). It must never come back."""
+    specs = _build_check_specs()
+    assert all(spec.check_key != "erp-api" for spec in specs), (
+        "erp-api self-check is forbidden: it points at /health/readiness "
+        "which used to run_live_checks → infinite reflection loop"
+    )
+
+
+def test_dedupe_facturapi_specs_with_same_api_key():
+    """When the per-target FacturAPI monitoring keys are unset they all
+    fall back to settings.facturapi_api_key. Three specs pointing at the
+    same FacturAPI org would triple-hit it on every cycle. The dedupe
+    pass must collapse them down to one."""
+    shared_key = "sk_live_shared"
+    specs = [
+        CheckSpec(check_key="facturapi-a", service="A", target="x", critical=False,
+                  category="billing", kind="facturapi", api_key=shared_key),
+        CheckSpec(check_key="facturapi-b", service="B", target="x", critical=False,
+                  category="billing", kind="facturapi", api_key=shared_key),
+        CheckSpec(check_key="facturapi-c", service="C", target="x", critical=False,
+                  category="billing", kind="facturapi", api_key=shared_key),
+    ]
+    deduped = _dedupe_facturapi_specs_by_api_key(specs)
+    assert len(deduped) == 1
+    assert deduped[0].check_key == "facturapi-a"
+
+
+def test_dedupe_keeps_distinct_facturapi_keys():
+    """Distinct API keys = distinct FacturAPI organizations. Both must run."""
+    specs = [
+        CheckSpec(check_key="facturapi-a", service="A", target="x", critical=False,
+                  category="billing", kind="facturapi", api_key="sk_live_one"),
+        CheckSpec(check_key="facturapi-b", service="B", target="x", critical=False,
+                  category="billing", kind="facturapi", api_key="sk_live_two"),
+    ]
+    deduped = _dedupe_facturapi_specs_by_api_key(specs)
+    assert len(deduped) == 2
+
+
+def test_dedupe_only_touches_facturapi_kind():
+    """Dedupe is FacturAPI-specific. Other kinds (http/openai/sendgrid/db)
+    must be left alone."""
+    specs = [
+        CheckSpec(check_key="openai-1", service="O1", target="x", critical=False,
+                  category="ai", kind="openai", api_key="sk_shared"),
+        CheckSpec(check_key="sendgrid-1", service="S1", target="x", critical=False,
+                  category="messaging", kind="sendgrid", api_key="sk_shared"),
+        CheckSpec(check_key="http-1", service="H1", target="x", critical=False,
+                  category="api", kind="http"),
+    ]
+    deduped = _dedupe_facturapi_specs_by_api_key(specs)
+    assert len(deduped) == 3
+
+
+def test_min_interval_skips_second_call_within_window(monkeypatch):
+    """A spec with min_interval_seconds=600 must NOT fire a real HTTP
+    request a second time inside the same 10-minute window. The second
+    call returns the cached result instead."""
+    reset_monitoring_throttles()
+    call_count = {"n": 0}
+
+    async def fake_single(client, spec):
+        call_count["n"] += 1
+        return monitoring_service.CheckResult(
+            check_key=spec.check_key,
+            service=spec.service,
+            target=spec.target,
+            status="up",
+            critical=spec.critical,
+            category=spec.category,
+            checked_at=monitoring_service._now_utc(),
+            http_status=200,
+        )
+
+    monkeypatch.setattr(monitoring_service, "_run_single_check", fake_single)
+    monkeypatch.setattr(
+        monitoring_service,
+        "_build_check_specs",
+        lambda: [
+            CheckSpec(
+                check_key="throttled-x",
+                service="X",
+                target="https://example.com",
+                critical=False,
+                category="billing",
+                kind="http",
+                min_interval_seconds=600,
+            )
+        ],
+    )
+
+    first = asyncio.run(run_live_checks())
+    second = asyncio.run(run_live_checks())
+
+    assert call_count["n"] == 1
+    assert len(first) == 1 and len(second) == 1
+    assert first[0].check_key == second[0].check_key == "throttled-x"
+
+
+def test_circuit_breaker_blocks_after_hourly_cap(monkeypatch):
+    """Even if min_interval is misconfigured to 0 (always run), the
+    rolling-hour circuit breaker must short-circuit after
+    CIRCUIT_BREAKER_MAX_PER_HOUR live invocations and return cached
+    results instead of additional HTTP calls."""
+    reset_monitoring_throttles()
+    call_count = {"n": 0}
+
+    async def fake_single(client, spec):
+        call_count["n"] += 1
+        return monitoring_service.CheckResult(
+            check_key=spec.check_key,
+            service=spec.service,
+            target=spec.target,
+            status="up",
+            critical=spec.critical,
+            category=spec.category,
+            checked_at=monitoring_service._now_utc(),
+            http_status=200,
+        )
+
+    monkeypatch.setattr(monitoring_service, "_run_single_check", fake_single)
+    monkeypatch.setattr(
+        monitoring_service,
+        "_build_check_specs",
+        lambda: [
+            CheckSpec(
+                check_key="runaway-y",
+                service="Y",
+                target="https://example.com",
+                critical=False,
+                category="billing",
+                kind="http",
+                # min_interval=0 means the throttle won't catch this; we're
+                # explicitly testing the hourly cap is the last line of
+                # defense.
+                min_interval_seconds=0,
+            )
+        ],
+    )
+
+    # Fire well past the hourly cap.
+    for _ in range(CIRCUIT_BREAKER_MAX_PER_HOUR + 50):
+        asyncio.run(run_live_checks())
+
+    # Real HTTP calls cap at exactly CIRCUIT_BREAKER_MAX_PER_HOUR.
+    assert call_count["n"] == CIRCUIT_BREAKER_MAX_PER_HOUR

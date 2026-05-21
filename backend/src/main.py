@@ -10,7 +10,7 @@ from sqlalchemy import text
 from src.common.config import settings
 from src.common.database import engine, eva_engine
 from src.empresas.reminders import empresa_item_reminder_runner_loop
-from src.eva_platform.monitoring_service import FAILURE_STATES, monitoring_runner_loop, run_live_checks
+from src.eva_platform.monitoring_service import monitoring_runner_loop
 from src.facturas.outbox import facturas_outbox_runner_loop
 from src.facturas.reconciliation import facturapi_reconciliation_runner_loop
 from src.finances.stripe_service import stripe_reconciliation_runner_loop
@@ -195,48 +195,26 @@ async def health_liveness():
 
 @app.get("/health/readiness")
 async def health_readiness():
+    # Readiness MUST be cheap and side-effect-free. It only checks local DB
+    # connectivity. Do NOT call run_live_checks here: that fans out to every
+    # external monitoring target (FacturAPI, OpenAI, Supabase, etc.) and on
+    # 2026-05-21 produced a 14,799/day loop against FacturAPI when combined
+    # with the background monitor's self-referential `erp-api` check. The
+    # background monitor (`monitoring_runner_loop`) is the only place that
+    # should poll external APIs.
     erp_ok, erp_error, eva_ok, eva_error = await _db_health()
-    check_results = await run_live_checks(exclude_check_keys={"erp-api"})
-    readiness_check_keys = {"erp-db", "eva-db", "eva-api", "supabase-auth", "supabase-admin"}
-    critical_results = [
-        result for result in check_results if result.critical and result.check_key in readiness_check_keys
-    ]
-    failing_critical = [
-        {
-            "check_key": result.check_key,
-            "service": result.service,
-            "status": result.status,
-            "error": result.error_message,
-            "http_status": result.http_status,
-        }
-        for result in critical_results
-        if result.status in FAILURE_STATES
-    ]
-
     db_ready = erp_ok and (eva_engine is None or eva_ok)
-    ready = db_ready and len(failing_critical) == 0
 
     payload = {
-        "status": "ok" if ready else "error",
+        "status": "ok" if db_ready else "error",
         "service": "eva-erp",
         "erp_db_connected": erp_ok,
         "erp_db_error": erp_error,
         "eva_db_configured": eva_engine is not None,
         "eva_db_connected": eva_ok if eva_engine is not None else None,
         "eva_db_error": eva_error if eva_engine is not None else None,
-        "critical_checks": [
-            {
-                "check_key": result.check_key,
-                "service": result.service,
-                "status": result.status,
-                "http_status": result.http_status,
-                "error": result.error_message,
-            }
-            for result in critical_results
-        ],
-        "critical_failures": failing_critical,
     }
-    if not ready:
+    if not db_ready:
         return JSONResponse(status_code=503, content=payload)
     return payload
 
